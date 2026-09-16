@@ -1,37 +1,11 @@
 
-
-```markdown
 # DSH Client UI IDE
 
-[![npm 版本](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
-[![npm 下载](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
-[![许可证: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-
 DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
-
-## 安装
-
-当前版本: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
-
-```bash
-# 安装到 DSH web profile(推荐)
-dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
-
-# 或仅安装 npm 包本体
-npm install @zhaoyang10/dsh-client-ui-ide
-```
-
-> 安装后还需把 `@zhaoyang10/dsh-client-ui-ide` 加入 profile 的 `dsh.profile.bundles` 并重启 `dsh web`,详见 [安装到 DSH](#安装到-dsh)。
 
 ## 项目简介
 
 DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完整的代码编辑、文件管理、Git 版本控制、终端模拟及全局搜索功能。该插件深度集成于 DSH 工作区，支持暗色主题，拥有流畅的用户体验和高效的开发工作流。
-
-## 核心功能预览
-
-![资源管理 - 文件浏览](browser-screenshots/resource.png)
-
-![Git 源代码管理](browser-screenshots/git.png)
 
 ## 核心功能
 
@@ -39,7 +13,6 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 递归式目录树展示，支持无限层级展开
 - 文件图标自动识别（通过扩展名）
 - 基础文件操作：新建文件/文件夹、重命名、删除
-- **文件名校验**：新建或重命名时自动检测名称合法性，防止无效字符
 - 大文件自动截断展示，优化内存使用
 - Git 状态可视化（未跟踪/已修改/已暂存/已删除）
 
@@ -49,13 +22,9 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 行号显示与代码折叠
 - 多 Tab 页签管理，支持快捷切换
 - 实时文件内容加载与保存
-- 支持图像文件预览
 
 ### Git 源代码管理
 - 完整的 Git 状态面板
-- 提交按钮下拉菜单（VS Code 同款 split button）：修正（Amend）、签名（Signed-off-by）、提交并推送、提交并同步
-- 提交后动作按钮自动切换（VS Code 同款）：有更改 → 提交；工作区干净 → 同步更改（拉取+推送，带领先/落后计数）或发布分支（无上游时 push -u origin）
-- 终端面板常驻底部（VS Code 布局）：打开文件 diff 时终端不被遮挡，随时可唤出
 - 文件变更追踪与显示
 - 分支信息查看
 - 提交历史浏览
@@ -64,7 +33,7 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 ### 终端模拟器
 - 集成 xterm.js 终端组件
 - 支持多终端实例
-- Base64 编码输出传输，优化网络传输效率
+- Base64 编码输出传输
 - 完善的信号处理（中断/终止）
 
 ### 全局搜索
@@ -73,8 +42,8 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 搜索结果快速定位
 
 ### UI 特性
-- **Dark Modern 暗色主题**：符合现代化设计规范
-- **响应式布局**：侧边栏宽度支持自定义并自动记住用户偏好
+- Dark Modern 暗色主题
+- 响应式布局适配
 - 右键上下文菜单
 - 侧边栏与 IDE 联动交互
 
@@ -85,22 +54,20 @@ dsh-client-ui-ide/
 ├── src/
 │   ├── client/                # 浏览器端 UI 组件
 │   │   ├── editor/            # 编辑器组件（TabBar、StatusBar）
-│   │   ├── explorer/          # 文件树组件（FileTree，含文件操作逻辑）
-│   │   ├── git/               # Git 集成面板（SourceControlPanel、DiffEditor）
-│   │   ├── icons/             # SVG 图标资源与自动生成逻辑
+│   │   ├── explorer/          # 文件树组件（FileTree）
+│   │   ├── git/               # Git 集成面板
+│   │   ├── icons/             # SVG 图标资源
 │   │   ├── locale/            # 国际化资源
-│   │   ├── search/            # 搜索面板（SearchPanel）
-│   │   ├── sidebarBridge.ts   # 侧边栏桥接（处理 DSH 侧边栏交互）
+│   │   ├── search/            # 搜索面板
+│   │   ├── sidebarBridge.ts   # 侧边栏桥接
 │   │   ├── terminal/          # 终端面板
-│   │   ├── theme.ts           # 暗色主题定义与 Monaco 配色
-│   │   ├── icons.tsx          # 图标组件与扩展名映射
-│   │   ├── language.ts        # 文件类型语言映射
-│   │   ├── ContextMenu.tsx    # 通用右键菜单组件
-│   │   ├── IdeView.tsx        # 核心视图容器（处理布局、会话状态）
+│   │   ├── theme.ts           # 暗色主题定义
+│   │   ├── icons.tsx          # 图标组件
+│   │   ├── language.ts        # 文件类型映射
 │   │   └── index.ts           # 客户端入口
-│   ├── index.ts               # Host 端入口（注册远程方法）
-│   ├── typert.host.ts         # 远程方法类型定义（Host）
-│   └── typert.remote-client.ts# 远程调用客户端定义
+│   ├── index.ts               # Host 端入口
+│   ├── typert.host.ts         # 远程方法类型定义
+│   └── typert.remote-client.ts# 远程调用客户端
 ├── tsdown.config.ts           # 构建配置
 ├── tsconfig.json              # TypeScript 配置
 ├── cordis.patch.yml           # Cordis 插件补丁
@@ -124,113 +91,41 @@ pnpm install
 ### 开发构建
 
 ```bash
-# 生产构建（产出 lib/）
-pnpm bundle
+# 开发模式（监听构建）
+pnpm dev
 
-# 开发模式（监听构建，配合 hmr 热更新）
-pnpm watch
+# 生产构建
+pnpm build
 ```
 
-> `@deepseek-ai/*` 系列依赖不在公共 npm 上，在 `devDependencies` 中以 `link:` 指向本机全局 DSH 安装；其他机器检出后请按实际 DSH 安装位置调整这些路径（它们仅参与本地类型检查，不影响发布产物）。
+### 插件装载
 
-## 安装到 DSH
+**方式 A：通过 dsh plugin 自动转发**
 
-本插件以 DSH bundle 形式分发。安装分两步：**把插件包装入 profile 依赖**，再把**包名加入 profile 清单的 `dsh.profile.bundles` 数组**。DSH 启动时会自动套用插件自带的 `cordis.patch.yml`，把 `ui-ide` 客户端插件与配套的 `workspace-files-write` 文件写 API 一起注册进 web 客户端 roster，无需手动改 roster。
+确保 `cordis.patch.yml` 已正确配置，插件构建后自动装载。
 
-### 前置条件
+**方式 B：手动装载 web profile**
 
-- 已安装 DSH CLI（`dsh` 命令可用，建议 0.1.6+）
-- 已有 web profile，且 `dsh web` 可正常启动（profile 目录默认在 `~/.dsh/profiles/web`）
-- 配套的文件写 API 包 `@deepseek-ai/dsh-api-workspace-files-write`：IDE 的保存/新建/重命名/删除等文件操作依赖它，DSH 本体暂未内置，需一并装入 profile
+在目标 web profile 的 `package.json` 中添加依赖：
 
-### 方式一：从 npm 安装（推荐）
+```json
+"dependencies": {
+  "@zhaoyang10/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
+}
+```
 
-插件已发布到公共 npm：[@zhaoyang10/dsh-client-ui-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)。
-
-1. 把插件与文件写 API 装入 web profile：
-
-   ```bash
-   dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
-   dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
-   ```
-
-2. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
-
-   ```json
-   "dsh": {
-     "profile": {
-       "bundles": [
-         "...其他 bundle...",
-         "@zhaoyang10/dsh-client-ui-ide"
-       ]
-     }
-   }
-   ```
-
-3. 重启 DSH web：
-
-   ```bash
-   dsh web
-   ```
-
-### 方式二：本地目录安装（开发调试用）
-
-1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
-
-   ```bash
-   pnpm install
-   pnpm bundle
-   ```
-
-2. 把插件与文件写 API 以本地 link 方式装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
-
-   ```bash
-   dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
-   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
-   ```
-
-3. 同方式一第 2 步，把 `@zhaoyang10/dsh-client-ui-ide` 加入 `dsh.profile.bundles` 并重启 `dsh web`。
-
-> `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
-
-### 方式三：手动注册 roster（不启用 bundle patch）
-
-若不想把插件列为 bundle（例如仅在某个 profile 临时启用），可以只完成依赖安装，然后在 profile 用户层 `~/.dsh/profiles/web/cordis.patch.yml` 中手动插入 roster 条目：
+并在 `cordis.patch.yml` 的浏览器 roster 中添加：
 
 ```yaml
-- insert:
-    - id: workspace-files-write
-      name: '@deepseek-ai/dsh-api-workspace-files-write'
-    - id: ui-ide
-      name: '@zhaoyang10/dsh-client-ui-ide'
+- id: ui-ide
+  name: '@zhaoyang10/dsh-client-ui-ide'
 ```
 
-### 验证安装
+### 验证装载
 
-1. 重启 DSH web（`dsh web`）
-2. 打开浏览器右侧工具栏，确认 "IDE" 入口可见
-3. 点击进入 IDE 界面，检查文件树、编辑器、终端、Git 面板等功能是否正常
-
-### 卸载
-
-1. 从 `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 中移除 `@zhaoyang10/dsh-client-ui-ide`
-2. 移除依赖：`dsh plugin --profile web remove @zhaoyang10/dsh-client-ui-ide`（写 API 不再需要时一并移除）
-3. 重启 `dsh web`
-
-### 开发热更新（可选）
-
-在 profile 用户层 `cordis.patch.yml` 中启用 `hmr` 行并指向本仓库，host 侧服务即可在 `pnpm watch` 重建后自动热载（浏览器侧仍需刷新页面）：
-
-```yaml
-- id: hmr
-  disabled: false
-  config:
-    base: /absolute/path/to/dsh-web-ide
-    root:
-      - lib
-```
-
-在本仓库执行 `pnpm watch`，并重启一次 `dsh web` 使配置生效。
+1. 重启 DSH 工作区
+2. 打开右侧工具栏，确认 "IDE" 入口可见
+3. 点击进入 IDE 界面，检查文件树、编辑器、终端等功能是否正常
 
 ## 使用指南
 
@@ -267,7 +162,7 @@ pnpm watch
 
 ```json
 {
-  "main": "lib/index.js",
+  "main": "dist/index.js",
   "cordis": {
     "host": true
   }
@@ -291,26 +186,7 @@ pnpm watch
 
 ## 版本历史
 
-详见 [CHANGELOG.md](./CHANGELOG.md)。
-
-| 版本 | 说明 |
-| --- | --- |
-| 0.1.0 | 首次发布：文件树、Monaco 编辑器、Git 面板、终端、全局搜索，已上架 [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide) |
-
-## 发布到 npm（维护者）
-
-```bash
-# 1. 版本号(会自动打 git tag)
-npm version patch   # 或 minor / major
-
-# 2. 发布(prepublishOnly 钩子自动执行 pnpm run bundle;注意带官方源参数)
-npm publish --registry=https://registry.npmjs.org/
-
-# 3. 验证
-npm view @zhaoyang10/dsh-client-ui-ide version --registry=https://registry.npmjs.org/
-```
-
-> npm 已强制发布需 2FA:请在 npmjs.com 账号设置中绑定安全密钥/通行密钥(WebAuthn,macOS 可用 Touch ID),发布时按提示在浏览器中确认;新增 TOTP 验证器已不被支持。
+详见 [CHANGELOG.md](./CHANGELOG.md)（待补充）
 
 ## 贡献指南
 
@@ -336,6 +212,4 @@ npm view @zhaoyang10/dsh-client-ui-ide version --registry=https://registry.npmjs
 ---
 
 **维护者**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**仓库**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm 包主页](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)  
-**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-web-ide/issues)
-```
+**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-client-ui-ide/issues)
