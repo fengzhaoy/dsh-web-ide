@@ -239,8 +239,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
               ) : (
                 <div className="ide-git-entries">
                   {result.entries.map((entry) => {
-                    const name = entry.path.split('/').pop() ?? entry.path
-                    const dir = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : ''
+                    const segs = entry.path.split('/')
+                    const name = segs[segs.length - 1] || entry.path
+                    const dir = segs.length > 1 ? segs.slice(0, -1).join('/') : ''
                     const isSelected = entry.path === selectedPath
                     return (
                       <div
@@ -265,10 +266,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
                         }}
                       >
                         <span className="ide-git-entry-icon" data-kind={entry.kind}>{fileIcon(name, false)}</span>
-                        <div className="ide-git-entry-label">
-                          <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
-                          {dir && <span className="ide-git-entry-dir">{' › '}{dir}</span>}
-                        </div>
+                        <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
+                        {dir && <span className="ide-git-entry-dir">{dir}</span>}
                         <span className="ide-git-entry-status" data-kind={entry.kind}>
                           {statusLetter(entry.kind)}
                         </span>

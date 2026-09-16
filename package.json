@@ -40,6 +40,8 @@
     "@deepseek-ai/cordis": "^4.0.2"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-llm": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-util-values": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-values",
     "@deepseek-ai/dsh-tool-fs-search": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search",
     "@deepseek-ai/dsh-typert-protocol": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-protocol",
     "@deepseek-ai/schemastery": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery",

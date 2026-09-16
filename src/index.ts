@@ -16,6 +16,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
+import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import {
   buildGrepCommand,
   parseGrepMatches,
@@ -285,7 +287,12 @@ export class IdeTools extends TypertRemoteService {
     this.terminals.delete(terminalId)
     for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
     entry.subscribers.clear()
-    await entry.handle.terminate().catch(() => undefined)
+    // Do NOT await the kill. A shell that ignores the signal (or a pty that
+    // stays alive until its children exit) leaves terminate() pending, and the
+    // caller's RPC would then never resolve — the tab only went away on a
+    // second click. The registry entry is already dropped, so the kill is
+    // allowed to finish in the background.
+    void entry.handle.terminate().catch(() => undefined)
   }
 
   /** Stream one terminal's output: replay log first, then live frames. */
@@ -386,70 +393,68 @@ export class IdeTools extends TypertRemoteService {
     return stdout.text
   }
 
-  /** Parse `git status --porcelain=v2 --branch` output into a GitStatusResult. */
+  /** Parse `git status --porcelain=v2 --branch --untracked-files=all -z`
+   *  output into a GitStatusResult.
+   *
+   *  With `-z` every record — branch headers included — is NUL-terminated, and
+   *  the change records use spaces (not a tab) between their header fields and
+   *  the path. The path is therefore the tail after the fixed header field
+   *  count, joined back together because a path may itself contain spaces.
+   *  A renamed/copied entry (`2 ...`) is followed by one extra NUL record
+   *  holding the original path. */
   private parseGitStatusPorcelain(raw: string): Omit<GitStatusResult, 'notARepo'> {
-    const lines = raw.length === 0 ? [] : raw.split('\n')
     let branch: string | undefined
     let upstream: string | undefined
     let ahead = 0
     let behind = 0
     let detached = false
     const entries: GitStatusEntry[] = []
-    for (const line of lines) {
-      if (line.length === 0) continue
-      // Branch header lines: "# branch.head main", "# branch.upstream origin/main",
-      // "# branch.ab +0 -0", "# branch.oid <sha>" (detached: branch.head = "(detached)")
-      if (line.startsWith('# branch.head ')) {
-        const v = line.slice('# branch.head '.length)
-        if (v === '(detached)') detached = true
-        else branch = v
+    const records = raw.split('\u0000')
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i]
+      if (record.length === 0) continue
+      // Branch header records: "# branch.head main", "# branch.upstream
+      // origin/main", "# branch.ab +0 -0", "# branch.oid <sha>"
+      // (detached: branch.head = "(detached)").
+      if (record.startsWith('#')) {
+        if (record.startsWith('# branch.head ')) {
+          const v = record.slice('# branch.head '.length)
+          if (v === '(detached)') detached = true
+          else branch = v
+        } else if (record.startsWith('# branch.upstream ')) {
+          upstream = record.slice('# branch.upstream '.length)
+        } else if (record.startsWith('# branch.ab ')) {
+          const m = record.slice('# branch.ab '.length).match(/\+(\d+)\s+-(\d+)/)
+          if (m) { ahead = parseInt(m[1], 10); behind = parseInt(m[2], 10) }
+        }
         continue
       }
-      if (line.startsWith('# branch.upstream ')) {
-        upstream = line.slice('# branch.upstream '.length)
-        continue
-      }
-      if (line.startsWith('# branch.ab ')) {
-        const m = line.slice('# branch.ab '.length).match(/\+(\d+)\s+-(\d+)/)
-        if (m) { ahead = parseInt(m[1], 10); behind = parseInt(m[2], 10) }
-        continue
-      }
-      if (line.startsWith('#')) continue
-      // Change lines: "1 <XY> <sub> <mW> <hW> <iW> <path>" or
-      // "2 <XY> <sub> <mW> <hW> <iW> <oldPath> <path>" or
-      // "u <XY> <sub> <m1> <m2> <m3> <mW> <hW> <iW> <path>" or
-      // "? <path>" (untracked) or "! <path>" (ignored)
-      const first = line[0]
+      // Change records: "1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>",
+      // "2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>", or
+      // "u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>";
+      // "? <path>" (untracked) and "! <path>" (ignored).
+      const first = record[0]
       if (first === '?') {
-        const path = line.slice(2)
+        const path = record.slice(2)
         if (path.length > 0) entries.push({ path, statusCode: '??', kind: 'untracked' })
         continue
       }
       if (first === '!') continue // ignored — not surfaced
-      if (first === '1' || first === '2') {
-        const parts = line.split('\t')
-        // parts[0] is "1 XY ..." or "2 XY ..."; split the header by spaces.
-        const header = parts[0].split(' ')
-        const xy = header[1] ?? '  '
-        if (first === '2') {
-          // rename: parts[1] = oldPath, parts[2] = newPath
-          const oldPath = parts[1] ?? ''
-          const newPath = parts[2] ?? ''
-          entries.push({ path: newPath, oldPath, statusCode: xy, kind: this.xyToKind(xy) })
-        } else {
-          const path = parts[1] ?? ''
-          entries.push({ path, statusCode: xy, kind: this.xyToKind(xy) })
-        }
-        continue
-      }
-      if (first === 'u') {
-        // unmerged/conflicted
-        const parts = line.split('\t')
-        const header = parts[0].split(' ')
-        const xy = header[1] ?? '  '
-        const path = parts[1] ?? ''
-        entries.push({ path, statusCode: xy, kind: 'conflicted' })
-        continue
+      if (first !== '1' && first !== '2' && first !== 'u') continue
+      const fields = record.split(' ')
+      const xy = fields[1] ?? '  '
+      // 1: "1" + XY/sub/mH/mI/mW/hH/hI (8 tokens) before the path.
+      // 2: the same 8 plus <X><score> (9 tokens).
+      // u: "u" + XY/sub/m1/m2/m3/mW/h1/h2/h3 (10 tokens).
+      const headerFieldCount = first === '1' ? 8 : first === '2' ? 9 : 10
+      const path = fields.slice(headerFieldCount).join(' ')
+      if (first === '2') {
+        // The original path trails the entry as its own NUL-terminated record.
+        const oldPath = records[i + 1] ?? ''
+        i++
+        entries.push({ path, oldPath, statusCode: xy, kind: this.xyToKind(xy) })
+      } else {
+        entries.push({ path, statusCode: xy, kind: first === 'u' ? 'conflicted' : this.xyToKind(xy) })
       }
     }
     return {
@@ -488,33 +493,10 @@ export class IdeTools extends TypertRemoteService {
     try {
       if (!cwd) return { ...EMPTY, notARepo: false }
       const raw = await this.runGit(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], signal)
-      // -z uses NUL terminators; split on NUL and drop the trailing empty.
-      const parts = raw.split('\u0000').filter((s) => s.length > 0)
-      const headerBlock = parts.filter((p) => p.startsWith('#')).join('\n')
-      const parsed = this.parseGitStatusPorcelain(headerBlock)
-      // Rebuild entries from NUL-split paths (skip header lines).
-      const entries: GitStatusEntry[] = []
-      for (const part of parts) {
-        if (part.startsWith('#')) continue
-        const first = part[0]
-        if (first === '?') { entries.push({ path: part.slice(2), statusCode: '??', kind: 'untracked' }); continue }
-        if (first === '!') continue
-        if (first === '1' || first === '2' || first === 'u') {
-          const tabIdx = part.indexOf('\t')
-          const header = tabIdx >= 0 ? part.slice(0, tabIdx).split(' ') : part.split(' ')
-          const xy = header[1] ?? '  '
-          const rest = tabIdx >= 0 ? part.slice(tabIdx + 1) : ''
-          if (first === '2') {
-            const tab2 = rest.indexOf('\t')
-            const oldP = tab2 >= 0 ? rest.slice(0, tab2) : ''
-            const newP = tab2 >= 0 ? rest.slice(tab2 + 1) : rest
-            entries.push({ path: newP, oldPath: oldP, statusCode: xy, kind: this.xyToKind(xy) })
-          } else {
-            entries.push({ path: rest, statusCode: xy, kind: first === 'u' ? 'conflicted' : this.xyToKind(xy) })
-          }
-        }
-      }
-      return { notARepo: false, ...parsed, entries, clean: entries.length === 0 }
+      // The parser owns the NUL-record framing for both branch headers and
+      // change entries (including a rename's trailing original-path record).
+      const parsed = this.parseGitStatusPorcelain(raw)
+      return { notARepo: false, ...parsed }
     } catch (err) {
       if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
       throw err
@@ -612,29 +594,23 @@ export class IdeTools extends TypertRemoteService {
     try {
       if (!cwd) return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language }
       const diff = await this.runGit(cwd, diffArgv, signal)
-      // Old content: the HEAD version of the path (empty for added/untracked files).
+      // Left side: the committed (HEAD) version — empty for a new/untracked file.
       let oldContent = ''
       try {
         oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
       } catch {
-        // new/untracked file — HEAD:path does not exist; oldContent stays ''
+        // HEAD:path does not exist (added/untracked) — oldContent stays ''.
       }
-      // New content: prefer the index version (staged changes); if the file
-      // is not in the index (untracked, or worktree-only), read the working-
-      // tree file directly from disk so untracked files still show content.
+      // Right side: the WORKING-TREE file. An unstaged edit leaves the index at
+      // the HEAD blob, so reading ':path' here produced two identical sides and
+      // a diff with no visible changes. Reading the file from disk shows the
+      // actual uncommitted content (staged + unstaged) against HEAD.
       let newContent = ''
       try {
-        newContent = await this.runGit(cwd, ['show', ':' + path], signal)
+        const buf = await readFile(join(cwd, path))
+        newContent = buf.toString('utf8')
       } catch {
-        // Not in index → try reading the working-tree file from disk.
-        // For untracked files this is the only source of content; for deleted
-        // files the read fails and newContent stays '' (correct).
-        try {
-          const buf = await readFile(join(cwd, path))
-          newContent = buf.toString('utf8')
-        } catch {
-          // file does not exist on disk (deleted) — newContent stays ''
-        }
+        // The file is gone from the working tree (deleted) — newContent stays ''.
       }
       // A diff is "empty" only when there is genuinely nothing to show: no
       // diff text AND old/new content are identical (or both absent). An
@@ -763,7 +739,7 @@ export class IdeTools extends TypertRemoteService {
       const MAX_DIFF = 32 * 1024
       const trimmed = diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + '\n... (diff truncated)' : diff
 
-      const ctx = this.ctx as Context & { llm?: { stream(options: { provider: string; model: string; messages: { role: string; content: { type: string; text: string }[]; source: { kind: string } }[]; system?: string; maxTokens?: number; signal?: AbortSignal }): AsyncIterable<{ type: string; text?: string }> }; agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } } }
+      const ctx = this.ctx as Context & { llm?: { stream(options: never): AsyncIterable<{ type: string; text?: string }> }; agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } } }
       if (!ctx.llm) {
         return { ok: false, error: { code: 'ide-tools/llm-unavailable', message: 'LLM service is not available' } }
       }
@@ -788,32 +764,36 @@ export class IdeTools extends TypertRemoteService {
 
       const userText = 'Generate a commit message for this git diff:\n\n```\n' + trimmed + '\n```'
 
-      const stream = ctx.llm.stream({
+      // Build a properly identified + frozen user message using the dsh-llm
+      // helper (hand-built messages missing the id field crash the adapter).
+      const messages = [createUserMessage({
+        content: [{ type: 'text', text: userText }],
+        source: { kind: 'plugin', plugin: 'dsh-client-ui-ide' },
+      })]
+
+      const options = deepFreeze({
         provider: selection.provider,
         model: selection.model,
         reasoningEffort: selection.reasoningEffort as never,
         system: systemPrompt,
-        messages: [{
-          role: 'user',
-          content: [{ type: 'text', text: userText }],
-          source: { kind: 'user' },
-        }],
+        messages,
         maxTokens: 512,
         signal,
       } as never)
 
-      let message = ''
-      for await (const chunk of stream as AsyncIterable<{ type: string; text?: string }>) {
-        if (chunk.type === 'text-delta' && chunk.text) {
-          message += chunk.text
-        }
-        if (chunk.type === 'finish') break
+      // Use BlockAssembler to robustly collect all text from the stream.
+      const assembler = new BlockAssembler()
+      for await (const chunk of ctx.llm.stream(options)) {
+        if (signal?.aborted) break
+        assembler.push(chunk as never)
       }
 
-      message = message.trim()
-      if (message.startsWith('```')) {
-        message = message.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim()
-      }
+      const blocks = assembler.blocks()
+      const message = blocks
+        .filter((b: { type: string }) => b.type === 'text')
+        .map((b: { text?: string }) => b.text ?? '')
+        .join('')
+        .trim()
 
       if (message.length === 0) {
         return { ok: false, error: { code: 'ide-tools/llm-empty', message: 'the model returned an empty message' } }

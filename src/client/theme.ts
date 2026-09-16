@@ -74,6 +74,8 @@ export const IDE_STYLES = `
 .ide-tab-close svg{width:14px;height:14px}
 .ide-editor-container{flex:1;min-height:0;position:relative}
 .ide-monaco-host{position:absolute;inset:0}
+.ide-editor-image{position:absolute;inset:35px 0 22px 0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
+.ide-editor-image img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 .ide-editor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-size:13px;flex-direction:column;gap:8px}
 .ide-editor-empty svg{width:48px;height:48px;opacity:.4}
 .ide-statusbar{height:22px;flex:none;display:flex;align-items:center;background:var(--ide-statusbar-bg);color:var(--ide-statusbar-fg);font-size:12px;padding:0 8px;gap:12px}
@@ -145,7 +147,7 @@ export const IDE_STYLES = `
 .ide-git-section-count{background:#4d4d4d;color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 .ide-git-entries{display:flex;flex-direction:column}
-.ide-git-entry{display:flex;align-items:center;gap:6px;padding:0 12px 0 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px;line-height:22px}
+.ide-git-entry{display:flex;align-items:center;gap:4px;padding:0 12px 0 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px;line-height:22px;white-space:nowrap}
 .ide-git-entry:hover{background:var(--ide-tree-hover)}
 .ide-git-entry[data-selected='true']{background:var(--ide-tree-active)}
 .ide-git-entry-icon{width:16px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--ide-icon-fg,#c5c5c5)}
@@ -156,15 +158,14 @@ export const IDE_STYLES = `
 .ide-git-entry-icon[data-kind='deleted']{color:#f48771}
 .ide-git-entry-icon[data-kind='renamed']{color:#61afef}
 .ide-git-entry-icon[data-kind='conflicted']{color:#e2c08d}
-.ide-git-entry-label{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden}
-.ide-git-entry-name{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+.ide-git-entry-name{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
 .ide-git-entry-name[data-kind='modified']{color:#e2c08d}
 .ide-git-entry-name[data-kind='added']{color:#73c991}
 .ide-git-entry-name[data-kind='untracked']{color:#73c991}
 .ide-git-entry-name[data-kind='deleted']{color:#f48771}
 .ide-git-entry-name[data-kind='renamed']{color:#61afef}
 .ide-git-entry-name[data-kind='conflicted']{color:#e2c08d}
-.ide-git-entry-dir{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ide-fg-dim);font-size:11px}
+.ide-git-entry-dir{flex:1 1 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ide-fg-dim);font-size:11px;margin-left:6px}
 .ide-git-entry-status{flex:none;width:16px;min-width:16px;text-align:center;font-weight:700;font-size:12px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
 .ide-git-entry-status[data-kind='modified']{color:#e2c08d}
 .ide-git-entry-status[data-kind='added']{color:#73c991}
@@ -173,10 +174,16 @@ export const IDE_STYLES = `
 .ide-git-entry-status[data-kind='renamed']{color:#61afef}
 .ide-git-entry-status[data-kind='conflicted']{color:#e2c08d}
 /* ── Diff editor view ─────────────────────────────────────────────────── */
-.ide-diff-root{position:absolute;inset:35px 0 22px 0;display:flex;flex-direction:column;background:var(--ide-bg)}
+/* The diff covers the tab bar + editor (the container stays mounted under it),
+   leaving the status bar visible. */
+.ide-diff-root{position:absolute;inset:0 0 22px 0;z-index:2;display:flex;flex-direction:column;background:var(--ide-bg)}
 .ide-diff-header{height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px}
 .ide-diff-title{color:var(--ide-fg);font-weight:500}
-.ide-diff-path{color:var(--ide-fg-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-diff-path{flex:1;min-width:0;color:var(--ide-fg-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-diff-stats{flex:none;color:var(--ide-fg-dim);font-size:11px;white-space:nowrap;opacity:.8}
+.ide-diff-close{flex:none;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--ide-fg-dim);cursor:pointer;border-radius:4px;padding:0}
+.ide-diff-close:hover{background:rgba(255,255,255,.12);color:var(--ide-fg)}
+.ide-diff-close svg{width:14px;height:14px}
 .ide-diff-container{flex:1;min-height:0;position:relative}
 .ide-diff-overlay{position:absolute;inset:28px 0 0 0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .ide-diff-overlay:empty{display:none}
@@ -185,62 +192,6 @@ export const IDE_STYLES = `
 .ide-diff-image-container{flex:1;min-height:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
 .ide-diff-image{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 
-/** Monaco theme definition matching VSCode Dark Modern (Dark+ equivalent). */
-export const MONACO_DARK_MODERN = {
-  base: 'vs-dark' as const,
-  inherit: true,
-  rules: [
-    { token: 'comment', foreground: '6a9955', fontStyle: 'italic' },
-    { token: 'keyword', foreground: '569cd6' },
-    { token: 'keyword.control', foreground: 'c586c0' },
-    { token: 'string', foreground: 'ce9178' },
-    { token: 'string.escape', foreground: 'd7ba7d' },
-    { token: 'number', foreground: 'b5cea8' },
-    { token: 'type', foreground: '4ec9b0' },
-    { token: 'class', foreground: '4ec9b0' },
-    { token: 'function', foreground: 'dcdcaa' },
-    { token: 'variable', foreground: '9cdcfe' },
-    { token: 'variable.predefined', foreground: '4fc1ff' },
-    { token: 'tag', foreground: '569cd6' },
-    { token: 'attribute.name', foreground: '9cdcfe' },
-    { token: 'attribute.value', foreground: 'ce9178' },
-    { token: 'delimiter', foreground: 'd4d4d4' },
-    { token: 'operator', foreground: 'd4d4d4' },
-    { token: 'regexp', foreground: 'd16969' },
-  ],
-  colors: {
-    'editor.background': '#1f1f1f',
-    'editor.foreground': '#cccccc',
-    'editorLineNumber.foreground': '#858585',
-    'editorLineNumber.activeForeground': '#c6c6c6',
-    'editor.selectionBackground': '#264f78',
-    'editor.inactiveSelectionBackground': '#3a3d41',
-    'editor.lineHighlightBackground': '#2a2a2a',
-    'editor.lineHighlightBorder': '#00000000',
-    'editorCursor.foreground': '#aeafad',
-    'editorIndentGuide.background': '#404040',
-    'editorIndentGuide.activeBackground': '#707070',
-    'editorGutter.background': '#1f1f1f',
-    'editorWhitespace.foreground': '#3a3a3a',
-    'editorBracketMatch.background': '#0064001a',
-    'editorBracketMatch.border': '#888888',
-    'editor.findMatchBackground': '#523c6d',
-    'editor.findMatchHighlightBackground': '#70557d99',
-    'scrollbarSlider.background': '#79797966',
-    'scrollbarSlider.hoverBackground': '#646464b3',
-    'scrollbarSlider.activeBackground': '#5a5a5a',
-    'minimap.background': '#1f1f1f',
-    'editorWidget.background': '#1e1e1e',
-    'editorWidget.border': '#2b2b2b',
-    'editorSuggestWidget.background': '#252526',
-    'editorSuggestWidget.selectedBackground': '#04395e',
-  },
-} satisfies Monaco.editor.IStandaloneThemeData
-
-/** Define the theme once on a Monaco namespace handle. */
-export function defineDarkModernTheme(monaco: typeof Monaco): void {
-  monaco.editor.defineTheme('dsh-dark-modern', MONACO_DARK_MODERN)
-}
 /* ── Search panel ─────────────────────────────────────────────────────── */
 .ide-search-panel{display:flex;flex-direction:column;height:100%;min-height:0}
 .ide-search-inputs{padding:8px;border-bottom:1px solid var(--ide-border,#2b2b2b);display:flex;flex-direction:column;gap:6px}

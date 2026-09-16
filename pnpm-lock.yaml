@@ -8,12 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@deepseek-ai/dsh-llm':
+        specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm
+        version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm
       '@deepseek-ai/dsh-tool-fs-search':
         specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search
         version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search
       '@deepseek-ai/dsh-typert-protocol':
         specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-protocol
         version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-protocol
+      '@deepseek-ai/dsh-util-values':
+        specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-values
+        version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-values
       '@deepseek-ai/schemastery':
         specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery
         version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery

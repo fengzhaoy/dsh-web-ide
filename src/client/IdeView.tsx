@@ -110,14 +110,30 @@ const ideEditor = {
 }
 
 /**
- * Workspace-scoped tab persistence: tabs and the active tab are keyed by the
- * workspace root (cwd), not the session, so switching sessions that share a
- * workspace keeps the editor's open state, and returning to a workspace
- * restores its tabs after the view ring remounts the component. The Monaco
- * models and saved baselines are already path-keyed at module level, so only
- * the tab list needs parking here.
+ * Workspace-scoped editor persistence: tabs, the active tab, and the open git
+ * diff are keyed by the workspace root (cwd), not the session, so switching
+ * sessions that share a workspace keeps the editor's open state, and returning
+ * to a workspace restores it after the view ring remounts the component. The
+ * Monaco models and saved baselines are already path-keyed at module level, so
+ * only this view state needs parking here.
  */
-const workspaceTabs = new Map<string, { tabs: OpenTab[]; activePath: string | undefined }>()
+const workspaceTabs = new Map<string, {
+  tabs: OpenTab[]
+  activePath: string | undefined
+  /** Open git-diff path, so the diff overlay survives a remount like the tabs. */
+  diffPath: string | undefined
+}>()
+
+/** The activity bar's selectable sidebar panels. */
+type SidebarView = 'explorer' | 'search' | 'git'
+
+/**
+ * Last activity-bar selection, module-level so the view ring's remounts (and a
+ * session switch) reopen the IDE on the panel the user picked last instead of
+ * snapping back to Explorer. Same lifetime as workspaceTabs: it survives
+ * remounts within the page and resets with a full page reload.
+ */
+let lastSidebarView: SidebarView = 'explorer'
 
 function storeKeyOf(cwd: string | undefined): string | null {
   return cwd && cwd.length > 0 ? cwd.replace(/\\/g, '/').replace(/\/+$/, '') : null
@@ -149,12 +165,32 @@ function resultError(r: { ok: false; error: { message?: string; code?: string } 
   return r.error.message ?? r.error.code ?? 'unknown error'
 }
 
+/** Image MIME type for a path whose extension is browser-renderable, else null. */
+function imageMimeOf(path: string): string | null {
+  const dot = path.lastIndexOf('.')
+  if (dot < 0) return null
+  switch (path.slice(dot + 1).toLowerCase()) {
+    case 'png': return 'image/png'
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg'
+    case 'gif': return 'image/gif'
+    case 'webp': return 'image/webp'
+    case 'bmp': return 'image/bmp'
+    case 'ico': return 'image/x-icon'
+    case 'avif': return 'image/avif'
+    case 'svg': return 'image/svg+xml'
+    default: return null
+  }
+}
+
 interface OpenFileResult {
   text: string
   version: string
   truncated: boolean
   lines: number
   error: string | null
+  /** Data URI when the path is an image (text/truncated fields stay empty). */
+  imageSrc?: string
 }
 
 /** Read one file, picking readAll for small files and a truncated page for large. */
@@ -167,6 +203,17 @@ async function loadFileContent(
   const statRes: RemoteResult<WorkspaceFileStat> = await wf.stat(sessionId, path, signal)
   if (!statRes.ok) return { text: '', version: '', truncated: false, lines: 0, error: resultError(statRes) }
   const stat = statRes.value
+  // Images render as <img>, not Monaco text. readAll returns raw bytes as
+  // base64 with no text/binary rejection, so it doubles as the image reader.
+  const mime = imageMimeOf(path)
+  if (mime) {
+    const imgRes: RemoteResult<WorkspaceFileBytes> = await wf.readAll(sessionId, path, signal)
+    if (!imgRes.ok) return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(imgRes) }
+    return {
+      text: '', version: imgRes.value.version, truncated: false, lines: 0, error: null,
+      imageSrc: `data:${mime};base64,${imgRes.value.data}`,
+    }
+  }
   if (stat.bytes !== undefined && stat.bytes > LARGE_FILE_BYTES) {
     const readRes: RemoteResult<WorkspaceFileText> = await wf.read(sessionId, path, { offset: 1, limit: TRUNCATED_LINES }, signal)
     if (!readRes.ok) return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(readRes) }
@@ -217,10 +264,19 @@ export function IdeView(props: IdeViewInjected & {
   const [conflictPath, setConflictPath] = useState<string | undefined>(undefined)
   /** Pending dirty-tab close awaiting the user's save/discard choice. */
   const [confirmClose, setConfirmClose] = useState<{ path: string; name: string } | null>(null)
-  /** Which sidebar panel the activity bar selected. */
-  const [sidebarView, setSidebarView] = useState<'explorer' | 'search' | 'git'>('explorer')
-  /** Path whose git diff is shown in the editor area (overrides normal tabs). */
-  const [diffPath, setDiffPath] = useState<string | undefined>(undefined)
+  /** Which sidebar panel the activity bar selected; seeded from the last mount. */
+  const [sidebarView, setSidebarViewState] = useState<SidebarView>(lastSidebarView)
+  /** Select a panel and remember it, so the next IDE mount reopens it. */
+  const setSidebarView = useCallback((view: SidebarView) => {
+    lastSidebarView = view
+    setSidebarViewState(view)
+  }, [])
+  /** Path whose git diff is shown in the editor area (overrides normal tabs).
+   *  Seeded from the parked workspace state so a remount keeps it open. */
+  const [diffPath, setDiffPath] = useState<string | undefined>(() => {
+    const key = storeKeyOf(cwd)
+    return key === null ? undefined : workspaceTabs.get(key)?.diffPath
+  })
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   /** Bottom terminal dock: open flag + multiple terminal identities (survives remounts). */
@@ -285,6 +341,8 @@ export function IdeView(props: IdeViewInjected & {
   }, [])
 
   const activeTab = useMemo(() => tabs.find((t) => t.path === activePath), [tabs, activePath])
+  /** Data URI backing the active image tab, when it is an image. */
+  const activeImageSrc = activeTab?.kind === 'image' ? activeTab.imageSrc : undefined
 
   // Workspace-scoped switching: when the workspace root (cwd) changes, park
   // the current tabs under the old key and restore the new workspace's tabs.
@@ -296,25 +354,28 @@ export function IdeView(props: IdeViewInjected & {
     const parked = workspaceTabs.get(key)
     setTabs(parked?.tabs ?? [])
     setActivePath(parked?.activePath)
+    setDiffPath(parked?.diffPath)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd])
 
-  // Park the current tab state whenever it changes, so remounts and workspace
-  // switches always read back the freshest state.
+  // Park the current editor state whenever it changes, so remounts and
+  // workspace switches always read back the freshest state.
   useEffect(() => {
     const key = storeKeyOf(cwd)
     if (key === null) return
-    workspaceTabs.set(key, { tabs, activePath })
+    workspaceTabs.set(key, { tabs, activePath, diffPath })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, tabs, activePath])
+  }, [cwd, tabs, activePath, diffPath])
 
   const openFile = useCallback(async (path: string, line?: number) => {
     if (!sessionId) return
-    const m = await loadMonaco()
+    const isImage = imageMimeOf(path) !== null
     // Already open?
     const existing = tabs.find((t) => t.path === path)
     if (existing && existing.status === 'ready') {
       setActivePath(path)
+      // Image tabs render from their data URI; there is no Monaco model to attach.
+      if (existing.kind === 'image') return
       const model = ideEditor.models.get(path)
       if (model && editorRef.current) {
         editorRef.current.setModel(model)
@@ -323,8 +384,8 @@ export function IdeView(props: IdeViewInjected & {
       return
     }
     const name = path.split('/').pop() ?? path
-    const language = detectLanguage(path)
-    const loadingTab: OpenTab = { path, name, language, version: '', truncated: false, lines: 0, status: 'loading', error: null, dirty: false }
+    const language = isImage ? 'image' : detectLanguage(path)
+    const loadingTab: OpenTab = { path, name, language, version: '', truncated: false, lines: 0, status: 'loading', error: null, dirty: false, kind: isImage ? 'image' : 'text' }
     setTabs((prev) => {
       const next = prev.some((t) => t.path === path) ? prev.map((t) => t.path === path ? loadingTab : t) : [...prev, loadingTab]
       return next
@@ -334,15 +395,22 @@ export function IdeView(props: IdeViewInjected & {
     const result = await loadFileContent(workspaceFiles, sessionId, path, ctrl.signal)
     if (ctrl.signal.aborted) return
     if (result.error) {
-      const errTab: OpenTab = { path, name, language, version: result.version, truncated: false, lines: 0, status: 'error', error: result.error, dirty: false }
+      const errTab: OpenTab = { path, name, language, version: result.version, truncated: false, lines: 0, status: 'error', error: result.error, dirty: false, kind: isImage ? 'image' : 'text' }
       setTabs((prev) => prev.map((t) => t.path === path ? errTab : t))
       return
     }
+    // Image tab: keep the data URI on the tab and let the <img> overlay render it.
+    if (result.imageSrc) {
+      const imageTab: OpenTab = { path, name, language: 'image', version: result.version, truncated: false, lines: 0, status: 'ready', error: null, dirty: false, kind: 'image', imageSrc: result.imageSrc }
+      setTabs((prev) => prev.map((t) => t.path === path ? imageTab : t))
+      return
+    }
+    const m = await loadMonaco()
     const model = createOrReuseModel(m, path, result.text, language)
     ideEditor.models.set(path, model)
     ideEditor.saved.set(path, result.text)
     dirtyRef.current.delete(path)
-    const readyTab: OpenTab = { path, name, language, version: result.version, truncated: result.truncated, lines: result.lines, status: 'ready', error: null, dirty: false }
+    const readyTab: OpenTab = { path, name, language, version: result.version, truncated: result.truncated, lines: result.lines, status: 'ready', error: null, dirty: false, kind: 'text' }
     setTabs((prev) => prev.map((t) => t.path === path ? readyTab : t))
     // openFile always activates the opened tab, so attach the model right away.
     // (Do NOT test activePath here: the closure captured it before the click's
@@ -355,14 +423,21 @@ export function IdeView(props: IdeViewInjected & {
   // saving a truncated page would write the truncated text and lose the tail.
   useEffect(() => {
     if (!editorRef.current || !monacoReady) return
-    if (activePath === undefined) { editorRef.current.setModel(null); return }
+    const tab = tabs.find((t) => t.path === activePath)
+    // Image tabs (and the no-tab state) have no Monaco model: detach so a stale
+    // text model never shows through the image / empty overlay.
+    if (activePath === undefined || tab?.kind === 'image') { editorRef.current.setModel(null); return }
     const model = ideEditor.models.get(activePath)
     if (model) editorRef.current.setModel(model)
-    const tab = tabs.find((t) => t.path === activePath)
     editorRef.current.updateOptions({ readOnly: tab?.truncated === true })
   }, [activePath, monacoReady, tabs])
 
   const closeTabNow = useCallback((path: string) => {
+    // Detach the editor before disposing the model: Monaco keeps rendering the
+    // attached model, and disposing it in place can throw on the next frame and
+    // leave the editor unable to attach a fresh model (reopen appeared broken).
+    const closing = ideEditor.models.get(path)
+    if (closing && editorRef.current?.getModel() === closing) editorRef.current.setModel(null)
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== path)
       const model = ideEditor.models.get(path)
@@ -469,10 +544,15 @@ export function IdeView(props: IdeViewInjected & {
 
   const reopenFile = useCallback(async (path: string) => {
     if (!sessionId) return
-    const m = await loadMonaco()
     const ctrl = new AbortController()
     const result = await loadFileContent(workspaceFiles, sessionId, path, ctrl.signal)
     if (ctrl.signal.aborted || result.error) return
+    // Changed image: swap the data URI on the existing tab, no model involved.
+    if (result.imageSrc) {
+      setTabs((prev) => prev.map((t) => t.path === path ? { ...t, kind: 'image' as const, imageSrc: result.imageSrc, version: result.version, truncated: false, lines: 0, status: 'ready' as const, error: null, dirty: false } : t))
+      return
+    }
+    const m = await loadMonaco()
     const old = ideEditor.models.get(path)
     if (old) old.dispose()
     const language = detectLanguage(path)
@@ -562,6 +642,20 @@ export function IdeView(props: IdeViewInjected & {
     if (target) closeTabNow(target.path)
   }, [confirmClose, closeTabNow])
 
+  // Terminal-panel callbacks kept stable: an inline closure changed identity on
+  // every IdeView render, which made the panel's auto-open effect re-run while
+  // its open round-trip was still in flight (one click → several shells).
+  const handleTerminalOpened = useCallback((id: string) => {
+    setTerminalIds((prev) => prev.includes(id) ? prev : [...prev, id])
+  }, [])
+  const handleTerminalClosed = useCallback((idx: number) => {
+    const next = terminalIds.filter((_, i) => i !== idx)
+    setTerminalIds(next)
+    if (next.length === 0) setTerminalOpen(false)
+    setActiveTerminalIdx((active) => Math.min(active, Math.max(0, next.length - 1)))
+  }, [terminalIds])
+  const handleTerminalClose = useCallback(() => { setTerminalOpen(false) }, [])
+
   return (
     <div className="ide-root" data-ide-view="">
       <ContextMenuHost />
@@ -609,10 +703,10 @@ export function IdeView(props: IdeViewInjected & {
                 cwd={cwd}
                 ideTools={ideTools}
                 onOpenDiff={(path) => {
-                  // Opening a diff clears the normal active tab and shows the
-                  // diff editor in the editor area instead.
+                  // The diff overlays the editor area, so the underlying Monaco
+                  // host stays attached and closing the diff returns to the
+                  // previously active file untouched.
                   setDiffPath(path)
-                  if (editorRef.current) editorRef.current.setModel(null)
                 }}
                 t={t}
               />
@@ -659,23 +753,19 @@ export function IdeView(props: IdeViewInjected & {
           )}
         </div>
         <div className="ide-editor-area">
-          {diffPath ? (
-            <DiffEditor
-              sessionId={sessionId}
-              cwd={cwd}
-              ideTools={ideTools}
-              path={diffPath}
-              name={diffPath.split('/').pop() ?? diffPath}
-              t={t}
-            />
-          ) : (
-            <>
-              <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t} />
-              {/* Monaco owns this container exclusively; React never renders children
-                  into it (overlays live in the sibling .ide-editor-overlay below) so
-                  reconciliation can never remove the editor DOM. */}
-              <div className="ide-editor-container" ref={containerRef} />
-              <div className="ide-editor-overlay">
+          <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t} />
+          {/* Monaco owns this container exclusively; React never renders children
+              into it so reconciliation can never remove the editor DOM. It stays
+              mounted at all times — the diff and image views are overlays — so
+              the singleton editor host is never detached from a dead node (which
+              is what made files stop opening after a diff was shown). */}
+          <div className="ide-editor-container" ref={containerRef} />
+          {activeImageSrc && (
+            <div className="ide-editor-image">
+              <img src={activeImageSrc} alt={activeTab?.name ?? ''} />
+            </div>
+          )}
+          <div className="ide-editor-overlay">
                 {!monacoReady && !error && (
                   <div className="ide-editor-empty">{Icons.loading}</div>
                 )}
@@ -716,7 +806,17 @@ export function IdeView(props: IdeViewInjected & {
                   </div>
                 )}
               </div>
-            </>
+          {diffPath && (
+            <DiffEditor
+              sessionId={sessionId}
+              cwd={cwd}
+              ideTools={ideTools}
+              workspaceFiles={workspaceFiles}
+              path={diffPath}
+              name={diffPath.split('/').pop() ?? diffPath}
+              onClose={() => setDiffPath(undefined)}
+              t={t}
+            />
           )}
           {terminalOpen && sessionId && (
             <TerminalPanel
@@ -724,19 +824,10 @@ export function IdeView(props: IdeViewInjected & {
               ideTools={ideTools}
               terminalIds={terminalIds}
               activeIdx={activeTerminalIdx}
-              onTerminalOpened={(id) => {
-                setTerminalIds((prev) => prev.includes(id) ? prev : [...prev, id])
-              }}
+              onTerminalOpened={handleTerminalOpened}
               onActiveChange={setActiveTerminalIdx}
-              onTerminalClosed={(idx) => {
-                setTerminalIds((prev) => {
-                  const next = prev.filter((_, i) => i !== idx)
-                  if (next.length === 0) setTerminalOpen(false)
-                  if (activeTerminalIdx >= next.length) setActiveTerminalIdx(Math.max(0, next.length - 1))
-                  return next
-                })
-              }}
-              onClose={() => setTerminalOpen(false)}
+              onTerminalClosed={handleTerminalClosed}
+              onClose={handleTerminalClose}
               t={t}
             />
           )}

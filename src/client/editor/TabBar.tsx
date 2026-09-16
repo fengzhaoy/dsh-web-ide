@@ -19,6 +19,10 @@ export interface OpenTab {
   error: string | null
   /** Whether the editor holds unsaved edits for this tab. */
   dirty: boolean
+  /** Render mode: Monaco text, or an <img> preview for binary images. */
+  kind: 'text' | 'image'
+  /** Data URI backing an image tab (kind === 'image'). */
+  imageSrc?: string
 }
 
 interface TabBarProps {

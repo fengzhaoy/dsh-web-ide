@@ -106,18 +106,26 @@ export function TerminalPanel({
   const attachedRef = useRef<Set<string>>(new Set())
   // Track active abort controllers per terminal for stream cancellation.
   const abortsRef = useRef<Map<string, AbortController>>(new Map())
+  // Latch for the "panel opened with no terminals" auto-spawn. The effect that
+  // owns it re-runs on every parent re-render (onTerminalOpened is a fresh
+  // closure each render) while terminalOpen is an async round-trip, so without
+  // this latch one panel open spawned a shell per re-render.
+  const ensuredInitialRef = useRef(false)
 
   const activeId = terminalIds[activeIdx]
   const isMinimized = panelState === 'minimized'
   const isMaximized = panelState === 'maximized'
 
-  // --- Ensure at least one terminal exists when the panel opens with an empty list ---
+  // --- Ensure exactly ONE terminal exists when the panel opens with an empty list ---
   useEffect(() => {
-    if (terminalIds.length === 0) {
-      void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
-        if (res.ok) onTerminalOpened(res.value.terminalId)
-      })
-    }
+    if (ensuredInitialRef.current) return
+    if (terminalIds.length > 0) { ensuredInitialRef.current = true; return }
+    ensuredInitialRef.current = true
+    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
+      if (res.ok) onTerminalOpened(res.value.terminalId)
+    }).catch(() => {
+      // Leave the latch set: a failed spawn should not turn into a retry storm.
+    })
   }, [sessionId, ideTools, terminalIds.length, onTerminalOpened])
 
   // --- Attach xterm + stream output for each terminal ID (once per ID) ---
@@ -271,10 +279,11 @@ export function TerminalPanel({
 
   const killActive = useCallback(() => {
     if (activeId === undefined) return
-    void ideTools.terminalTerminate(sessionId, activeId).then(() => {
-      const idx = terminalIds.indexOf(activeId)
-      if (idx >= 0) onTerminalClosed(idx)
-    })
+    // Drop the tab first, kill in the background: gating the UI on the kill
+    // round-trip made the click look dead until a second click.
+    const idx = terminalIds.indexOf(activeId)
+    if (idx >= 0) onTerminalClosed(idx)
+    void ideTools.terminalTerminate(sessionId, activeId).catch(() => undefined)
   }, [sessionId, ideTools, activeId, terminalIds, onTerminalClosed])
 
   const signalInterrupt = useCallback(() => {
@@ -294,9 +303,10 @@ export function TerminalPanel({
     e.stopPropagation()
     const id = terminalIds[idx]
     if (id === undefined) return
-    void ideTools.terminalTerminate(sessionId, id).then(() => {
-      onTerminalClosed(idx)
-    })
+    // Same as killActive: remove immediately so one click closes the tab (and
+    // the whole panel when it was the last terminal).
+    onTerminalClosed(idx)
+    void ideTools.terminalTerminate(sessionId, id).catch(() => undefined)
   }, [sessionId, ideTools, terminalIds, onTerminalClosed])
 
   const activeStatus = activeId !== undefined ? (statuses[activeId] ?? 'connecting') : 'connecting'
