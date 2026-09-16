@@ -1,6 +1,24 @@
 # DSH Client UI IDE
 
+[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 DSH Web IDE Plugin — A modern web IDE integration solution built upon Monaco Editor.
+
+## Install
+
+Current version: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
+
+```bash
+# Install into a DSH web profile (recommended)
+dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+
+# Or install the npm package alone
+npm install @zhaoyang10/dsh-client-ui-ide
+```
+
+> After installing, append `@zhaoyang10/dsh-client-ui-ide` to the profile's `dsh.profile.bundles` and restart `dsh web` — see [Install into DSH](#install-into-dsh) for details.
 
 ## Project Introduction
 
@@ -90,34 +108,45 @@ pnpm install
 ### Development Build
 
 ```bash
-# Development mode (watch build)
-pnpm dev
+# Production build (outputs lib/)
+pnpm bundle
 
-# Production build
-pnpm build
+# Development mode (watch build, works with HMR)
+pnpm watch
 ```
 
-### Plugin Loading
+> The `@deepseek-ai/*` packages are not on the public npm registry; they are referenced via `link:` to the local global DSH installation in `devDependencies`. Adjust those paths after checking out on another machine (they only participate in local type checking and do not affect the published artifact).
 
-**Method A: Automatic forwarding via dsh plugin**
+### Install into DSH
 
-Ensure `cordis.patch.yml` is configured correctly; the plugin will be loaded automatically after building.
+**Method A: Install from npm (recommended)**
 
-**Method B: Manual web profile loading**
+The plugin is published on the public npm registry: [@zhaoyang10/dsh-client-ui-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide).
 
-Add the dependency to the target web profile's `package.json`:
-
-```json
-"dependencies": {
-  "@deepseek-ai/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
-}
+```bash
+dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
 ```
 
-And add the following to the browser roster in `cordis.patch.yml`:
+Then append `@zhaoyang10/dsh-client-ui-ide` to the `dsh.profile.bundles` array in `~/.dsh/profiles/web/package.json` and restart `dsh web`. The bundled `cordis.patch.yml` registers the IDE tab and its workspace-files-write companion automatically.
+
+**Method B: Install from a local directory (development)**
+
+```bash
+dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
+dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
+```
+
+The `link:` form always points at the source directory — rebuild and restart to pick up changes; use `file:` instead if you prefer an install-time snapshot.
+
+**Method C: Manual roster registration (without the bundle patch)**
 
 ```yaml
-- id: ui-ide
-  name: '@deepseek-ai/dsh-client-ui-ide'
+- insert:
+    - id: workspace-files-write
+      name: '@deepseek-ai/dsh-api-workspace-files-write'
+    - id: ui-ide
+      name: '@zhaoyang10/dsh-client-ui-ide'
 ```
 
 ### Verification
@@ -161,7 +190,7 @@ And add the following to the browser roster in `cordis.patch.yml`:
 
 ```json
 {
-  "main": "dist/index.js",
+  "main": "lib/index.js",
   "cordis": {
     "host": true
   }
@@ -185,7 +214,11 @@ Edit `EXT_MAP` and `NAME_MAP` in `src/client/language.ts` to extend support for 
 
 ## Version History
 
-See [CHANGELOG.md](./CHANGELOG.md) (To be added)
+See [CHANGELOG.md](./CHANGELOG.md).
+
+| Version | Notes |
+| --- | --- |
+| 0.1.0 | First release: file tree, Monaco editor, Git panel, terminal, global search. Published on [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide). |
 
 ## Contribution Guidelines
 
@@ -211,4 +244,5 @@ This project is open sourced under the MIT License. See the [LICENSE](./LICENSE)
 ---
 
 **Maintainer**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**Issue Feedback**: [Issue Page](https://gitee.com/fengzhaoy/dsh-client-ui-ide/issues)
+**Repository**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm package](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)  
+**Issue Feedback**: [Issue Page](https://gitee.com/fengzhaoy/dsh-web-ide/issues)

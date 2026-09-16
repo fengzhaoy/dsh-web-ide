@@ -8,6 +8,20 @@
 
 DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
 
+## 安装
+
+当前版本:[`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
+
+```bash
+# 安装到 DSH web profile(推荐)
+dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+
+# 或仅安装 npm 包本体
+npm install @zhaoyang10/dsh-client-ui-ide
+```
+
+> 安装后还需把 `@zhaoyang10/dsh-client-ui-ide` 加入 profile 的 `dsh.profile.bundles` 并重启 `dsh web`,详见 [安装到 DSH](#安装到-dsh)。
+
 ## 项目简介
 
 DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完整的代码编辑、文件管理、Git 版本控制、终端模拟及全局搜索功能。该插件深度集成于 DSH 工作区，支持暗色主题，拥有流畅的用户体验和高效的开发工作流。
@@ -123,21 +137,16 @@ pnpm watch
 
 ### 方式一：从 npm 安装（推荐）
 
-1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
+插件已发布到公共 npm：[@zhaoyang10/dsh-client-ui-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)。
+
+1. 把插件与文件写 API 装入 web profile：
 
    ```bash
-   pnpm install
-   pnpm bundle
+   dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+   dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
    ```
 
-2. 把插件与文件写 API 装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
-
-   ```bash
-   dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
-   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
-   ```
-
-3. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
+2. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
 
    ```json
    "dsh": {
@@ -150,13 +159,11 @@ pnpm watch
    }
    ```
 
-4. 重启 DSH web：
+3. 重启 DSH web：
 
    ```bash
    dsh web
    ```
-
-> `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
 
 ### 方式二：本地目录安装（开发调试用）
 
@@ -173,6 +180,8 @@ pnpm watch
    dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
    dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
    ```
+
+3. 同方式一第 2 步，把 `@zhaoyang10/dsh-client-ui-ide` 加入 `dsh.profile.bundles` 并重启 `dsh web`。
 
 > `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
 
@@ -274,7 +283,26 @@ pnpm watch
 
 ## 版本历史
 
-详见 [CHANGELOG.md](./CHANGELOG.md)（待补充）
+详见 [CHANGELOG.md](./CHANGELOG.md)。
+
+| 版本 | 说明 |
+| --- | --- |
+| 0.1.0 | 首次发布：文件树、Monaco 编辑器、Git 面板、终端、全局搜索，已上架 [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide) |
+
+## 发布到 npm（维护者）
+
+```bash
+# 1. 版本号(会自动打 git tag)
+npm version patch   # 或 minor / major
+
+# 2. 发布(prepublishOnly 钩子自动执行 pnpm run bundle;注意带官方源参数)
+npm publish --registry=https://registry.npmjs.org/
+
+# 3. 验证
+npm view @zhaoyang10/dsh-client-ui-ide version --registry=https://registry.npmjs.org/
+```
+
+> npm 已强制发布需 2FA:请在 npmjs.com 账号设置中绑定安全密钥/通行密钥(WebAuthn,macOS 可用 Touch ID),发布时按提示在浏览器中确认;新增 TOTP 验证器已不被支持。
 
 ## 贡献指南
 
@@ -300,4 +328,5 @@ pnpm watch
 ---
 
 **维护者**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-client-ui-ide/issues)
+**仓库**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm 包主页](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)  
+**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-web-ide/issues)
