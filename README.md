@@ -1,16 +1,17 @@
 
 
+```markdown
 # DSH Client UI IDE
 
-[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
-[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![npm 版本](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![npm 下载](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![许可证: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
 
 ## 安装
 
-当前版本:[`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
+当前版本: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
 
 ```bash
 # 安装到 DSH web profile(推荐)
@@ -38,6 +39,7 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 递归式目录树展示，支持无限层级展开
 - 文件图标自动识别（通过扩展名）
 - 基础文件操作：新建文件/文件夹、重命名、删除
+- **文件名校验**：新建或重命名时自动检测名称合法性，防止无效字符
 - 大文件自动截断展示，优化内存使用
 - Git 状态可视化（未跟踪/已修改/已暂存/已删除）
 
@@ -47,6 +49,7 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 行号显示与代码折叠
 - 多 Tab 页签管理，支持快捷切换
 - 实时文件内容加载与保存
+- 支持图像文件预览
 
 ### Git 源代码管理
 - 完整的 Git 状态面板
@@ -61,7 +64,7 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 ### 终端模拟器
 - 集成 xterm.js 终端组件
 - 支持多终端实例
-- Base64 编码输出传输
+- Base64 编码输出传输，优化网络传输效率
 - 完善的信号处理（中断/终止）
 
 ### 全局搜索
@@ -70,8 +73,8 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 - 搜索结果快速定位
 
 ### UI 特性
-- Dark Modern 暗色主题
-- 响应式布局适配
+- **Dark Modern 暗色主题**：符合现代化设计规范
+- **响应式布局**：侧边栏宽度支持自定义并自动记住用户偏好
 - 右键上下文菜单
 - 侧边栏与 IDE 联动交互
 
@@ -82,20 +85,22 @@ dsh-client-ui-ide/
 ├── src/
 │   ├── client/                # 浏览器端 UI 组件
 │   │   ├── editor/            # 编辑器组件（TabBar、StatusBar）
-│   │   ├── explorer/          # 文件树组件（FileTree）
-│   │   ├── git/               # Git 集成面板
-│   │   ├── icons/             # SVG 图标资源
+│   │   ├── explorer/          # 文件树组件（FileTree，含文件操作逻辑）
+│   │   ├── git/               # Git 集成面板（SourceControlPanel、DiffEditor）
+│   │   ├── icons/             # SVG 图标资源与自动生成逻辑
 │   │   ├── locale/            # 国际化资源
-│   │   ├── search/            # 搜索面板
-│   │   ├── sidebarBridge.ts   # 侧边栏桥接
+│   │   ├── search/            # 搜索面板（SearchPanel）
+│   │   ├── sidebarBridge.ts   # 侧边栏桥接（处理 DSH 侧边栏交互）
 │   │   ├── terminal/          # 终端面板
-│   │   ├── theme.ts           # 暗色主题定义
-│   │   ├── icons.tsx          # 图标组件
-│   │   ├── language.ts        # 文件类型映射
+│   │   ├── theme.ts           # 暗色主题定义与 Monaco 配色
+│   │   ├── icons.tsx          # 图标组件与扩展名映射
+│   │   ├── language.ts        # 文件类型语言映射
+│   │   ├── ContextMenu.tsx    # 通用右键菜单组件
+│   │   ├── IdeView.tsx        # 核心视图容器（处理布局、会话状态）
 │   │   └── index.ts           # 客户端入口
-│   ├── index.ts               # Host 端入口
-│   ├── typert.host.ts         # 远程方法类型定义
-│   └── typert.remote-client.ts# 远程调用客户端
+│   ├── index.ts               # Host 端入口（注册远程方法）
+│   ├── typert.host.ts         # 远程方法类型定义（Host）
+│   └── typert.remote-client.ts# 远程调用客户端定义
 ├── tsdown.config.ts           # 构建配置
 ├── tsconfig.json              # TypeScript 配置
 ├── cordis.patch.yml           # Cordis 插件补丁
@@ -333,3 +338,4 @@ npm view @zhaoyang10/dsh-client-ui-ide version --registry=https://registry.npmjs
 **维护者**: [fengzhaoy](https://gitee.com/fengzhaoy)  
 **仓库**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm 包主页](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)  
 **问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-web-ide/issues)
+```
