@@ -8,6 +8,13 @@ importers:
 
   .:
     dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2
       '@deepseek-ai/dsh-llm':
         specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm
         version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm
@@ -23,6 +30,12 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery
         version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ~18.3.0
+        version: 18.3.0
       '@xterm/addon-fit':
         specifier: ^0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
@@ -32,19 +45,6 @@ importers:
       monaco-editor:
         specifier: ^0.52.0
         version: 0.52.0
-      zod:
-        specifier: link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/zod
-        version: link:../../../.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/zod
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.2
-        version: 4.0.2
-      '@types/react':
-        specifier: ~18.3.1
-        version: 18.3.31
-      '@types/react-dom':
-        specifier: ~18.3.0
-        version: 18.3.0
       react:
         specifier: ^18.2.0
         version: 18.2.0
@@ -459,6 +459,9 @@ packages:
   unconfig@7.5.0:
     resolution: {integrity: sha512-oi8Qy2JV4D3UQ0PsopR28CzdQ3S/5A1zwsUwp/rosSbfhJ5z7b90bIyTwi/F7hCLD4SGcZVjDzd4XoUQcEanvA==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@babel/generator@7.29.8':
@@ -808,3 +811,5 @@ snapshots:
       jiti: 2.7.0
       quansync: 1.0.0
       unconfig-core: 7.5.0
+
+  zod@4.6.5: {}

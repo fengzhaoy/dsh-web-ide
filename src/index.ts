@@ -12,7 +12,7 @@
  * only by the host.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -170,6 +170,8 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileCreate', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileReveal', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'hostPlatform', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
@@ -844,6 +846,77 @@ export class IdeTools extends TypertRemoteService {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'ide-tools/create-failed', message } }
     }
+  }
+
+  /**
+   * Reveal one workspace entry in the OS file manager (Explorer context menu →
+   * Reveal in Finder / Reveal in File Explorer / Open Containing Folder, per
+   * host platform — same labels as VS Code's REVEAL_IN_OS_LABEL). Implemented
+   * with the platform's own opener because the plugin host is plain Node:
+   *   darwin: `open -R <path>`  (selects the item in Finder)
+   *   win32:  `explorer /select,<path>`  (explorer exits 1 even on success)
+   *   linux:  `xdg-open <dir>`  (the item itself for directories, else parent)
+   * The root path ('') opens the workspace root itself.
+   */
+  async fileReveal(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      // '' (the tree root) is allowed here: it reveals the workspace root itself.
+      const abs = path.length === 0 ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, path)
+      if (!existsSync(abs)) return { ok: false, error: { code: 'ide-tools/not-found', message: 'the entry no longer exists on disk' } }
+      const platform = process.platform
+      let argv: string[]
+      if (platform === 'darwin') {
+        argv = ['open', '-R', abs]
+      } else if (platform === 'win32') {
+        argv = ['explorer', `/select,${abs}`]
+      } else {
+        // Linux: a directory opens itself; a file opens its containing folder.
+        argv = ['xdg-open', (await stat(abs)).isDirectory() ? abs : dirname(abs)]
+      }
+      const spec = {
+        argv,
+        cwd: workspaceRoot,
+        stdio: {
+          stdin: 'ignore' as const,
+          stdout: { maxBytes: 4096 },
+          stderr: { maxBytes: 4096 },
+        },
+        graceMs: 5000,
+        signal,
+      }
+      let handle: import('@deepseek-ai/dsh-subprocess').SubprocessHandle
+      try {
+        handle = this.ctx.subprocess.spawn(spec as never)
+      } catch {
+        return { ok: false, error: { code: 'ide-tools/reveal-failed', message: 'the OS opener could not start' } }
+      }
+      const outcome = await handle.done
+      // Windows explorer.exe exits 1 even when it successfully opened a window.
+      const benign = outcome.exitCode === 0 || (platform === 'win32' && outcome.exitCode === 1)
+      if (!benign) {
+        const stderrText = handle.collected.stderr?.readFrom(0)?.text ?? ''
+        return { ok: false, error: { code: 'ide-tools/reveal-failed', message: `opener exited with code ${outcome.exitCode}: ${stderrText.trim()}` } }
+      }
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/reveal-failed', message } }
+    }
+  }
+
+  /** The host OS family, so the client can label the reveal action like VS Code
+   *  (Reveal in Finder / Reveal in File Explorer / Open Containing Folder). */
+  async hostPlatform(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }> {
+    return { ok: true, value: process.platform }
   }
 
   /** Stage all changes and commit with a message (git add -A && git commit -m). */

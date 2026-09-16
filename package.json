@@ -37,18 +37,17 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-llm": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-util-values": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-tool-fs-search": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.6-alpha.1",
+    "@deepseek-ai/schemastery": ">=3.18.1 <4.0.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-llm": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm",
-    "@deepseek-ai/dsh-util-values": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-values",
-    "@deepseek-ai/dsh-tool-fs-search": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search",
-    "@deepseek-ai/dsh-typert-protocol": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-protocol",
-    "@deepseek-ai/schemastery": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
-    "monaco-editor": "^0.52.0",
-    "zod": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/zod"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
@@ -57,7 +56,15 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tsdown": "^0.11.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "@deepseek-ai/dsh-llm": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-util-values": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-util-values",
+    "@deepseek-ai/dsh-tool-fs-search": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tool-fs-search",
+    "@deepseek-ai/dsh-typert-protocol": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-typert-protocol",
+    "@deepseek-ai/schemastery": "link:/Users/fengzy/.nvm/versions/node/v24.14.0/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "monaco-editor": "^0.52.0"
   },
   "files": [
     "lib",
@@ -67,6 +74,42 @@
   "scripts": {
     "build:worker": "node scripts/build-monaco-worker.mjs",
     "bundle": "pnpm run build:worker && tsdown",
-    "watch": "pnpm run build:worker && tsdown --watch"
-  }
+    "watch": "pnpm run build:worker && tsdown --watch",
+    "prepublishOnly": "pnpm run bundle"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-util-values": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-fs-search": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitee.com/fengzhaoy/dsh-web-ide.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "client-plugin",
+    "ide",
+    "monaco-editor"
+  ]
 }

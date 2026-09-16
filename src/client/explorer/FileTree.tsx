@@ -51,6 +51,10 @@ function relPathOf(rootDir: string, absPath: string): string {
   return absPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')
 }
 
+/** Cached host OS family so context menus label the reveal action correctly
+ *  without refetching on every mount (VS Code picks the label per host OS). */
+let hostPlatformCache: 'darwin' | 'win32' | 'linux' | undefined
+
 /** Workspace-relative path of a directory, with '' for the workspace root itself. */
 function parentRelOf(rootDir: string, absPath: string): string {
   const clean = rootDir.replace(/[/\\]+$/, '')
@@ -319,6 +323,43 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
   const [creating, setCreating] = useState<{ parentAbs: string; kind: 'file' | 'directory' } | null>(null)
   const [createBusy, setCreateBusy] = useState(false)
   const [createServerError, setCreateServerError] = useState<string | null>(null)
+  // Host OS for the reveal action's label (VS Code: Reveal in Finder / File Explorer / Open Containing Folder).
+  const [hostPlatform, setHostPlatform] = useState(hostPlatformCache)
+  // Transient error notice (top of the tree), e.g. a failed reveal.
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeTimerRef = useRef<number | undefined>(undefined)
+
+  // Fetch the host OS family once per page (cached module-level).
+  useEffect(() => {
+    if (hostPlatformCache !== undefined || !ideToolsFull) return
+    let cancelled = false
+    void ideToolsFull.hostPlatform(sessionId).then((res) => {
+      if (cancelled || !res.ok) return
+      const platform = res.value === 'darwin' || res.value === 'win32' || res.value === 'linux' ? res.value : 'linux'
+      hostPlatformCache = platform
+      setHostPlatform(platform)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [sessionId, ideToolsFull])
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message)
+    window.clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 5000)
+  }, [])
+
+  useEffect(() => () => window.clearTimeout(noticeTimerRef.current), [])
+
+  /** Reveal via the OS file manager (host-side per its platform). */
+  const revealEntry = useCallback((absPath: string, name: string) => {
+    if (!ideToolsFull) return
+    const rel = absPath === rootDir || absPath === rootDir.replace(/[/\\]+$/, '') ? '' : relPathOf(rootDir, absPath)
+    void ideToolsFull.fileReveal(sessionId, rel).then((res) => {
+      if (!res.ok) showNotice(t('context.revealFailed', { message: res.error.message }))
+    }).catch((err) => {
+      showNotice(t('context.revealFailed', { message: err instanceof Error ? err.message : String(err) }))
+    })
+  }, [ideToolsFull, sessionId, rootDir, t, showNotice])
 
   const startCreate = useCallback((kind: 'file' | 'directory', parentAbs?: string) => {
     const target = parentAbs ?? rootDir
@@ -437,6 +478,8 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
               onDraft: clearCreateServerError,
             } : undefined}
             onCreateStart={startCreate}
+            hostPlatform={hostPlatform}
+            onReveal={revealEntry}
           />
         ))}
         {state.truncated && <div className="ide-tree-truncated">{t('tree.truncated')}</div>}
@@ -446,6 +489,7 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
 
   return (
     <div className="ide-sidebar-body">
+      {notice && <div className="ide-tree-error">{notice}</div>}
       {renderDir(rootDir, rootState, 0)}
       {pendingDelete && (
         <div
@@ -511,6 +555,10 @@ interface TreeNodeProps {
   createFlow?: CreateFlow
   /** Start an inline-create input rooted at the given directory. */
   onCreateStart?: (kind: 'file' | 'directory', parentAbs: string) => void
+  /** Host OS family, for the reveal action's label (undefined = not yet known). */
+  hostPlatform?: 'darwin' | 'win32' | 'linux'
+  /** Reveal the entry in the OS file manager. */
+  onReveal?: (absPath: string, name: string) => void
 }
 
 /** Everything the inline-create input needs, threaded from FileTree. */
@@ -619,7 +667,7 @@ function NewEntryRow({ kind, depth, busy, serverError, onCommit, onCancel, onDra
   )
 }
 
-function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart }: TreeNodeProps) {
+function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal }: TreeNodeProps) {
   const childPath = joinPath(dirPath, entry.name)
   const isDir = entry.type === 'directory'
   const isOpen = expanded.has(childPath)
@@ -724,6 +772,12 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'sep1', label: '', separator: true },
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
+      { id: 'sep-reveal', label: '', separator: true },
+      ...(hostPlatform ? [{
+        id: 'reveal',
+        label: hostPlatform === 'darwin' ? t('context.revealInFinder') : hostPlatform === 'win32' ? t('context.revealInExplorer') : t('context.revealInFolder'),
+        onClick: () => onReveal?.(childPath, entry.name),
+      }] : []),
       { id: 'sep2', label: '', separator: true },
       { id: 'rename', label: t('context.rename'), icon: Icons.edit, disabled: depth === 0, onClick: () => onRenameStart?.(childPath, entry.name) },
       { id: 'delete', label: t('context.delete'), icon: Icons.trash, disabled: depth === 0, onClick: () => onRequestDelete?.(childPath, entry.name, true) },
@@ -734,6 +788,12 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'sep1', label: '', separator: true },
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
+      { id: 'sep-reveal', label: '', separator: true },
+      ...(hostPlatform ? [{
+        id: 'reveal',
+        label: hostPlatform === 'darwin' ? t('context.revealInFinder') : hostPlatform === 'win32' ? t('context.revealInExplorer') : t('context.revealInFolder'),
+        onClick: () => onReveal?.(childPath, entry.name),
+      }] : []),
       { id: 'sep2', label: '', separator: true },
       { id: 'rename', label: t('context.rename'), icon: Icons.edit, onClick: () => onRenameStart?.(childPath, entry.name) },
       { id: 'delete', label: t('context.delete'), icon: Icons.trash, onClick: () => onRequestDelete?.(childPath, entry.name, false) },
@@ -825,6 +885,8 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
             refreshKey={refreshKey}
             createFlow={createFlow}
             onCreateStart={onCreateStart}
+            hostPlatform={hostPlatform}
+            onReveal={onReveal}
           />
         ))}</>
       )}

@@ -133,6 +133,9 @@ const _ide_tools_ideTools_fileCreate_parameter_2$schema = z.union([
   z.literal('file'), z.literal('directory'),
 ])
 const _ide_tools_ideTools_fileCreate_result$schema = z.void()
+const _ide_tools_ideTools_fileReveal_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileReveal_result$schema = z.void()
+const _ide_tools_ideTools_hostPlatform_result$schema = z.string()
 const _ide_tools_ideTools_gitGenerateCommitMessage_result$schema = z.object({
   'message': z.string().readonly(),
 }).readonly()
@@ -617,6 +620,50 @@ export const TYPERT = {
         schema: _ide_tools_ideTools_fileCreate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileReveal',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileReveal',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileReveal', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileReveal:path',
+            schema: _ide_tools_ideTools_fileReveal_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileRevealResult',
+        schema: _ide_tools_ideTools_fileReveal_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 902, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/hostPlatform',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'hostPlatform',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('hostPlatform', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#HostPlatformResult',
+        schema: _ide_tools_ideTools_hostPlatform_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 950, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitGenerateCommitMessage',

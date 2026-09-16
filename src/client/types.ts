@@ -217,6 +217,13 @@ export interface IdeToolsRemote {
   /** Create one new workspace entry (file with empty content, or directory).
    *  Missing parents are created; an existing target is refused. */
   fileCreate(sessionId: SessionId, path: string, kind: 'file' | 'directory', signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Reveal one workspace entry in the OS file manager (VS Code parity:
+   *  Reveal in Finder / Reveal in File Explorer / Open Containing Folder).
+   *  Pass '' to reveal the workspace root itself. */
+  fileReveal(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** The host OS family ('darwin' | 'win32' | 'linux' | ...), for platform-
+   *  specific UI labels. */
+  hostPlatform(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<string>>
 }
 
 /** Props injected into the IdeView by the conversation.view slot registration. */
