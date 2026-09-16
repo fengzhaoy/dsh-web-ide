@@ -50,6 +50,9 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 
 ### Git 源代码管理
 - 完整的 Git 状态面板
+- 提交按钮下拉菜单（VS Code 同款 split button）：修正（Amend）、签名（Signed-off-by）、提交并推送、提交并同步
+- 提交后动作按钮自动切换（VS Code 同款）：有更改 → 提交；工作区干净 → 同步更改（拉取+推送，带领先/落后计数）或发布分支（无上游时 push -u origin）
+- 终端面板常驻底部（VS Code 布局）：打开文件 diff 时终端不被遮挡，随时可唤出
 - 文件变更追踪与显示
 - 分支信息查看
 - 提交历史浏览

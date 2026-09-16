@@ -961,6 +961,12 @@ export function IdeView(props: IdeViewInjected & {
         </div>
         <div className="ide-editor-area">
           <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t} />
+          {/* The stack spans exactly the editor region (tab bar → panel dock →
+              status bar). Everything below is absolutely positioned INSIDE it,
+              so the git diff can never paint over the terminal dock — the dock
+              is a flow sibling of the stack (VS Code layout: the panel always
+              sits at the bottom, the editor area shrinks above it). */}
+          <div className="ide-editor-stack">
           {/* Monaco owns this container exclusively; React never renders children
               into it so reconciliation can never remove the editor DOM. It stays
               mounted at all times — the diff and image views are overlays — so
@@ -1025,6 +1031,7 @@ export function IdeView(props: IdeViewInjected & {
               t={t}
             />
           )}
+          </div>
           {terminalOpen && sessionId && (
             <TerminalPanel
               sessionId={sessionId}

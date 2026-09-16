@@ -26,6 +26,9 @@ export interface SourceControlPanelProps {
 
 type Status = 'loading' | 'ready' | 'error' | 'notrepo'
 
+/** The commit split-button modes (VS Code SCM dropdown parity). */
+type CommitMode = 'commit' | 'amend' | 'signoff' | 'push' | 'sync'
+
 /** One-letter status badge color, matching VS Code's palette. */
 function statusColor(kind: GitStatusEntry['kind']): string {
   switch (kind) {
@@ -56,6 +59,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
   const [status, setStatus] = useState<Status>('loading')
   const [commitMessage, setCommitMessage] = useState('')
   const [committing, setCommitting] = useState(false)
+  /** Sync/Publish action button in flight (pull+push / push -u). */
+  const [syncing, setSyncing] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
   const [result, setResult] = useState<GitStatusResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +76,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
   const [stageError, setStageError] = useState<string | null>(null)
   const genSeq = useRef(0)
   const seq = useRef(0)
+  /** The caret half of the commit split button — dropdown anchor. */
+  const caretRef = useRef<HTMLButtonElement>(null)
 
   const refresh = useCallback(async () => {
     if (!cwd) return
@@ -159,12 +166,21 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
     return ''
   })()
 
-  const handleCommit = useCallback(async () => {
-    if (commitMessage.trim().length === 0 || committing) return
+  const runCommit = useCallback(async (mode: CommitMode) => {
+    const message = commitMessage.trim()
+    // Amend may run with an empty input — it keeps the previous message.
+    if (mode !== 'amend' && message.length === 0) return
+    if (committing) return
     setCommitting(true)
     setCommitError(null)
+    const options = {
+      amend: mode === 'amend',
+      signoff: mode === 'signoff',
+      push: mode === 'push',
+      sync: mode === 'sync',
+    }
     try {
-      const res = await ideTools.gitCommit(sessionId, commitMessage.trim())
+      const res = await ideTools.gitCommit(sessionId, message, options)
       if (res.ok) {
         setCommitMessage('')
         await refresh()
@@ -177,6 +193,45 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
       setCommitting(false)
     }
   }, [sessionId, commitMessage, committing, ideTools, refresh])
+
+  /** VS Code SCM action button: synchronize (pull+push) or publish
+   *  (push -u origin <branch>) on a clean tree. */
+  const handleSync = useCallback(async (action: 'sync' | 'publish') => {
+    if (syncing) return
+    setSyncing(true)
+    setCommitError(null)
+    try {
+      const res = await ideTools.gitSync(sessionId, action)
+      if (res.ok) {
+        await refresh()
+      } else {
+        setCommitError(res.error.message ?? res.error.code)
+      }
+    } catch (err) {
+      setCommitError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSyncing(false)
+    }
+  }, [sessionId, syncing, ideTools, refresh])
+
+  /** Open the commit dropdown (VS Code's commit split button secondary menu),
+   *  anchored under the caret half of the split button. */
+  const openCommitMenu = useCallback(() => {
+    const el = caretRef.current
+    const rect = el?.getBoundingClientRect()
+    const x = rect ? rect.left : 120
+    const y = rect ? rect.bottom + 2 : 120
+    const hasMessage = commitMessage.trim().length > 0
+    const busy = committing
+    showContextMenu(x, y, [
+      { id: 'commit', label: t('git.commitButton'), icon: Icons.check, disabled: busy || !hasMessage, onClick: () => { void runCommit('commit') } },
+      { id: 'amend', label: t('git.commitAmend'), icon: Icons.check, disabled: busy, onClick: () => { void runCommit('amend') } },
+      { id: 'signoff', label: t('git.commitSignoff'), icon: Icons.check, disabled: busy || !hasMessage, onClick: () => { void runCommit('signoff') } },
+      { id: 'sep-post', label: '', separator: true },
+      { id: 'push', label: t('git.commitPush'), icon: Icons.arrowUp, disabled: busy || !hasMessage, onClick: () => { void runCommit('push') } },
+      { id: 'sync', label: t('git.commitSync'), icon: Icons.sync, disabled: busy || !hasMessage, onClick: () => { void runCommit('sync') } },
+    ])
+  }, [commitMessage, committing, runCommit, t])
 
   const handleGenerate = useCallback(async () => {
     if (generating) return
@@ -250,21 +305,49 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
                 onKeyDown={(e) => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                     e.preventDefault()
-                    void handleCommit()
+                    void runCommit('commit')
                   }
                 }}
                 rows={2}
                 disabled={committing}
               />
-              <button
-                className="ide-git-input-button"
-                onClick={() => { void handleCommit() }}
-                disabled={committing || commitMessage.trim().length === 0}
-                title={t('git.commitButton') + ' (Ctrl/Cmd+Enter)'}
-              >
-                {committing ? Icons.loading : Icons.check}
-                <span>{t('git.commitButton')}</span>
-              </button>
+              {result.clean && !result.detached && result.branch && result.branch !== '(unborn)' && (result.upstream ? (result.ahead > 0 || result.behind > 0) : true) ? (
+                /* VS Code action button: clean tree → Synchronize Changes
+                   (upstream, ahead/behind) or Publish Branch (no upstream). */
+                <button
+                  className="ide-git-input-button ide-git-input-action"
+                  onClick={() => { void handleSync(result.upstream ? 'sync' : 'publish') }}
+                  disabled={syncing}
+                  title={result.upstream ? t('git.syncTooltip') : t('git.publishTooltip')}
+                >
+                  {syncing ? Icons.loading : (result.upstream ? Icons.sync : Icons.cloudUpload)}
+                  <span>{result.upstream ? t('git.syncButton') : t('git.publishButton')}</span>
+                  {result.behind > 0 && <span className="ide-git-input-ab">{result.behind}↓</span>}
+                  {result.ahead > 0 && <span className="ide-git-input-ab">{result.ahead}↑</span>}
+                </button>
+              ) : (
+                <div className="ide-git-input-row">
+                  <button
+                    className="ide-git-input-button"
+                    onClick={() => { void runCommit('commit') }}
+                    onContextMenu={(e) => { e.preventDefault(); openCommitMenu() }}
+                    disabled={committing || commitMessage.trim().length === 0}
+                    title={t('git.commitButton') + ' (Ctrl/Cmd+Enter)'}
+                  >
+                    {committing ? Icons.loading : Icons.check}
+                    <span>{t('git.commitButton')}</span>
+                  </button>
+                  <button
+                    ref={caretRef}
+                    className="ide-git-input-button ide-git-input-caret"
+                    onClick={openCommitMenu}
+                    disabled={committing}
+                    title={t('git.commitMenu')}
+                  >
+                    {Icons.chevronDown}
+                  </button>
+                </div>
+              )}
             </div>
             {commitError && (
               <div className="ide-git-input-error">{commitError}</div>

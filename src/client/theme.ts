@@ -75,7 +75,8 @@ export const IDE_STYLES = `
 .ide-sidebar-body::-webkit-scrollbar-thumb{background:#424242;border-radius:5px}
 .ide-sidebar-body::-webkit-scrollbar-track{background:transparent}
 .ide-editor-area{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--ide-bg);position:relative}
-.ide-editor-overlay{position:absolute;inset:35px 0 22px 0;pointer-events:none;display:flex}
+.ide-editor-stack{flex:1;min-height:0;position:relative;overflow:hidden}
+.ide-editor-overlay{position:absolute;inset:0;pointer-events:none;display:flex}
 .ide-editor-overlay:empty{display:none}
 .ide-tabbar{height:35px;flex:none;display:flex;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);overflow-x:auto;overflow-y:hidden}
 .ide-tabbar::-webkit-scrollbar{height:0}
@@ -87,9 +88,9 @@ export const IDE_STYLES = `
 .ide-tab:hover .ide-tab-close,.ide-tab[data-active='true'] .ide-tab-close{opacity:.6}
 .ide-tab-close:hover{opacity:1!important;background:rgba(255,255,255,.12)}
 .ide-tab-close svg{width:14px;height:14px}
-.ide-editor-container{flex:1;min-height:0;position:relative}
+.ide-editor-container{position:absolute;inset:0}
 .ide-monaco-host{position:absolute;inset:0}
-.ide-editor-image{position:absolute;inset:35px 0 22px 0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
+.ide-editor-image{position:absolute;inset:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
 .ide-editor-image img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 .ide-editor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-size:13px;flex-direction:column;gap:8px}
 .ide-editor-empty svg{width:48px;height:48px;opacity:.4}
@@ -160,7 +161,13 @@ export const IDE_STYLES = `
 .ide-git-input-field:focus{border-color:var(--ide-accent)}
 .ide-git-input-field::placeholder{color:var(--ide-fg-dim)}
 .ide-git-input-field:disabled{opacity:.6}
-.ide-git-input-button{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--ide-accent);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:12px;font-weight:500;cursor:pointer;align-self:flex-end}
+.ide-git-input-row{display:flex;align-self:flex-end}
+.ide-git-input-action{align-self:stretch;justify-content:center}
+.ide-git-input-ab{background:rgba(255,255,255,.18);border-radius:3px;padding:1px 5px;font-weight:400;font-size:11px}
+.ide-git-input-button{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--ide-accent);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:12px;font-weight:500;cursor:pointer}
+.ide-git-input-row .ide-git-input-button:first-child{border-radius:4px 0 0 4px}
+.ide-git-input-row .ide-git-input-button:last-child{border-radius:0 4px 4px 0}
+.ide-git-input-caret{padding:4px 7px;border-left:1px solid rgba(255,255,255,.22)}
 .ide-git-input-button:hover:not(:disabled){background:var(--ide-accent-hover)}
 .ide-git-input-button:disabled{opacity:.5;cursor:not-allowed}
 .ide-git-input-button svg{width:14px;height:14px}
@@ -206,7 +213,7 @@ export const IDE_STYLES = `
 /* ── Diff editor view ─────────────────────────────────────────────────── */
 /* The diff covers the tab bar + editor (the container stays mounted under it),
    leaving the status bar visible. */
-.ide-diff-root{position:absolute;inset:0 0 22px 0;z-index:2;display:flex;flex-direction:column;background:var(--ide-bg)}
+.ide-diff-root{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;background:var(--ide-bg)}
 .ide-diff-header{height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px}
 .ide-diff-title{color:var(--ide-fg);font-weight:500}
 .ide-diff-path{flex:1;min-width:0;color:var(--ide-fg-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -196,8 +196,11 @@ export interface IdeToolsRemote {
   gitBranches(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<GitBranchesResult>>
   /** Fetch a unified diff (and old/new content) for one path. */
   gitDiff(sessionId: SessionId, path: string, kind: 'unstaged' | 'staged' | 'head', signal?: AbortSignal): Promise<RemoteResult<GitDiffResult>>
-  /** Stage all changes (git add -A) and commit with a message. */
-  gitCommit(sessionId: SessionId, message: string, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string }>>
+  /** Stage all changes (git add -A) and commit with a message. Options map
+   *  the commit split-button dropdown (VS Code SCM parity): amend rewrites
+   *  the last commit (an empty message keeps the previous one), signoff adds
+   *  a Signed-off-by trailer, push runs git push, sync runs git pull + push. */
+  gitCommit(sessionId: SessionId, message: string, options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean }, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string; pushed?: boolean }>>
   /** Stage all changes (git add -A). */
   gitStageAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Stage one path (git add -- path). */
@@ -205,6 +208,10 @@ export interface IdeToolsRemote {
   /** Discard one entry's uncommitted changes (index + working tree back to HEAD;
    *  untracked files are deleted, staged adds are unstaged and removed). */
   gitDiscard(sessionId: SessionId, entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] }, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** VS Code SCM action button: 'sync' = git pull + git push on the clean
+   *  tree; 'publish' = git push -u origin <branch> for a branch without an
+   *  upstream. */
+  gitSync(sessionId: SessionId, action: 'sync' | 'publish', signal?: AbortSignal): Promise<RemoteResult<{ pushed: boolean }>>
   /** Generate a Conventional Commits message from the current diff via the configured LLM. */
   gitGenerateCommitMessage(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<{ message: string }>>
   /** Rename one workspace entry within its directory (Explorer context menu).

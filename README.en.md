@@ -42,6 +42,9 @@ DSH Client UI IDE is a web IDE plugin designed specifically for the DSH platform
 
 ### Git Source Control
 - Complete Git status panel
+- Commit split button dropdown (VS Code parity): Amend, Signed Off, Commit & Push, Commit & Sync
+- Post-commit action button (VS Code parity): with changes → Commit; clean tree → Synchronize Changes (pull+push with ahead/behind counts) or Publish Branch (no upstream, push -u origin)
+- Terminal dock pinned to the bottom (VS Code layout): opening a file diff never covers the terminal
 - File change tracking and display
 - Branch information viewing
 - Commit history browsing

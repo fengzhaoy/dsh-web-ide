@@ -919,21 +919,44 @@ export class IdeTools extends TypertRemoteService {
     return { ok: true, value: process.platform }
   }
 
-  /** Stage all changes and commit with a message (git add -A && git commit -m). */
+  /** Stage all changes and commit with a message (git add -A && git commit).
+   *  VS Code SCM commit split-button parity — the dropdown maps onto options:
+   *  amend rewrites the last commit (an empty message keeps the previous one
+   *  via --no-edit), signoff adds a Signed-off-by trailer (-s), push runs
+   *  git push after the commit, sync runs git pull then git push. */
   async gitCommit(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     message: string,
+    options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: { committed: boolean; hash?: string } } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<{ ok: true; value: { committed: boolean; hash?: string; pushed?: boolean } } | { ok: false; error: { code: string; message: string } }> {
     const { workspaceRoot: cwd } = workspaceFileScope
+    const opts = options ?? {}
     try {
-      // Stage all changes first.
+      // Stage all changes first (the panel's commit-all model; staging a clean
+      // tree is a no-op, so amend-with-empty-input still only rewords).
       await this.runGit(cwd, ['add', '-A'], signal)
       // Commit with the message. Use -m to avoid editor launch.
-      const out = await this.runGit(cwd, ['commit', '-m', message], signal)
+      const argv = opts.amend
+        ? (message.trim().length > 0 ? ['commit', '--amend', '-m', message] : ['commit', '--amend', '--no-edit'])
+        : ['commit', '-m', message]
+      if (opts.signoff) argv.push('-s')
+      const out = await this.runGit(cwd, argv, signal)
       // Extract the commit hash from the commit output (line like "[main abc1234] ...").
       const hashMatch = out.match(/\[\S+ ([0-9a-f]{7,})\]/)
-      return { ok: true, value: { committed: true, hash: hashMatch?.[1] } }
+      // Post-commit commands (VS Code's Commit & Push / Commit & Sync):
+      // sync = pull then push; push alone just pushes. Failures surface the
+      // raw git stderr (e.g. a missing upstream), keeping the cause visible.
+      let pushed: boolean | undefined
+      if (opts.sync) {
+        await this.runGit(cwd, ['pull'], signal)
+        await this.runGit(cwd, ['push'], signal)
+        pushed = true
+      } else if (opts.push) {
+        await this.runGit(cwd, ['push'], signal)
+        pushed = true
+      }
+      return { ok: true, value: { committed: true, hash: hashMatch?.[1], pushed } }
     } catch (err) {
       const message2 = err instanceof Error ? err.message : String(err)
       // "nothing to commit" is not a hard error — report it as ok but not committed.
@@ -941,6 +964,42 @@ export class IdeTools extends TypertRemoteService {
         return { ok: true, value: { committed: false } }
       }
       return { ok: false, error: { code: 'ide-tools/git-commit-failed', message: message2 } }
+    }
+  }
+
+  /** VS Code SCM action button: synchronize or publish the branch.
+   *  sync = git pull then git push (the clean-tree "Synchronize Changes"
+   *  button); publish = git push -u origin <branch> for a local branch with
+   *  no upstream (the "Publish Branch" button). Raw git stderr surfaces so a
+   *  missing remote/upstream stays diagnosable. */
+  async gitSync(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    action: 'sync' | 'publish',
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: { pushed: boolean } } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      if (action === 'sync') {
+        await this.runGit(cwd, ['pull'], signal)
+        await this.runGit(cwd, ['push'], signal)
+      } else {
+        const branch = (await this.runGit(cwd, ['branch', '--show-current'], signal)).trim()
+        if (branch.length === 0) {
+          return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: 'cannot determine the current branch (detached HEAD?)' } }
+        }
+        // VS Code parity: single remote publishes via remotes[0]; prefer the
+        // conventional origin when present, else the first listed remote.
+        const remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
+        if (remotes.length === 0) {
+          return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: 'your repository has no remotes configured to publish to' } }
+        }
+        const remote = remotes.includes('origin') ? 'origin' : remotes[0]
+        await this.runGit(cwd, ['push', '-u', remote, branch], signal)
+      }
+      return { ok: true, value: { pushed: true } }
+    } catch (err) {
+      const message2 = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: message2 } }
     }
   }
 

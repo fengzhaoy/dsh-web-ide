@@ -103,9 +103,16 @@ const _ide_tools_ideTools_gitDiff_result$schema = z.object({
 }).readonly()
 
 const _ide_tools_ideTools_gitCommit_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitCommit_parameter_2$schema = z.object({
+  'amend': z.boolean().optional().readonly(),
+  'signoff': z.boolean().optional().readonly(),
+  'push': z.boolean().optional().readonly(),
+  'sync': z.boolean().optional().readonly(),
+}).readonly()
 const _ide_tools_ideTools_gitCommit_result$schema = z.object({
   'committed': z.boolean().readonly(),
   'hash': z.string().optional().readonly(),
+  'pushed': z.boolean().optional().readonly(),
 }).readonly()
 const _ide_tools_ideTools_gitStageAll_result$schema = z.void()
 const _ide_tools_ideTools_gitStage_parameter_1$schema = z.string()
@@ -136,6 +143,13 @@ const _ide_tools_ideTools_fileCreate_result$schema = z.void()
 const _ide_tools_ideTools_fileReveal_parameter_1$schema = z.string()
 const _ide_tools_ideTools_fileReveal_result$schema = z.void()
 const _ide_tools_ideTools_hostPlatform_result$schema = z.string()
+const _ide_tools_ideTools_gitSync_parameter_1$schema = z.union([
+  z.literal('sync'),
+  z.literal('publish'),
+])
+const _ide_tools_ideTools_gitSync_result$schema = z.object({
+  'pushed': z.boolean().readonly(),
+}).readonly()
 const _ide_tools_ideTools_gitGenerateCommitMessage_result$schema = z.object({
   'message': z.string().readonly(),
 }).readonly()
@@ -430,6 +444,16 @@ export const TYPERT = {
             schema: _ide_tools_ideTools_gitCommit_parameter_1$schema,
           },
         },
+        {
+          name: 'options',
+          wire: 'options',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitCommit:options',
+            schema: _ide_tools_ideTools_gitCommit_parameter_2$schema,
+          },
+        },
       ],
       cancellation: { parameter: 'signal' },
       result: {
@@ -664,6 +688,33 @@ export const TYPERT = {
         schema: _ide_tools_ideTools_hostPlatform_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 950, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitSync',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitSync',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitSync', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'action',
+          wire: 'action',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitSync:action',
+            schema: _ide_tools_ideTools_gitSync_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitSyncResult',
+        schema: _ide_tools_ideTools_gitSync_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 986, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitGenerateCommitMessage',
