@@ -13,6 +13,7 @@ import type * as Monaco from 'monaco-editor'
 import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote } from '../types.js'
 import { Icons } from '../icons.js'
 import { defineDarkModernTheme } from '../theme.js'
+import { installMonacoWorker } from '../monacoWorkerBootstrap.js'
 
 export interface DiffEditorProps {
   sessionId: SessionId
@@ -36,17 +37,12 @@ let monacoLoaded = false
 function ensureMonaco(m: typeof Monaco): void {
   if (monacoLoaded) return
   defineDarkModernTheme(m)
-  // Ensure the no-op worker env is installed (the IdeView may have done it;
-  // harmless to re-check).
-  const env = (self as unknown as { MonacoEnvironment?: unknown }).MonacoEnvironment
-  if (!env) {
-    const noopWorkerURL = URL.createObjectURL(
-      new Blob(['self.onmessage = () => {}'], { type: 'application/javascript' }),
-    )
-    ;(self as unknown as { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
-      getWorker: () => new Worker(noopWorkerURL, { type: 'classic' }),
-    }
-  }
+  // Install the REAL editor worker (blob-URL instantiation of the embedded
+  // worker bundle). The diff editor computes its changes in the
+  // EditorWorkerService worker — with the previous no-op worker the diff never
+  // completed, leaving both panes unhighlighted. Idempotent; the IdeView may
+  // have installed it already.
+  installMonacoWorker()
   monacoLoaded = true
 }
 

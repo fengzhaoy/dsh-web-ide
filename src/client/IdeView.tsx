@@ -13,6 +13,7 @@ import type { OpenTab } from './editor/TabBar.js'
 import { detectLanguage } from './language.js'
 import type { IdeViewInjected, RemoteResult, WorkspaceFileBytes, WorkspaceFileStat, WorkspaceFileText } from './types.js'
 import { publishActiveFile, registerIdeMount, syncSidebarHighlight, takePendingOpenPath, unregisterIdeMount } from './sidebarBridge.js'
+import { installMonacoWorker } from './monacoWorkerBootstrap.js'
 
 /** Threshold above which a file is loaded as a truncated first page. */
 const LARGE_FILE_BYTES = 2 * 1024 * 1024
@@ -33,20 +34,16 @@ type MonacoTextModel = import('monaco-editor').editor.ITextModel
 let monacoLoaded = false
 
 /**
- * Configure Monaco's worker environment. Monaco wants language web-workers for
- * rich features (TS diagnostics, JSON validation, etc.). In the DSH module
- * loader we have no stable URL for worker assets, so we install a no-op worker:
- * Monaco still renders syntax tokens via its built-in monarch tokenizer (which
- * runs on the main thread) — sufficient for a read-only viewer.
+ * Configure Monaco's worker environment with the REAL editor worker: a
+ * Blob-URL instantiation of the worker bundle embedded in this client chunk
+ * (see monacoWorkerBootstrap.ts / scripts/build-monaco-worker.mjs). Monaco
+ * computes diff-editor changes inside the EditorWorkerService worker; with the
+ * previous no-op worker the diff never completed and the git diff view showed
+ * no add/remove region highlighting. Monarch tokenization keeps running on the
+ * main thread either way.
  */
 function configureMonacoWorkers(): void {
-  if ((self as unknown as { MonacoEnvironment?: unknown }).MonacoEnvironment) return
-  const noopWorkerURL = URL.createObjectURL(
-    new Blob(['self.onmessage = () => {}'], { type: 'application/javascript' }),
-  )
-  ;(self as unknown as { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
-    getWorker: () => new Worker(noopWorkerURL, { type: 'classic' }),
-  }
+  installMonacoWorker()
 }
 
 function loadMonaco(): Promise<MonacoNS> {
@@ -134,6 +131,34 @@ type SidebarView = 'explorer' | 'search' | 'git'
  * remounts within the page and resets with a full page reload.
  */
 let lastSidebarView: SidebarView = 'explorer'
+
+// ── Sidebar width (drag the right-edge grip to resize) ──────────────────
+/** Bounds mirror the CSS min/max-width on .ide-sidebar. */
+const SIDEBAR_WIDTH_MIN = 170
+const SIDEBAR_WIDTH_MAX = 560
+const SIDEBAR_WIDTH_DEFAULT = 240
+const SIDEBAR_WIDTH_KEY = 'dsh-ide.sidebar-width'
+
+function clampSidebarWidth(px: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)))
+}
+
+/** Last sidebar width. Module-level so view-ring remounts keep it; seeded from
+ * localStorage so it survives page reloads (wrapped — storage may be denied). */
+let sidebarWidth: number = (() => {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY)
+    if (raw === null) return SIDEBAR_WIDTH_DEFAULT
+    const n = Number(raw)
+    return Number.isFinite(n) ? clampSidebarWidth(n) : SIDEBAR_WIDTH_DEFAULT
+  } catch {
+    return SIDEBAR_WIDTH_DEFAULT
+  }
+})()
+
+function persistSidebarWidth(px: number): void {
+  try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(px)) } catch { /* ignore */ }
+}
 
 function storeKeyOf(cwd: string | undefined): string | null {
   return cwd && cwd.length > 0 ? cwd.replace(/\\/g, '/').replace(/\/+$/, '') : null
@@ -271,6 +296,45 @@ export function IdeView(props: IdeViewInjected & {
     lastSidebarView = view
     setSidebarViewState(view)
   }, [])
+  /** The sidebar's right-edge resize grip. */
+  const sidebarResizerRef = useRef<HTMLDivElement | null>(null)
+  /** Write a new width into the module state + the root CSS variable and
+   *  persist it. The variable (not React state) drives layout so a drag never
+   *  re-renders the whole view per mousemove. */
+  const applySidebarWidth = useCallback((px: number) => {
+    sidebarWidth = clampSidebarWidth(px)
+    const root = sidebarResizerRef.current?.closest('.ide-root') as HTMLElement | null
+    root?.style.setProperty('--ide-sidebar-width', String(sidebarWidth) + 'px')
+    persistSidebarWidth(sidebarWidth)
+  }, [])
+  /** mousedown on the grip: track the pointer, resize live, restore on release. */
+  const startSidebarResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const handle = e.currentTarget
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+    handle.dataset.dragging = 'true'
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent): void => {
+      applySidebarWidth(startWidth + (ev.clientX - startX))
+    }
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      delete handle.dataset.dragging
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [applySidebarWidth])
+  /** Double-click the grip: reset to the default width. */
+  const resetSidebarWidth = useCallback(() => {
+    applySidebarWidth(SIDEBAR_WIDTH_DEFAULT)
+  }, [applySidebarWidth])
   /** Path whose git diff is shown in the editor area (overrides normal tabs).
    *  Seeded from the parked workspace state so a remount keeps it open. */
   const [diffPath, setDiffPath] = useState<string | undefined>(() => {
@@ -292,7 +356,11 @@ export function IdeView(props: IdeViewInjected & {
     style.textContent = IDE_STYLES
     document.head.appendChild(style)
     const root = containerRef.current?.closest('.ide-root') as HTMLElement | null
-    if (root) for (const [k, v] of Object.entries(IDE_CSS_VARS)) root.style.setProperty(k, v)
+    if (root) {
+      for (const [k, v] of Object.entries(IDE_CSS_VARS)) root.style.setProperty(k, v)
+      // Restore the user's last sidebar width (drag the right-edge grip).
+      root.style.setProperty('--ide-sidebar-width', String(sidebarWidth) + 'px')
+    }
     return () => { document.head.removeChild(style) }
   }, [])
 
@@ -418,6 +486,33 @@ export function IdeView(props: IdeViewInjected & {
     editorRef.current?.setModel(model)
     revealLine(editorRef.current, line)
   }, [sessionId, tabs, workspaceFiles, activePath])
+
+  /**
+   * A source-control discard reverted one or more paths on disk. Close the diff
+   * overlay when it shows a discarded path (the diff is now empty) and reload
+   * any open editor buffer for a discarded path: the model still holds the
+   * pre-discard text and its saved baseline is stale, so leaving it as-is would
+   * let a stray Ctrl+S write the discarded edits right back over HEAD.
+   */
+  const handleChangesDiscarded = useCallback((paths: readonly string[]) => {
+    setDiffPath((current) => (current !== undefined && paths.includes(current) ? undefined : current))
+    void (async () => {
+      for (const path of paths) {
+        const model = ideEditor.models.get(path)
+        if (!model) continue
+        const ctrl = new AbortController()
+        const result = await loadFileContent(workspaceFiles, sessionId, path, ctrl.signal)
+        if (ctrl.signal.aborted || result.error || result.imageSrc !== undefined) continue
+        // Refresh the saved baseline BEFORE setValue: the model-content listener
+        // recomputes the dirty flag synchronously on setValue and must see the
+        // reverted text as the new baseline.
+        ideEditor.saved.set(path, result.text)
+        model.setValue(result.text)
+        dirtyRef.current.delete(path)
+        setTabs((prev) => prev.map((tb) => tb.path === path ? { ...tb, dirty: false, truncated: result.truncated, lines: result.lines } : tb))
+      }
+    })()
+  }, [sessionId, workspaceFiles])
 
   // Apply model switch when activePath changes. Truncated views stay read-only:
   // saving a truncated page would write the truncated text and lose the tail.
@@ -708,6 +803,7 @@ export function IdeView(props: IdeViewInjected & {
                   // previously active file untouched.
                   setDiffPath(path)
                 }}
+                onChangesDiscarded={handleChangesDiscarded}
                 t={t}
               />
             ) : (
@@ -751,6 +847,17 @@ export function IdeView(props: IdeViewInjected & {
               )}
             </>
           )}
+          {/* Right-edge resize grip (hover shows a handle icon; drag resizes). */}
+          <div
+            ref={sidebarResizerRef}
+            className="ide-sidebar-resizer"
+            title={t('sidebar.resize')}
+            onMouseDown={startSidebarResize}
+            onDoubleClick={resetSidebarWidth}
+            data-testid="ide-sidebar-resizer"
+          >
+            <span className="ide-sidebar-resizer-icon">{Icons.splitEditor}</span>
+          </div>
         </div>
         <div className="ide-editor-area">
           <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t} />

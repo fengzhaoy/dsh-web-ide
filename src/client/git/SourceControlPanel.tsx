@@ -18,6 +18,9 @@ export interface SourceControlPanelProps {
   ideTools: IdeToolsRemote
   /** Open one path's diff in the editor area. */
   onOpenDiff: (path: string, kind: GitStatusEntry['kind']) => void
+  /** Paths whose changes were discarded (the view closes a matching diff and
+   *  reloads an open editor buffer so it cannot be saved back over HEAD). */
+  onChangesDiscarded?: (paths: readonly string[]) => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -49,7 +52,7 @@ function statusLetter(kind: GitStatusEntry['kind']): string {
   }
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: SourceControlPanelProps) {
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onChangesDiscarded, t }: SourceControlPanelProps) {
   const [status, setStatus] = useState<Status>('loading')
   const [commitMessage, setCommitMessage] = useState('')
   const [committing, setCommitting] = useState(false)
@@ -59,6 +62,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
   const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined)
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
+  /** Entry awaiting the discard confirmation dialog. */
+  const [confirmDiscard, setConfirmDiscard] = useState<GitStatusEntry | null>(null)
+  const [discarding, setDiscarding] = useState(false)
+  /** Error shown inside the discard dialog (and cleared on close/retry). */
+  const [discardError, setDiscardError] = useState<string | null>(null)
+  /** Error from the one-file stage action, shown inline under the input. */
+  const [stageError, setStageError] = useState<string | null>(null)
   const genSeq = useRef(0)
   const seq = useRef(0)
 
@@ -96,6 +106,44 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
     setSelectedPath(entry.path)
     onOpenDiff(entry.path, entry.kind)
   }, [onOpenDiff])
+
+  /** Stage one path (context menu → 暂存更改). */
+  const handleStage = useCallback(async (entry: GitStatusEntry) => {
+    setStageError(null)
+    try {
+      const res = await ideTools.gitStage(sessionId, entry.path)
+      if (res.ok) {
+        await refresh()
+      } else {
+        setStageError(t('git.stageFailed', { message: res.error.message ?? res.error.code }))
+      }
+    } catch (err) {
+      setStageError(t('git.stageFailed', { message: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [sessionId, ideTools, refresh, t])
+
+  /** Discard confirmation accepted — run gitDiscard and resync. */
+  const handleDiscard = useCallback(async () => {
+    const entry = confirmDiscard
+    if (!entry || discarding) return
+    setDiscarding(true)
+    setDiscardError(null)
+    try {
+      const res = await ideTools.gitDiscard(sessionId, { path: entry.path, oldPath: entry.oldPath, kind: entry.kind })
+      if (res.ok) {
+        setConfirmDiscard(null)
+        setSelectedPath((current) => (current === entry.path ? undefined : current))
+        await refresh()
+        onChangesDiscarded?.([entry.path])
+      } else {
+        setDiscardError(res.error.message ?? res.error.code)
+      }
+    } catch (err) {
+      setDiscardError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDiscarding(false)
+    }
+  }, [confirmDiscard, discarding, sessionId, ideTools, refresh, onChangesDiscarded, t])
 
   const branchText = (() => {
     if (!result) return ''
@@ -224,6 +272,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
             {genError && (
               <div className="ide-git-input-error">{t('git.aiGenerateError', { message: genError })}</div>
             )}
+            {stageError && (
+              <div className="ide-git-input-error">{stageError}</div>
+            )}
 
             <div className="ide-git-section">
               <div className="ide-git-section-header">
@@ -258,8 +309,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
                             { id: 'open-change', label: t('git.openDiff'), icon: Icons.diff, onClick: () => handleClick(entry) },
                             { id: 'open-file', label: t('git.openFile'), icon: Icons.goToFile },
                             { id: 'sep1', label: '', separator: true },
-                            { id: 'stage', label: t('git.stage'), icon: Icons.plus },
-                            { id: 'discard', label: t('git.discard'), icon: Icons.discard },
+                            { id: 'stage', label: t('git.stage'), icon: Icons.plus, onClick: () => { void handleStage(entry) } },
+                            { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
                             { id: 'sep2', label: '', separator: true },
                             { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(entry.path) } },
                           ])
@@ -280,6 +331,40 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
           </>
         )}
       </div>
+
+      {/* Discard confirmation (VS Code-style destructive-action dialog). */}
+      {confirmDiscard !== null && (
+        <div
+          className="ide-dialog-backdrop"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !discarding) setConfirmDiscard(null) }}
+        >
+          <div className="ide-dialog">
+            <div className="ide-dialog-title">{t('git.discardConfirmTitle')}</div>
+            <div className="ide-dialog-body">
+              {confirmDiscard.kind === 'untracked'
+                ? t('git.discardConfirmDelete', { name: confirmDiscard.path })
+                : t('git.discardConfirmBody', { name: confirmDiscard.path })}
+              <br />
+              {t('git.discardConfirmWarning')}
+            </div>
+            {discardError !== null && <div className="ide-git-input-error">{t('git.discardFailed', { message: discardError })}</div>}
+            <div className="ide-dialog-actions">
+              <button
+                className="ide-dialog-button ide-dialog-button-quiet"
+                type="button"
+                onClick={() => setConfirmDiscard(null)}
+                disabled={discarding}
+              >{t('git.cancel')}</button>
+              <button
+                className="ide-dialog-button"
+                type="button"
+                onClick={() => { void handleDiscard() }}
+                disabled={discarding}
+              >{discarding ? Icons.loading : Icons.discard}<span>{t('git.discard')}</span></button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

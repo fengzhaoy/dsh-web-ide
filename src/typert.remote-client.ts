@@ -108,6 +108,18 @@ const _ide_tools_ideTools_gitCommit_result$schema = z.object({
   'hash': z.string().optional().readonly(),
 }).readonly()
 const _ide_tools_ideTools_gitStageAll_result$schema = z.void()
+const _ide_tools_ideTools_gitStage_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitStage_result$schema = z.void()
+const _ide_tools_ideTools_gitDiscard_parameter_1$schema = z.object({
+  'path': z.string().readonly(),
+  'oldPath': z.string().optional(),
+  'kind': z.union([
+    z.literal('modified'), z.literal('added'), z.literal('deleted'),
+    z.literal('renamed'), z.literal('untracked'), z.literal('ignored'),
+    z.literal('conflicted'), z.literal('unmodified'),
+  ]).readonly(),
+}).readonly()
+const _ide_tools_ideTools_gitDiscard_result$schema = z.void()
 const _ide_tools_ideTools_gitGenerateCommitMessage_result$schema = z.object({
   'message': z.string().readonly(),
 }).readonly()
@@ -424,6 +436,60 @@ export const TYPERT_REMOTE = {
         schema: _ide_tools_ideTools_gitStageAll_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStage',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitStage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStage:path',
+            schema: _ide_tools_ideTools_gitStage_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitStageResult',
+        schema: _ide_tools_ideTools_gitStage_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 700, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiscard',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitDiscard',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'entry',
+          wire: 'entry',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiscard:entry',
+            schema: _ide_tools_ideTools_gitDiscard_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitDiscardResult',
+        schema: _ide_tools_ideTools_gitDiscard_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 723, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitGenerateCommitMessage',

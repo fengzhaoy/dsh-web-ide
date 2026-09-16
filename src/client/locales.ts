@@ -3,6 +3,7 @@ export const NS = 'ide'
 
 export const zh = {
   'view.ide': 'IDE',
+  'sidebar.resize': '拖动调整侧边栏宽度（双击恢复默认）',
   'explorer.title': '资源管理器',
   'search.title': '搜索',
   'search.placeholder': '搜索（支持正则）',
@@ -113,10 +114,18 @@ export const zh = {
   'context.delete': '删除',
   'git.stage': '暂存更改',
   'git.discard': '放弃更改',
+  'git.cancel': '取消',
+  'git.discardConfirmTitle': '放弃更改',
+  'git.discardConfirmBody': '确定要放弃对 {name} 的未提交更改吗？',
+  'git.discardConfirmDelete': '确定要删除未跟踪的文件 {name} 吗？',
+  'git.discardConfirmWarning': '此操作无法撤销。',
+  'git.discardFailed': '放弃更改失败：{message}',
+  'git.stageFailed': '暂存失败：{message}',
 } as const
 
 export const en = {
   'view.ide': 'IDE',
+  'sidebar.resize': 'Drag to resize the sidebar (double-click to reset)',
   'explorer.title': 'Explorer',
   'search.title': 'Search',
   'search.placeholder': 'Search (regex supported)',
@@ -227,6 +236,13 @@ export const en = {
   'context.delete': 'Delete',
   'git.stage': 'Stage Changes',
   'git.discard': 'Discard Changes',
+  'git.cancel': 'Cancel',
+  'git.discardConfirmTitle': 'Discard Changes',
+  'git.discardConfirmBody': 'Are you sure you want to discard the uncommitted changes in {name}?',
+  'git.discardConfirmDelete': 'Are you sure you want to delete the untracked file {name}?',
+  'git.discardConfirmWarning': 'This action cannot be undone.',
+  'git.discardFailed': 'Discard failed: {message}',
+  'git.stageFailed': 'Stage failed: {message}',
 } as const
 
 export type IdeLocaleKey = keyof typeof zh

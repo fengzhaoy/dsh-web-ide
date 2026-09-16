@@ -92,41 +92,109 @@ pnpm install
 ### 开发构建
 
 ```bash
-# 开发模式（监听构建）
-pnpm dev
+# 生产构建（产出 lib/）
+pnpm bundle
 
-# 生产构建
-pnpm build
+# 开发模式（监听构建，配合 hmr 热更新）
+pnpm watch
 ```
 
-### 插件装载
+> 注意：本仓库部分依赖通过 `link:` 指向本机全局 DSH 安装路径，在其他机器检出后需按实际 DSH 安装位置调整 `package.json` 中的 `link:` 路径，再执行 `pnpm install`。
 
-**方式 A：通过 dsh plugin 自动转发**
+## 安装到 DSH
 
-确保 `cordis.patch.yml` 已正确配置，插件构建后自动装载。
+本插件以 DSH bundle 形式分发。安装分两步：**把插件包装入 profile 依赖**，再把**包名加入 profile 清单的 `dsh.profile.bundles` 数组**。DSH 启动时会自动套用插件自带的 `cordis.patch.yml`，把 `ui-ide` 客户端插件与配套的 `workspace-files-write` 文件写 API 一起注册进 web 客户端 roster，无需手动改 roster。
 
-**方式 B：手动装载 web profile**
+### 前置条件
 
-在目标 web profile 的 `package.json` 中添加依赖：
+- 已安装 DSH CLI（`dsh` 命令可用，建议 0.1.6+）
+- 已有 web profile，且 `dsh web` 可正常启动（profile 目录默认在 `~/.dsh/profiles/web`）
+- 配套的文件写 API 包 `@deepseek-ai/dsh-api-workspace-files-write`：IDE 的保存/新建/重命名/删除等文件操作依赖它，DSH 本体暂未内置，需一并装入 profile
 
-```json
-"dependencies": {
-  "@zhaoyang10/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
-}
+### 方式一：本地目录安装（推荐，插件尚未发布 npm）
+
+1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
+
+   ```bash
+   pnpm install
+   pnpm bundle
+   ```
+
+2. 把插件与文件写 API 装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
+
+   ```bash
+   dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
+   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
+   ```
+
+3. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
+
+   ```json
+   "dsh": {
+     "profile": {
+       "bundles": [
+         "...其他 bundle...",
+         "@zhaoyang10/dsh-client-ui-ide"
+       ]
+     }
+   }
+   ```
+
+4. 重启 DSH web：
+
+   ```bash
+   dsh web
+   ```
+
+> `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
+
+### 方式二：从 npm 安装（包发布后可用）
+
+```bash
+dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
 ```
 
-并在 `cordis.patch.yml` 的浏览器 roster 中添加：
+随后同样把 `@zhaoyang10/dsh-client-ui-ide` 加入 `dsh.profile.bundles` 并重启。
+
+### 方式三：手动注册 roster（不启用 bundle patch）
+
+若不想把插件列为 bundle（例如仅在某个 profile 临时启用），可以只完成依赖安装，然后在 profile 用户层 `~/.dsh/profiles/web/cordis.patch.yml` 中手动插入 roster 条目：
 
 ```yaml
-- id: ui-ide
-  name: '@zhaoyang10/dsh-client-ui-ide'
+- insert:
+    - id: workspace-files-write
+      name: '@deepseek-ai/dsh-api-workspace-files-write'
+    - id: ui-ide
+      name: '@zhaoyang10/dsh-client-ui-ide'
 ```
 
-### 验证装载
+### 验证安装
 
-1. 重启 DSH 工作区
-2. 打开右侧工具栏，确认 "IDE" 入口可见
-3. 点击进入 IDE 界面，检查文件树、编辑器、终端等功能是否正常
+1. 重启 DSH web（`dsh web`）
+2. 打开浏览器右侧工具栏，确认 "IDE" 入口可见
+3. 点击进入 IDE 界面，检查文件树、编辑器、终端、Git 面板等功能是否正常
+
+### 卸载
+
+1. 从 `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 中移除 `@zhaoyang10/dsh-client-ui-ide`
+2. 移除依赖：`dsh plugin --profile web remove @zhaoyang10/dsh-client-ui-ide`（写 API 不再需要时一并移除）
+3. 重启 `dsh web`
+
+### 开发热更新（可选）
+
+在 profile 用户层 `cordis.patch.yml` 中启用 `hmr` 行并指向本仓库，host 侧服务即可在 `pnpm watch` 重建后自动热载（浏览器侧仍需刷新页面）：
+
+```yaml
+- id: hmr
+  disabled: false
+  config:
+    base: /absolute/path/to/dsh-web-ide
+    root:
+      - lib
+```
+
+在本仓库执行 `pnpm watch`，并重启一次 `dsh web` 使配置生效。
 
 ## 使用指南
 
@@ -163,7 +231,7 @@ pnpm build
 
 ```json
 {
-  "main": "dist/index.js",
+  "main": "lib/index.js",
   "cordis": {
     "host": true
   }

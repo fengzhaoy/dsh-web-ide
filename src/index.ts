@@ -12,8 +12,9 @@
  * only by the host.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, rename, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -35,6 +36,22 @@ import {
  * Node cannot parse). The gateway's source-mode discovery and remoteMethods()
  * readers consume exactly this shape. */
 const REMOTE_METHODS_KEY = '@deepseek-ai/dsh-typert-protocol/remote-methods'
+
+/**
+ * Resolve a workspace-relative path against the workspace root, refusing any
+ * escape: absolute input resolves outside the root (resolve() replaces the
+ * base), '..' traversal climbs out, and the root itself is not a writable
+ * entry. Used by the Explorer's rename/delete host methods so a malicious or
+ * buggy client can never touch files outside the session's workspace.
+ */
+function resolveWorkspacePath(workspaceRoot: string, relPath: string): string {
+  const root = resolve(workspaceRoot)
+  const abs = resolve(root, relPath)
+  if (abs === root || !abs.startsWith(root + sep)) {
+    throw new Error('path escapes the workspace root')
+  }
+  return abs
+}
 
 /** Wire shapes (mirrored as strict zod in ./typert.host.ts). */
 export interface IdeSearchMatch {
@@ -148,6 +165,10 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitStatus', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDiff', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitStage', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitDiscard', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
@@ -664,6 +685,129 @@ export class IdeTools extends TypertRemoteService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'ide-tools/git-stage-failed', message } }
+    }
+  }
+
+  /** Stage one path (git add -- path). Untracked files become staged adds. */
+  async gitStage(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is empty' } }
+      await this.runGit(cwd, ['add', '--', path], signal)
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/git-stage-failed', message } }
+    }
+  }
+
+  /**
+   * Discard one entry's uncommitted changes: bring the index AND working tree
+   * back to HEAD for that path (VS Code's "Discard Changes").
+   *
+   * Per-kind command sequences, all verified against git 2.x behavior:
+   *  - untracked → git clean -f -- path (removes the file; exit 0 when already
+   *    gone, so a stale entry never hard-fails the discard)
+   *  - added (staged-new) → git rm -f -- path (drops the index entry and
+   *    deletes the working file; succeeds even when the file is already gone)
+   *  - renamed → reset HEAD for both paths, restore the original path, then
+   *    clean the (now untracked) rename target
+   *  - modified / deleted / conflicted → git reset HEAD -- path unstages (and
+   *    clears unmerged state), then git checkout -- path rewrites the working
+   *    tree from the index; recreates a deleted file and resolves a UU
+   *    conflict to the HEAD content
+   */
+  async gitDiscard(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] },
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+    const { path, oldPath, kind } = entry
+    if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is empty' } }
+    try {
+      if (kind === 'untracked') {
+        await this.runGit(cwd, ['clean', '-f', '-q', '--', path], signal)
+      } else if (kind === 'added') {
+        await this.runGit(cwd, ['rm', '-f', '-q', '--', path], signal)
+      } else if (kind === 'renamed' && oldPath !== undefined && oldPath.length > 0) {
+        await this.runGit(cwd, ['reset', '-q', 'HEAD', '--', oldPath, path], signal)
+        await this.runGit(cwd, ['checkout', '-q', '--', oldPath], signal)
+        await this.runGit(cwd, ['clean', '-f', '-q', '--', path], signal)
+      } else {
+        await this.runGit(cwd, ['reset', '-q', 'HEAD', '--', path], signal)
+        await this.runGit(cwd, ['checkout', '-q', '--', path], signal)
+      }
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/git-discard-failed', message } }
+    }
+  }
+
+  /**
+   * Rename one workspace entry within its directory (Explorer context menu →
+   * 重命名). Paths are workspace-relative; the resolved target must stay inside
+   * the workspace root (absolute input, '..' traversal, and the root itself are
+   * all refused). Refuses an existing target instead of overwriting.
+   */
+  async fileRename(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    newName: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (path.length === 0 || newName.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path and name are required' } }
+      if (newName === '.' || newName === '..' || /[/\\]/.test(newName)) {
+        return { ok: false, error: { code: 'ide-tools/bad-request', message: 'invalid name' } }
+      }
+      const abs = resolveWorkspacePath(workspaceRoot, path)
+      const target = resolve(dirname(abs), newName)
+      const root = resolve(workspaceRoot)
+      if (!target.startsWith(root + sep)) {
+        return { ok: false, error: { code: 'ide-tools/bad-path', message: 'target escapes the workspace root' } }
+      }
+      if (existsSync(target)) {
+        return { ok: false, error: { code: 'ide-tools/exists', message: 'an entry with that name already exists' } }
+      }
+      await rename(abs, target)
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/rename-failed', message } }
+    }
+  }
+
+  /**
+   * Delete one file (or a directory, recursively) from the workspace
+   * (Explorer context menu → 删除). Same workspace-root confinement as
+   * fileRename; an already-gone path counts as success (idempotent).
+   */
+  async fileDelete(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    kind: 'file' | 'directory',
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is required' } }
+      const abs = resolveWorkspacePath(workspaceRoot, path)
+      await rm(abs, { recursive: kind === 'directory', force: true })
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/delete-failed', message } }
     }
   }
 

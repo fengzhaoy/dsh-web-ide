@@ -200,6 +200,11 @@ export interface IdeToolsRemote {
   gitCommit(sessionId: SessionId, message: string, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string }>>
   /** Stage all changes (git add -A). */
   gitStageAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Stage one path (git add -- path). */
+  gitStage(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Discard one entry's uncommitted changes (index + working tree back to HEAD;
+   *  untracked files are deleted, staged adds are unstaged and removed). */
+  gitDiscard(sessionId: SessionId, entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] }, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Generate a Conventional Commits message from the current diff via the configured LLM. */
   gitGenerateCommitMessage(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<{ message: string }>>
 }

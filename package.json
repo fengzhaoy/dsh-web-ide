@@ -65,7 +65,8 @@
     "README.md"
   ],
   "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "build:worker": "node scripts/build-monaco-worker.mjs",
+    "bundle": "pnpm run build:worker && tsdown",
+    "watch": "pnpm run build:worker && tsdown --watch"
   }
 }

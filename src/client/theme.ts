@@ -53,7 +53,15 @@ export const IDE_STYLES = `
 .ide-activitybar-icon:hover{color:var(--ide-fg)}
 .ide-activitybar-icon svg{width:24px;height:24px}
 .ide-activitybar-badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#0e639c;color:#fff;font-size:9px;font-weight:600;line-height:16px;text-align:center;box-sizing:border-box;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
-.ide-sidebar{width:240px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}
+.ide-sidebar{position:relative;width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}
+/* Right-edge resize grip: a 7px hit strip centered on the 1px border. Hover
+   shows the accent line + a small handle icon (Icons.splitEditor). */
+.ide-sidebar-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:20;display:flex;align-items:center;justify-content:center}
+.ide-sidebar-resizer::before{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background-color .12s}
+.ide-sidebar-resizer:hover::before,.ide-sidebar-resizer[data-dragging='true']::before{background:var(--ide-accent)}
+.ide-sidebar-resizer-icon{pointer-events:none;opacity:0;transition:opacity .12s;display:flex;align-items:center;justify-content:center;width:16px;height:28px;border-radius:4px;background:#252526;border:1px solid #454545;color:var(--ide-fg-muted);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.ide-sidebar-resizer:hover .ide-sidebar-resizer-icon,.ide-sidebar-resizer[data-dragging='true'] .ide-sidebar-resizer-icon{opacity:1}
+.ide-sidebar-resizer-icon svg{width:12px;height:12px}
 .ide-sidebar-header{height:35px;flex:none;display:flex;align-items:center;padding:0 16px 0 20px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted)}
 .ide-sidebar-body{flex:1;min-height:0;overflow:auto;padding:4px 0}
 .ide-sidebar-body::-webkit-scrollbar{width:10px;height:10px}
@@ -110,7 +118,9 @@ export const IDE_STYLES = `
 [data-slot="rightbar.session"] li[data-files-entry][data-ide-active] > button{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
 [data-slot="rightbar.session"] div[role="button"][data-ide-active]{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
 /* ── Source Control panel ─────────────────────────────────────────────── */
-.ide-git-panel{display:flex;flex-direction:column;height:100%;min-height:0}
+.ide-git-panel{position:relative;display:flex;flex-direction:column;height:100%;min-height:0}
+/* Discard-confirm dialog anchors to the sidebar panel, not the whole page. */
+.ide-git-panel .ide-dialog-backdrop{z-index:30}
 .ide-git-header{height:35px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 20px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted)}
 .ide-git-header-title{flex:1}
 .ide-git-action{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
@@ -167,6 +177,10 @@ export const IDE_STYLES = `
 .ide-git-entry-name[data-kind='conflicted']{color:#e2c08d}
 .ide-git-entry-dir{flex:1 1 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ide-fg-dim);font-size:11px;margin-left:6px}
 .ide-git-entry-status{flex:none;width:16px;min-width:16px;text-align:center;font-weight:700;font-size:12px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+/* Deleted files strike their label, matching VS Code's SCM view (the status
+   letter keeps its color). */
+.ide-git-entry[data-kind='deleted'] .ide-git-entry-name,
+.ide-git-entry[data-kind='deleted'] .ide-git-entry-dir{text-decoration:line-through}
 .ide-git-entry-status[data-kind='modified']{color:#e2c08d}
 .ide-git-entry-status[data-kind='added']{color:#73c991}
 .ide-git-entry-status[data-kind='untracked']{color:#73c991}
