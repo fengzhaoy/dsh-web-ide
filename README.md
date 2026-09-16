@@ -111,7 +111,7 @@ pnpm build
 
 ```json
 "dependencies": {
-  "@deepseek-ai/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
+  "@zhaoyang10/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
 }
 ```
 
@@ -119,7 +119,7 @@ pnpm build
 
 ```yaml
 - id: ui-ide
-  name: '@deepseek-ai/dsh-client-ui-ide'
+  name: '@zhaoyang10/dsh-client-ui-ide'
 ```
 
 ### 验证装载
