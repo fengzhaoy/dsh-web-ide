@@ -1,0 +1,11 @@
+# The dsh-client-ui-ide bundle patch: register the IDE browser plugin into the
+# web profile's client roster. The browser modules node scans this roster into
+# window.__DSH_BOOT__, and the client bundle at lib/client.js registers the
+# 'ide' conversation.view tab on activation. The workspace-files-write row loads
+# the write API's host service and browser roster bundle alongside the IDE.
+
+- insert:
+    - id: workspace-files-write
+      name: '@deepseek-ai/dsh-api-workspace-files-write'
+    - id: ui-ide
+      name: '@deepseek-ai/dsh-client-ui-ide'

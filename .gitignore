@@ -1,18 +1,21 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Dependencies
+node_modules/
+.pnpm-store/
 
-# Other files and folders
-.settings/
+# Build output (tsdown artifacts — regenerated from src/)
+lib/
+dist/
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# TypeScript incremental build info
+*.tsbuildinfo
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

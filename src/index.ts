@@ -1,0 +1,701 @@
+/**
+ * Host loader entry for the IDE plugin: one typert Remote service (namespace
+ * 'ideTools') carrying the IDE's host-backed conveniences —
+ *
+ *  - search: workspace grep over ripgrep, reusing dsh-tool-fs-search's
+ *    argv builder, runner, and --json parser verbatim;
+ *  - terminal*: interactive human terminals over ctx.subprocess.spawnTerminal
+ *    (node-pty backed), with a bounded scrollback replay so a client that
+ *    unsubscribed (view unmount) and resubscribed sees everything it missed.
+ *
+ * The browser face (view registration) lives in ./client; this file is loaded
+ * only by the host.
+ */
+import type { Context } from '@deepseek-ai/cordis'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import z from '@deepseek-ai/schemastery'
+import {
+  buildGrepCommand,
+  parseGrepMatches,
+  previewLine,
+  runRipgrep,
+  RAW_OUTPUT_MAX_BYTES,
+  SEARCH_GRACE_MS,
+  SEARCH_STDERR_MAX_BYTES,
+  GREP_MAX_LINE_BYTES,
+} from '@deepseek-ai/dsh-tool-fs-search'
+
+/** Prototype marker the typert protocol's Remote decorators write; declared
+ * here as a plain property so this package needs no decorator lowering
+ * (rolldown's native transform passes Stage-3 decorator syntax through, which
+ * Node cannot parse). The gateway's source-mode discovery and remoteMethods()
+ * readers consume exactly this shape. */
+const REMOTE_METHODS_KEY = '@deepseek-ai/dsh-typert-protocol/remote-methods'
+
+/** Wire shapes (mirrored as strict zod in ./typert.host.ts). */
+export interface IdeSearchMatch {
+  readonly path: string
+  readonly lineNumber: number
+  readonly line: string
+}
+export interface IdeSearchResult {
+  readonly matches: readonly IdeSearchMatch[]
+  readonly truncated: boolean
+  readonly totalMatches: number
+}
+export interface IdeTerminalOpenResult {
+  readonly terminalId: string
+  readonly pid: number
+}
+export interface IdeTerminalOutputFrame {
+  readonly data: string
+  readonly exit: boolean
+}
+export interface GitStatusEntry {
+  readonly path: string
+  readonly oldPath?: string
+  readonly statusCode: string
+  readonly kind: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'ignored' | 'conflicted' | 'unmodified'
+}
+export interface GitStatusResult {
+  readonly notARepo: boolean
+  readonly branch: string | undefined
+  readonly upstream: string | undefined
+  readonly ahead: number
+  readonly behind: number
+  readonly detached: boolean
+  readonly entries: readonly GitStatusEntry[]
+  readonly clean: boolean
+}
+export interface GitBranch {
+  readonly name: string
+  readonly current: boolean
+  readonly upstream?: string
+  readonly ahead?: number
+  readonly behind?: number
+  readonly lastCommit?: string
+  readonly lastCommitDate?: string
+}
+export interface GitBranchesResult {
+  readonly notARepo: boolean
+  readonly branches: readonly GitBranch[]
+  readonly current: string | undefined
+}
+export interface GitDiffResult {
+  readonly empty: boolean
+  readonly diff: string
+  readonly oldContent: string
+  readonly newContent: string
+  readonly oldPath: string
+  readonly newPath: string
+  readonly language: string
+}
+
+/** One live interactive terminal plus its replay log and live subscribers. */
+interface TerminalEntry {
+  readonly id: string
+  readonly handle: {
+    readonly pid: number
+    readonly output: NodeJS.ReadableStream
+    readonly done: Promise<unknown>
+    write(data: string): Promise<void>
+    signalForeground(signal: string): Promise<number>
+    terminate(): Promise<void>
+  }
+  /** Replay log: base64 output chunks in order, capped in bytes. */
+  readonly log: string[]
+  logBytes: number
+  exited: boolean
+  /** Live per-subscriber queues; the pump pushes into every queue. */
+  readonly subscribers: Set<(frame: IdeTerminalOutputFrame) => void>
+}
+
+/** Cap the replay log at ~512 KiB per terminal, dropping the oldest chunks. */
+const MAX_LOG_BYTES = 512 * 1024
+/** Cap the returned matches per search. */
+const MAX_RESULTS = 250
+
+export class IdeTools extends TypertRemoteService {
+  static inject = ['subprocess', 'sessions', 'typert']
+
+  static Config = z.object({})
+
+  private readonly terminals = new Map<string, TerminalEntry>()
+  private counter = 0
+
+  constructor(ctx: Context, _config: Record<string, never>) {
+    super(ctx, 'ideTools')
+    // Equivalent of @Remote on every method: the protocol marker the
+    // gateway's source-mode discovery reads. The strict typert.host.js
+    // manifest is the primary descriptor; this marker is the fallback.
+    Object.defineProperty(Object.getPrototypeOf(this), REMOTE_METHODS_KEY, {
+      configurable: true,
+      value: Object.freeze({
+        version: 1,
+        methods: Object.freeze([
+          Object.freeze({ method: 'search', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalOpen', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalWrite', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalSignal', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalOutput', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitStatus', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitDiff', invocation: Object.freeze({ kind: 'direct' }) }),
+        ]),
+      }),
+    })
+    // Terminate every still-live terminal when the plugin unloads.
+    ctx.effect(() => () => { void this.disposeAll() }, 'ideTools: terminal teardown')
+  }
+
+  /** Workspace grep reusing dsh-tool-fs-search's ripgrep machinery verbatim. */
+  async search(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean },
+    signal: AbortSignal,
+  ): Promise<IdeSearchResult> {
+    const { workspaceRoot } = workspaceFileScope
+    if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty')
+    const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
+    if (query.include !== undefined && query.include.length > 0) input.include = query.include
+    if (query.path !== undefined && query.path.length > 0) input.path = query.path
+    let argv = buildGrepCommand(input)
+    if (!query.caseSensitive) argv = ['-i', ...argv]
+    const exec = { signal, agent: { session: { header: { cwd: workspaceRoot } } } }
+    const run = await runRipgrep(this.ctx as never, exec, 'grep', argv, RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_STDERR_MAX_BYTES)
+    const parsed = run.noMatches ? [] : parseGrepMatches(run.stdout)
+    const total = parsed.length
+    const kept = parsed.slice(0, MAX_RESULTS)
+    return {
+      matches: kept.map((m) => ({ path: m.path, lineNumber: m.lineNumber, line: previewLine(m.line, GREP_MAX_LINE_BYTES) })),
+      truncated: total > kept.length,
+      totalMatches: total,
+    }
+  }
+
+  /** Spawn one interactive login shell in the workspace root. */
+  async terminalOpen(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    spec: { cols: number; rows: number; command?: string },
+    signal: AbortSignal,
+  ): Promise<IdeTerminalOpenResult> {
+    const { workspaceRoot } = workspaceFileScope
+    const shell = spec.command !== undefined && spec.command.length > 0 ? spec.command : (process.env.SHELL ?? '/bin/zsh')
+    const argv = [shell, '-l']
+    const cols = Math.max(2, Math.min(500, Math.round(spec.cols)))
+    const rows = Math.max(2, Math.min(300, Math.round(spec.rows)))
+    const handle = await this.ctx.subprocess.spawnTerminal({
+      argv,
+      cwd: workspaceRoot,
+      // Inherit the parent environment so zsh picks up PATH, HOME, LANG,
+      // ZDOTDIR, and any ZSH_* / LS_COLORS / PROMPT settings the user has
+      // configured. Then force TERM/COLORTERM so xterm.js renders the full
+      // ANSI palette the shell emits.
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        CLICOLOR: '1',
+        CLICOLOR_FORCE: '1',
+      },
+      rows,
+      cols,
+      graceMs: 5000,
+      signal,
+    })
+    const id = 't' + ++this.counter + '-' + Date.now().toString(36)
+    const entry: TerminalEntry = {
+      id,
+      handle: handle as unknown as TerminalEntry['handle'],
+      log: [],
+      logBytes: 0,
+      exited: false,
+      subscribers: new Set(),
+    }
+    this.terminals.set(id, entry)
+    this.pump(entry)
+    return { terminalId: id, pid: handle.pid }
+  }
+
+  /** Pump the PTY output Readable into the replay log and live subscribers. */
+  private pump(entry: TerminalEntry): void {
+    const emit = (data: string, exit: boolean): void => {
+      entry.log.push(data)
+      entry.logBytes += data.length * 0.75
+      while (entry.logBytes > MAX_LOG_BYTES && entry.log.length > 1) {
+        entry.logBytes -= entry.log[0].length * 0.75
+        entry.log.shift()
+      }
+      for (const subscriber of entry.subscribers) subscriber({ data, exit })
+    }
+    entry.handle.output.on('data', (chunk: Buffer | string) => {
+      const text = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+      emit(text.toString('base64'), false)
+    })
+    const finish = (): void => {
+      entry.exited = true
+      for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
+      entry.subscribers.clear()
+    }
+    entry.handle.output.on('end', finish)
+    entry.handle.output.on('error', finish)
+    void entry.handle.done.catch(() => undefined)
+  }
+
+  /** Deliver one input chunk to the terminal. */
+  async terminalWrite(
+    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    terminalId: string,
+    data: string,
+    _signal: AbortSignal,
+  ): Promise<void> {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
+    if (entry.exited) throw new RemoteError('ide-tools/terminal-exited', 'terminal ' + JSON.stringify(terminalId) + ' has exited')
+    const text = Buffer.from(data, 'base64').toString('utf8')
+    await entry.handle.write(text)
+  }
+
+  /** Signal the terminal's foreground process group (e.g. Ctrl+C as SIGINT). */
+  async terminalSignal(
+    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    terminalId: string,
+    signalName: 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP',
+    _signal: AbortSignal,
+  ): Promise<void> {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
+    await entry.handle.signalForeground(signalName)
+  }
+
+  /** Terminate the whole terminal session and drop it from the registry. */
+  async terminalTerminate(
+    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    terminalId: string,
+    _signal: AbortSignal,
+  ): Promise<void> {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined) return
+    this.terminals.delete(terminalId)
+    for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
+    entry.subscribers.clear()
+    await entry.handle.terminate().catch(() => undefined)
+  }
+
+  /** Stream one terminal's output: replay log first, then live frames. */
+  async *terminalOutput(
+    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    terminalId: string,
+    signal: AbortSignal,
+  ): AsyncGenerator<IdeTerminalOutputFrame, void, void> {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
+    // Replay everything the terminal emitted before this subscription.
+    // Yield each log entry as a SEPARATE frame: joining base64 strings
+    // concatenates padding chars (=) mid-string, yielding invalid base64.
+    for (const entry2 of entry.log) yield { data: entry2, exit: false }
+    if (entry.exited) { yield { data: '', exit: true }; return }
+    // Live phase: a queue fed by the pump, drained until exit or abort.
+    const queue: IdeTerminalOutputFrame[] = []
+    let resolve: (() => void) | undefined
+    const subscriber = (frame: IdeTerminalOutputFrame): void => {
+      queue.push(frame)
+      resolve?.()
+    }
+    entry.subscribers.add(subscriber)
+    const onAbort = (): void => { resolve?.() }
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      for (;;) {
+        while (queue.length > 0) {
+          const frame = queue.shift()
+          if (frame === undefined) break
+          yield frame
+          if (frame.exit) return
+        }
+        if (signal.aborted) return
+        await new Promise<void>((r) => { resolve = r })
+        resolve = undefined
+      }
+    } finally {
+      entry.subscribers.delete(subscriber)
+      signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  // ── Git source control ───────────────────────────────────────────────
+  // All git commands run as a foreground collect-mode spawn through the
+  // subprocess seam (same primitive ripgrep uses), with a bounded stdout cap.
+  // The seam owns process-tree termination on abort; we only parse the text.
+
+  /** Cap git stdout at 8 MiB (covers large diffs; oversized output truncates
+   *  to the tail with a spill file the client never reads here). */
+  private static readonly GIT_STDOUT_MAX_BYTES = 8 * 1024 * 1024
+  private static readonly GIT_STDERR_MAX_BYTES = 16 * 1024
+
+  /** Run one git command in the workspace root, returning its stdout text.
+   *  Throws a RemoteError (notARepo / failed) so the client can map the kind. */
+  private async runGit(
+    workspaceRoot: string,
+    argv: readonly string[],
+    signal: AbortSignal | undefined,
+  ): Promise<string> {
+    const spec = {
+      argv: ['git', ...argv],
+      cwd: workspaceRoot,
+      stdio: {
+        stdin: 'ignore' as const,
+        stdout: { maxBytes: IdeTools.GIT_STDOUT_MAX_BYTES },
+        stderr: { maxBytes: IdeTools.GIT_STDERR_MAX_BYTES },
+      },
+      graceMs: 5000,
+      signal,
+    }
+    let handle: import('@deepseek-ai/dsh-subprocess').SubprocessHandle
+    try {
+      handle = this.ctx.subprocess.spawn(spec as never)
+    } catch {
+      throw new RemoteError('ide-tools/git-failed', 'git command could not start')
+    }
+    let outcome: import('@deepseek-ai/dsh-subprocess').SubprocessOutcome
+    try {
+      outcome = await handle.done
+    } catch {
+      throw new RemoteError('ide-tools/git-failed', 'git process failed before reporting an outcome')
+    }
+    const stdout = handle.collected.stdout?.readFrom(0)
+    const stderr = handle.collected.stderr?.readFrom(0)
+    if (stdout === undefined) throw new RemoteError('ide-tools/git-failed', 'git produced no collected stdout')
+    // Exit 128 with a "not a git repository" message → notARepo, not a failure.
+    const stderrText = stderr?.text ?? ''
+    if (outcome.exitCode === 128 && /not a git repository/i.test(stderrText)) {
+      throw new RemoteError('ide-tools/not-a-repo', 'the workspace root is not a git repository')
+    }
+    if (outcome.signal !== null || outcome.exitCode === null) {
+      throw new RemoteError('ide-tools/git-failed', 'git was killed by signal ' + (outcome.signal ?? '(unknown)'))
+    }
+    if (outcome.exitCode !== 0) {
+      throw new RemoteError('ide-tools/git-failed', 'git exited with code ' + outcome.exitCode + ': ' + stderrText.trim())
+    }
+    return stdout.text
+  }
+
+  /** Parse `git status --porcelain=v2 --branch` output into a GitStatusResult. */
+  private parseGitStatusPorcelain(raw: string): Omit<GitStatusResult, 'notARepo'> {
+    const lines = raw.length === 0 ? [] : raw.split('\n')
+    let branch: string | undefined
+    let upstream: string | undefined
+    let ahead = 0
+    let behind = 0
+    let detached = false
+    const entries: GitStatusEntry[] = []
+    for (const line of lines) {
+      if (line.length === 0) continue
+      // Branch header lines: "# branch.head main", "# branch.upstream origin/main",
+      // "# branch.ab +0 -0", "# branch.oid <sha>" (detached: branch.head = "(detached)")
+      if (line.startsWith('# branch.head ')) {
+        const v = line.slice('# branch.head '.length)
+        if (v === '(detached)') detached = true
+        else branch = v
+        continue
+      }
+      if (line.startsWith('# branch.upstream ')) {
+        upstream = line.slice('# branch.upstream '.length)
+        continue
+      }
+      if (line.startsWith('# branch.ab ')) {
+        const m = line.slice('# branch.ab '.length).match(/\+(\d+)\s+-(\d+)/)
+        if (m) { ahead = parseInt(m[1], 10); behind = parseInt(m[2], 10) }
+        continue
+      }
+      if (line.startsWith('#')) continue
+      // Change lines: "1 <XY> <sub> <mW> <hW> <iW> <path>" or
+      // "2 <XY> <sub> <mW> <hW> <iW> <oldPath> <path>" or
+      // "u <XY> <sub> <m1> <m2> <m3> <mW> <hW> <iW> <path>" or
+      // "? <path>" (untracked) or "! <path>" (ignored)
+      const first = line[0]
+      if (first === '?') {
+        const path = line.slice(2)
+        if (path.length > 0) entries.push({ path, statusCode: '??', kind: 'untracked' })
+        continue
+      }
+      if (first === '!') continue // ignored — not surfaced
+      if (first === '1' || first === '2') {
+        const parts = line.split('\t')
+        // parts[0] is "1 XY ..." or "2 XY ..."; split the header by spaces.
+        const header = parts[0].split(' ')
+        const xy = header[1] ?? '  '
+        if (first === '2') {
+          // rename: parts[1] = oldPath, parts[2] = newPath
+          const oldPath = parts[1] ?? ''
+          const newPath = parts[2] ?? ''
+          entries.push({ path: newPath, oldPath, statusCode: xy, kind: this.xyToKind(xy) })
+        } else {
+          const path = parts[1] ?? ''
+          entries.push({ path, statusCode: xy, kind: this.xyToKind(xy) })
+        }
+        continue
+      }
+      if (first === 'u') {
+        // unmerged/conflicted
+        const parts = line.split('\t')
+        const header = parts[0].split(' ')
+        const xy = header[1] ?? '  '
+        const path = parts[1] ?? ''
+        entries.push({ path, statusCode: xy, kind: 'conflicted' })
+        continue
+      }
+    }
+    return {
+      branch,
+      upstream,
+      ahead,
+      behind,
+      detached,
+      entries,
+      clean: entries.length === 0,
+    }
+  }
+
+  /** Map a porcelain v2 XY status code to a human kind. */
+  private xyToKind(xy: string): GitStatusEntry['kind'] {
+    const x = xy[0] ?? ' '
+    const y = xy[1] ?? ' '
+    if (x === 'A' || y === 'A') return 'added'
+    if (x === 'D' || y === 'D') return 'deleted'
+    if (x === 'R' || y === 'R') return 'renamed'
+    if (x === 'M' || y === 'M' || x === 'T' || y === 'T') return 'modified'
+    if (x === 'U' || y === 'U') return 'conflicted'
+    return 'modified'
+  }
+
+  /** Snapshot the workspace's git status (branch, ahead/behind, changed files). */
+  async gitStatus(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<GitStatusResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const EMPTY: GitStatusResult = {
+      notARepo: true, branch: undefined, upstream: undefined, ahead: 0, behind: 0,
+      detached: false, entries: [], clean: true,
+    }
+    try {
+      if (!cwd) return { ...EMPTY, notARepo: false }
+      const raw = await this.runGit(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], signal)
+      // -z uses NUL terminators; split on NUL and drop the trailing empty.
+      const parts = raw.split('\u0000').filter((s) => s.length > 0)
+      const headerBlock = parts.filter((p) => p.startsWith('#')).join('\n')
+      const parsed = this.parseGitStatusPorcelain(headerBlock)
+      // Rebuild entries from NUL-split paths (skip header lines).
+      const entries: GitStatusEntry[] = []
+      for (const part of parts) {
+        if (part.startsWith('#')) continue
+        const first = part[0]
+        if (first === '?') { entries.push({ path: part.slice(2), statusCode: '??', kind: 'untracked' }); continue }
+        if (first === '!') continue
+        if (first === '1' || first === '2' || first === 'u') {
+          const tabIdx = part.indexOf('\t')
+          const header = tabIdx >= 0 ? part.slice(0, tabIdx).split(' ') : part.split(' ')
+          const xy = header[1] ?? '  '
+          const rest = tabIdx >= 0 ? part.slice(tabIdx + 1) : ''
+          if (first === '2') {
+            const tab2 = rest.indexOf('\t')
+            const oldP = tab2 >= 0 ? rest.slice(0, tab2) : ''
+            const newP = tab2 >= 0 ? rest.slice(tab2 + 1) : rest
+            entries.push({ path: newP, oldPath: oldP, statusCode: xy, kind: this.xyToKind(xy) })
+          } else {
+            entries.push({ path: rest, statusCode: xy, kind: first === 'u' ? 'conflicted' : this.xyToKind(xy) })
+          }
+        }
+      }
+      return { notARepo: false, ...parsed, entries, clean: entries.length === 0 }
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
+      throw err
+    }
+  }
+
+  /** List local branches with ahead/behind and last-commit metadata. */
+  async gitBranches(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<GitBranchesResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const EMPTY: GitBranchesResult = { notARepo: true, branches: [], current: undefined }
+    try {
+      // %00 delim: refname, upstream, ahead, behind, objectname, authordate:short, HEAD
+      const fmt = '%(refname:short)%00%(upstream:short)%00%(upstream:track,normalspace)%00%(objectname:short)%00%(committerdate:short)%00%(HEAD)%00'
+      if (!cwd) return EMPTY
+      const raw = await this.runGit(cwd, ['for-each-ref', '--format=' + fmt, 'refs/heads'], signal)
+      const branches: GitBranch[] = []
+      let current: string | undefined
+      if (raw.length > 0) {
+        for (const line of raw.split('\n')) {
+          if (line.length === 0) continue
+          const [name, up, track, sha, date, head] = line.split('\u0000')
+          let ahead: number | undefined
+          let behind: number | undefined
+          if (track && track.length > 0) {
+            const am = track.match(/ahead (\d+)/)
+            const bm = track.match(/behind (\d+)/)
+            if (am) ahead = parseInt(am[1], 10)
+            if (bm) behind = parseInt(bm[1], 10)
+          }
+          const isCurrent = head === '*'
+          if (isCurrent) current = name
+          branches.push({
+            name, current: isCurrent,
+            upstream: up && up.length > 0 ? up : undefined,
+            ahead, behind,
+            lastCommit: sha,
+            lastCommitDate: date,
+          })
+        }
+      }
+      return { notARepo: false, branches, current }
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
+      throw err
+    }
+  }
+
+  /** Fetch a unified diff (and old/new content) for one path. */
+  async gitDiff(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    kind: 'unstaged' | 'staged' | 'head',
+    signal: AbortSignal | undefined,
+  ): Promise<GitDiffResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const language = this.detectLanguage(path)
+    // Pick the diff scope:
+    //  unstaged → git diff -- <path>            (worktree vs index)
+    //  staged   → git diff --cached -- <path>   (index vs HEAD)
+    //  head     → git diff HEAD -- <path>       (worktree vs HEAD, staged+unstaged)
+    const diffArgv: string[] = ['diff']
+    if (kind === 'staged') diffArgv.push('--cached')
+    else if (kind === 'head') diffArgv.push('HEAD')
+    diffArgv.push('--', path)
+    try {
+      if (!cwd) return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language }
+      const diff = await this.runGit(cwd, diffArgv, signal)
+      // Old content: the HEAD version of the path (empty for added/untracked files).
+      let oldContent = ''
+      try {
+        oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
+      } catch {
+        // new/untracked file — HEAD:path does not exist; oldContent stays ''
+      }
+      // New content: prefer the index version (staged changes); if the file
+      // is not in the index (untracked, or worktree-only), read the working-
+      // tree file directly from disk so untracked files still show content.
+      let newContent = ''
+      try {
+        newContent = await this.runGit(cwd, ['show', ':' + path], signal)
+      } catch {
+        // Not in index → try reading the working-tree file from disk.
+        // For untracked files this is the only source of content; for deleted
+        // files the read fails and newContent stays '' (correct).
+        try {
+          const buf = await readFile(join(cwd, path))
+          newContent = buf.toString('utf8')
+        } catch {
+          // file does not exist on disk (deleted) — newContent stays ''
+        }
+      }
+      // A diff is "empty" only when there is genuinely nothing to show: no
+      // diff text AND old/new content are identical (or both absent). An
+      // untracked file has empty diff text but non-empty newContent — it
+      // must NOT be flagged empty so the DiffEditor renders it.
+      const isEmpty = diff.trim().length === 0 && oldContent === newContent
+      return {
+        empty: isEmpty,
+        diff,
+        oldContent,
+        newContent,
+        oldPath: path,
+        newPath: path,
+        language,
+      }
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') {
+        return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language }
+      }
+      throw err
+    }
+  }
+
+  /** Minimal language id by extension (mirrors the client's detectLanguage
+   *  for the diff result's Monaco model). */
+  private detectLanguage(path: string): string {
+    const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+    const map: Record<string, string> = {
+      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+      json: 'json', css: 'css', scss: 'scss', less: 'less',
+      html: 'html', htm: 'html', xml: 'xml', svg: 'xml',
+      md: 'markdown', markdown: 'markdown',
+      py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
+      c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',
+      sh: 'shell', bash: 'shell', zsh: 'shell',
+      yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini',
+      sql: 'sql', dockerfile: 'dockerfile', makefile: 'makefile',
+    }
+    return map[ext] ?? 'plaintext'
+  }
+
+  /** Stage all changes (git add -A) in the workspace root. */
+  async gitStageAll(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      await this.runGit(cwd, ['add', '-A'], signal)
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/git-stage-failed', message } }
+    }
+  }
+
+  /** Stage all changes and commit with a message (git add -A && git commit -m). */
+  async gitCommit(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    message: string,
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: { committed: boolean; hash?: string } } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      // Stage all changes first.
+      await this.runGit(cwd, ['add', '-A'], signal)
+      // Commit with the message. Use -m to avoid editor launch.
+      const out = await this.runGit(cwd, ['commit', '-m', message], signal)
+      // Extract the commit hash from the commit output (line like "[main abc1234] ...").
+      const hashMatch = out.match(/\[\S+ ([0-9a-f]{7,})\]/)
+      return { ok: true, value: { committed: true, hash: hashMatch?.[1] } }
+    } catch (err) {
+      const message2 = err instanceof Error ? err.message : String(err)
+      // "nothing to commit" is not a hard error — report it as ok but not committed.
+      if (message2.includes('nothing to commit') || message2.includes('no changes')) {
+        return { ok: true, value: { committed: false } }
+      }
+      return { ok: false, error: { code: 'ide-tools/git-commit-failed', message: message2 } }
+    }
+  }
+
+  /** Plugin teardown: terminate every still-live terminal. */
+  private async disposeAll(): Promise<void> {
+    const entries = [...this.terminals.values()]
+    this.terminals.clear()
+    await Promise.allSettled(entries.map(async (entry) => {
+      for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
+      entry.subscribers.clear()
+      await entry.handle.terminate().catch(() => undefined)
+    }))
+  }
+}
+
+export default IdeTools
