@@ -120,6 +120,19 @@ const _ide_tools_ideTools_gitDiscard_parameter_1$schema = z.object({
   ]).readonly(),
 }).readonly()
 const _ide_tools_ideTools_gitDiscard_result$schema = z.void()
+const _ide_tools_ideTools_fileRename_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileRename_parameter_2$schema = z.string()
+const _ide_tools_ideTools_fileRename_result$schema = z.void()
+const _ide_tools_ideTools_fileDelete_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileDelete_parameter_2$schema = z.union([
+  z.literal('file'), z.literal('directory'),
+])
+const _ide_tools_ideTools_fileDelete_result$schema = z.void()
+const _ide_tools_ideTools_fileCreate_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileCreate_parameter_2$schema = z.union([
+  z.literal('file'), z.literal('directory'),
+])
+const _ide_tools_ideTools_fileCreate_result$schema = z.void()
 const _ide_tools_ideTools_gitGenerateCommitMessage_result$schema = z.object({
   'message': z.string().readonly(),
 }).readonly()
@@ -493,6 +506,117 @@ export const TYPERT = {
         schema: _ide_tools_ideTools_gitDiscard_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 723, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileRename',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileRename', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename:path',
+            schema: _ide_tools_ideTools_fileRename_parameter_1$schema,
+          },
+        },
+        {
+          name: 'newName',
+          wire: 'newName',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename:newName',
+            schema: _ide_tools_ideTools_fileRename_parameter_2$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileRenameResult',
+        schema: _ide_tools_ideTools_fileRename_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 746, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileDelete',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileDelete', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete:path',
+            schema: _ide_tools_ideTools_fileDelete_parameter_1$schema,
+          },
+        },
+        {
+          name: 'kind',
+          wire: 'kind',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete:kind',
+            schema: _ide_tools_ideTools_fileDelete_parameter_2$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileDeleteResult',
+        schema: _ide_tools_ideTools_fileDelete_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 792, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileCreate',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileCreate', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate:path',
+            schema: _ide_tools_ideTools_fileCreate_parameter_1$schema,
+          },
+        },
+        {
+          name: 'kind',
+          wire: 'kind',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate:kind',
+            schema: _ide_tools_ideTools_fileCreate_parameter_2$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileCreateResult',
+        schema: _ide_tools_ideTools_fileCreate_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitGenerateCommitMessage',

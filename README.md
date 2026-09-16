@@ -8,6 +8,12 @@ DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集
 
 DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完整的代码编辑、文件管理、Git 版本控制、终端模拟及全局搜索功能。该插件深度集成于 DSH 工作区，支持暗色主题，拥有流畅的用户体验和高效的开发工作流。
 
+## 核心功能预览
+
+![资源管理 - 文件浏览](browser-screenshots/resource.png)
+
+![Git 源代码管理](browser-screenshots/git.png)
+
 ## 核心功能
 
 ### 文件浏览与管理

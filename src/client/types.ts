@@ -207,6 +207,16 @@ export interface IdeToolsRemote {
   gitDiscard(sessionId: SessionId, entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] }, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Generate a Conventional Commits message from the current diff via the configured LLM. */
   gitGenerateCommitMessage(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<{ message: string }>>
+  /** Rename one workspace entry within its directory (Explorer context menu).
+   *  Paths are workspace-relative; the host refuses anything escaping the
+   *  workspace root and refuses an existing target. */
+  fileRename(sessionId: SessionId, path: string, newName: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Delete one file (or a directory recursively) from the workspace.
+   *  Same workspace-root confinement; an already-gone path is a success. */
+  fileDelete(sessionId: SessionId, path: string, kind: 'file' | 'directory', signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Create one new workspace entry (file with empty content, or directory).
+   *  Missing parents are created; an existing target is refused. */
+  fileCreate(sessionId: SessionId, path: string, kind: 'file' | 'directory', signal?: AbortSignal): Promise<RemoteResult<void>>
 }
 
 /** Props injected into the IdeView by the conversation.view slot registration. */
@@ -230,6 +240,8 @@ export interface IdeViewInjected {
   ideTools: () => IdeToolsRemote
   /** Locale-bound translate from ctx.locale.bind; the view keeps a fallback. */
   t?: (key: string, params?: Record<string, string | number>) => string
+  /** Current AI model identifier, when known (shown in the status bar). */
+  model?: string
 }
 
 /** Loose client context shaped by the boot kernel from the `inject` array. */

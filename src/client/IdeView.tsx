@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icons } from './icons.js'
 import { IDE_CSS_VARS, IDE_STYLES, defineDarkModernTheme } from './theme.js'
 import { FileTree } from './explorer/FileTree.js'
+import type { ExplorerHandle } from './explorer/FileTree.js'
 import { SearchPanel } from './search/SearchPanel.js'
 import { SourceControlPanel } from './git/SourceControlPanel.js'
 import { DiffEditor } from './git/DiffEditor.js'
@@ -120,6 +121,17 @@ const workspaceTabs = new Map<string, {
   /** Open git-diff path, so the diff overlay survives a remount like the tabs. */
   diffPath: string | undefined
 }>()
+
+/**
+ * Session-scoped terminal-dock persistence: the dock's open flag, the live
+ * host-side terminal IDs, and the selected tab. Switching to the conversation
+ * (and back) remounts the view, but the shells keep running on the host and
+ * terminalOutput replays their buffered output — so parking just the IDs is
+ * enough to restore the dock exactly as the user left it. Keyed by session
+ * (terminal IDs are session-scoped on the host), unlike the workspace-keyed
+ * editor tabs.
+ */
+const sessionTerminals = new Map<string, { open: boolean; ids: string[]; activeIdx: number }>()
 
 /** The activity bar's selectable sidebar panels. */
 type SidebarView = 'explorer' | 'search' | 'git'
@@ -265,7 +277,7 @@ export function IdeView(props: IdeViewInjected & {
   openView?: (view: string, focus: string) => void
   completeViewRequest?: () => void
 }) {
-  const { sessionId, cwd, workspaceFiles, workspaceFilesWrite } = props
+  const { sessionId, cwd, workspaceFiles, workspaceFilesWrite, model } = props
   // Lazy namespace getter resolved at render (after boot settles); see types.
   const ideTools = props.ideTools()
   const viewRequest = props.viewRequest ?? null
@@ -343,12 +355,21 @@ export function IdeView(props: IdeViewInjected & {
   })
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
-  /** Bottom terminal dock: open flag + multiple terminal identities (survives remounts). */
-  const [terminalOpen, setTerminalOpen] = useState(false)
-  const [terminalIds, setTerminalIds] = useState<string[]>([])
-  const [activeTerminalIdx, setActiveTerminalIdx] = useState(0)
+  /** Bottom terminal dock: open flag + terminal identities. Seeded from the
+   *  session-parked state so a remount (chat ↔ IDE tab switch) reopens the
+   *  dock with the same still-running host-side terminals. */
+  const [terminalOpen, setTerminalOpen] = useState(() =>
+    sessionId !== undefined && sessionTerminals.get(sessionId)?.open === true)
+  const [terminalIds, setTerminalIds] = useState<string[]>(() =>
+    sessionId === undefined ? [] : (sessionTerminals.get(sessionId)?.ids ?? []))
+  const [activeTerminalIdx, setActiveTerminalIdx] = useState(() =>
+    sessionId === undefined ? 0 : (sessionTerminals.get(sessionId)?.activeIdx ?? 0))
   /** Fast per-path dirty mirror so the Monaco content listener can bail before touching React state. */
   const dirtyRef = useRef<Set<string>>(new Set())
+  /** Imperative handle into the explorer tree (header action buttons). */
+  const explorerRef = useRef<ExplorerHandle | null>(null)
+  /** Bumped by the explorer's refresh button to force an immediate git status refetch. */
+  const [gitRefreshKey, setGitRefreshKey] = useState(0)
 
   // Inject the stylesheet + CSS vars once.
   useEffect(() => {
@@ -434,6 +455,26 @@ export function IdeView(props: IdeViewInjected & {
     workspaceTabs.set(key, { tabs, activePath, diffPath })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd, tabs, activePath, diffPath])
+
+  // Terminal dock restore: re-apply this session's parked dock state on mount
+  // and after a session switch. Declared BEFORE the park effect so a session
+  // switch reads the target session's state before anything clobbers it (same
+  // ordering guarantee as the workspace tab restore above).
+  useEffect(() => {
+    if (sessionId === undefined) return
+    const parked = sessionTerminals.get(sessionId)
+    setTerminalOpen(parked?.open ?? false)
+    setTerminalIds(parked?.ids ?? [])
+    setActiveTerminalIdx(parked?.activeIdx ?? 0)
+  }, [sessionId])
+
+  // Terminal dock park: keep the freshest dock state parked so remounts
+  // (switching to the conversation and back) restore it verbatim. The shells
+  // themselves keep running on the host; re-attaching replays their output.
+  useEffect(() => {
+    if (sessionId === undefined) return
+    sessionTerminals.set(sessionId, { open: terminalOpen, ids: terminalIds, activeIdx: activeTerminalIdx })
+  }, [sessionId, terminalOpen, terminalIds, activeTerminalIdx])
 
   const openFile = useCallback(async (path: string, line?: number) => {
     if (!sessionId) return
@@ -555,6 +596,28 @@ export function IdeView(props: IdeViewInjected & {
     closeTabNow(path)
   }, [tabs, closeTabNow])
 
+  // Explorer renamed a file/folder: close affected tabs and reopen them under
+  // the new path (content is re-read from disk; saved baselines follow).
+  const handleFileRenamed = useCallback((oldAbs: string, newAbs: string) => {
+    setDiffPath((current) => (current !== undefined && (current === oldAbs || current.startsWith(oldAbs + '/')) ? undefined : current))
+    const affected = tabs.filter((tb) => tb.path === oldAbs || tb.path.startsWith(oldAbs + '/'))
+    void (async () => {
+      for (const tb of affected) {
+        closeTabNow(tb.path)
+        await openFile(newAbs + tb.path.slice(oldAbs.length))
+      }
+    })()
+  }, [tabs, setDiffPath, closeTabNow, openFile])
+
+  // Explorer deleted a file/folder: drop its diff and close its tab(s) without
+  // prompting (the user explicitly removed the file).
+  const handleFileDeleted = useCallback((abs: string) => {
+    setDiffPath((current) => (current !== undefined && (current === abs || current.startsWith(abs + '/')) ? undefined : current))
+    for (const tb of tabs) {
+      if (tb.path === abs || tb.path.startsWith(abs + '/')) closeTabNow(tb.path)
+    }
+  }, [tabs, setDiffPath, closeTabNow])
+
   // Subscribe to file changes; refresh open files whose version changed.
   useEffect(() => {
     if (!sessionId) return
@@ -609,7 +672,7 @@ export function IdeView(props: IdeViewInjected & {
     // Poll every 15s so the badge count stays fresh while the panel is closed.
     const id = setInterval(fetch, 15000)
     return () => { cancelled = true; ctrl.abort(); clearInterval(id) }
-  }, [sessionId, cwd, ideTools])
+  }, [sessionId, cwd, ideTools, gitRefreshKey])
 
   // Register this mount with the sidebar bridge so sidebar clicks can route
   // here, and publish the active file so the sidebar tree can highlight it.
@@ -827,9 +890,43 @@ export function IdeView(props: IdeViewInjected & {
             )
           ) : (
             <>
-              <div className="ide-sidebar-header">{t('explorer.title')}</div>
+              <div className="ide-sidebar-header">
+                <span>{t('explorer.title')}</span>
+                {/* VS Code-style title actions, revealed while the pointer is over the sidebar. */}
+                <div className="ide-header-actions">
+                  <button
+                    className="ide-header-action"
+                    title={t('explorer.newFile')}
+                    aria-label={t('explorer.newFile')}
+                    data-testid="ide-explorer-new-file"
+                    onClick={() => explorerRef.current?.startCreate('file')}
+                  >{Icons.newFile}</button>
+                  <button
+                    className="ide-header-action"
+                    title={t('explorer.newFolder')}
+                    aria-label={t('explorer.newFolder')}
+                    data-testid="ide-explorer-new-folder"
+                    onClick={() => explorerRef.current?.startCreate('directory')}
+                  >{Icons.newFolder}</button>
+                  <button
+                    className="ide-header-action"
+                    title={t('explorer.refresh')}
+                    aria-label={t('explorer.refresh')}
+                    data-testid="ide-explorer-refresh"
+                    onClick={() => { explorerRef.current?.refresh(); setGitRefreshKey((k) => k + 1) }}
+                  >{Icons.refresh}</button>
+                  <button
+                    className="ide-header-action"
+                    title={t('explorer.collapseAll')}
+                    aria-label={t('explorer.collapseAll')}
+                    data-testid="ide-explorer-collapse-all"
+                    onClick={() => explorerRef.current?.collapseAll()}
+                  >{Icons.chevronDown}</button>
+                </div>
+              </div>
               {sessionId && cwd ? (
                 <FileTree
+                  ref={explorerRef}
                   sessionId={sessionId}
                   rootDir={cwd}
                   workspaceFiles={workspaceFiles}
@@ -841,6 +938,9 @@ export function IdeView(props: IdeViewInjected & {
                   }}
                   t={t}
                   gitEntries={gitEntries}
+                  ideToolsFull={ideTools}
+                  onFileRenamed={handleFileRenamed}
+                  onFileDeleted={handleFileDeleted}
                 />
               ) : (
                 <div className="ide-tree-loading">{sessionId ? t('tree.loading') : t('empty.noSession')}</div>
@@ -938,7 +1038,7 @@ export function IdeView(props: IdeViewInjected & {
               t={t}
             />
           )}
-          <StatusBar activeTab={activeTab} cursor={cursor} t={t} saveState={saveState} onSave={() => { if (activePath !== undefined) void saveFile(activePath) }} />
+          <StatusBar activeTab={activeTab} cursor={cursor} t={t} saveState={saveState} onSave={() => { if (activePath !== undefined) void saveFile(activePath) }} model={model} />
         </div>
       </div>
     </div>

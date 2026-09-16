@@ -63,6 +63,13 @@ export const IDE_STYLES = `
 .ide-sidebar-resizer:hover .ide-sidebar-resizer-icon,.ide-sidebar-resizer[data-dragging='true'] .ide-sidebar-resizer-icon{opacity:1}
 .ide-sidebar-resizer-icon svg{width:12px;height:12px}
 .ide-sidebar-header{height:35px;flex:none;display:flex;align-items:center;padding:0 16px 0 20px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted)}
+/* VS Code-style explorer title actions: hidden until the pointer moves over the
+   sidebar, then revealed in the header's top-right corner. */
+.ide-header-actions{margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s ease}
+.ide-sidebar:hover .ide-header-actions{opacity:1}
+.ide-header-action{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;background:transparent;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px;padding:0}
+.ide-header-action:hover{background:var(--ide-tree-hover);color:var(--ide-fg)}
+.ide-header-action svg{width:16px;height:16px}
 .ide-sidebar-body{flex:1;min-height:0;overflow:auto;padding:4px 0}
 .ide-sidebar-body::-webkit-scrollbar{width:10px;height:10px}
 .ide-sidebar-body::-webkit-scrollbar-thumb{background:#424242;border-radius:5px}
@@ -99,6 +106,12 @@ export const IDE_STYLES = `
 .ide-tree-icon{width:16px;flex:none;display:flex;align-items:center;justify-content:center}
 .ide-tree-icon svg{width:16px;height:16px}
 .ide-tree-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* In-tree rename editor (VS Code style: input replaces the label, accent border). */
+.ide-tree-rename-input{flex:1 1 auto;min-width:40px;height:20px;background:#313131;border:1px solid var(--ide-accent);border-radius:2px;color:var(--ide-fg);font:inherit;font-size:13px;padding:0 3px;outline:none}
+.ide-tree-rename-input[data-invalid='true']{border-color:#f48771}
+.ide-tree-rename-input::selection{background:#264f78}
+.ide-tree-rename-error{font-size:11px;line-height:15px;color:#f48771;padding:1px 12px 2px;white-space:normal}
+.ide-tree-rename-warning{font-size:11px;line-height:15px;color:#cca700;padding:1px 12px 2px;white-space:normal}
 .ide-tree-git-badge{flex:none;margin-left:4px;font-size:11px;font-weight:600;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);opacity:.85}
 .ide-tree-loading{padding:0 24px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 .ide-tree-error{padding:8px 16px;color:#f48771;font-size:12px}
@@ -107,6 +120,9 @@ export const IDE_STYLES = `
 .ide-statusbar-dirty{color:#cca700;background:none;border:none;font:inherit;padding:0;cursor:pointer}
 .ide-statusbar-conflict{color:#f14c4c}
 .ide-dialog-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:40;pointer-events:auto}
+/* Window-level modal variant (Explorer delete confirm): fixed to the viewport so
+   it does not scroll away inside the tree's scroll container. */
+.ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:60}
 .ide-dialog{background:#1f1f1f;border:1px solid #3c3c3c;border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:#cccccc;font-size:13px}
 .ide-dialog-body{color:#9d9d9d;font-size:12px;line-height:1.6;margin-bottom:16px}

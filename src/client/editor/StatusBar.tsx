@@ -9,9 +9,11 @@ interface StatusBarProps {
   saveState: 'idle' | 'saving' | 'conflict'
   /** Save the active tab (status-bar affordance). */
   onSave: () => void
+  /** Current AI model identifier, shown in the status bar (right side). */
+  model?: string
 }
 
-export function StatusBar({ activeTab, cursor, t, saveState, onSave }: StatusBarProps) {
+export function StatusBar({ activeTab, cursor, t, saveState, onSave, model }: StatusBarProps) {
   return (
     <div className="ide-statusbar">
       <div className="ide-statusbar-left">
@@ -28,6 +30,9 @@ export function StatusBar({ activeTab, cursor, t, saveState, onSave }: StatusBar
         )}
       </div>
       <div className="ide-statusbar-right">
+        {model && (
+          <span className="ide-statusbar-item ide-statusbar-model">{t('status.model', { model })}</span>
+        )}
         {activeTab && activeTab.status === 'ready' && (
           <>
             <span className="ide-statusbar-item">{t('status.lineColumn', { line: cursor.line, column: cursor.column })}</span>

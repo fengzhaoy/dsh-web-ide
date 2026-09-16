@@ -12,7 +12,7 @@
  * only by the host.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { readFile, rename, rm } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -169,6 +169,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitDiscard', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileCreate', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
@@ -808,6 +809,40 @@ export class IdeTools extends TypertRemoteService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'ide-tools/delete-failed', message } }
+    }
+  }
+
+  /**
+   * Create one new workspace entry (Explorer → New File / New Folder). The
+   * path may contain new intermediate segments (VS Code's inline input accepts
+   * "sub/dir/name"), so missing parents are created; an existing target is
+   * refused instead of overwritten. Same workspace-root confinement as
+   * fileRename/fileDelete.
+   */
+  async fileCreate(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    kind: 'file' | 'directory',
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is required' } }
+      const abs = resolveWorkspacePath(workspaceRoot, path)
+      if (existsSync(abs)) {
+        return { ok: false, error: { code: 'ide-tools/exists', message: 'an entry with that name already exists' } }
+      }
+      if (kind === 'directory') {
+        await mkdir(abs, { recursive: true })
+      } else {
+        await mkdir(dirname(abs), { recursive: true })
+        await writeFile(abs, '', { flag: 'wx' })
+      }
+      return { ok: true, value: undefined }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/create-failed', message } }
     }
   }
 
