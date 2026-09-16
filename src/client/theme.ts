@@ -78,8 +78,10 @@ export const IDE_STYLES = `
 .ide-editor-stack{flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-editor-overlay{position:absolute;inset:0;pointer-events:none;display:flex}
 .ide-editor-overlay:empty{display:none}
-.ide-tabbar{height:35px;flex:none;display:flex;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);overflow-x:auto;overflow-y:hidden}
-.ide-tabbar::-webkit-scrollbar{height:0}
+.ide-tabbar{height:35px;flex:none;display:flex;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);overflow:hidden}
+.ide-tabbar-tabs{flex:1;min-width:0;display:flex;overflow-x:auto;overflow-y:hidden}
+.ide-tabbar-tabs::-webkit-scrollbar{height:0}
+.ide-tabbar-actions{flex:none;display:flex;align-items:center;gap:2px;padding:0 8px}
 .ide-tab{display:flex;align-items:center;gap:8px;height:35px;padding:0 12px;background:var(--ide-tab-inactive-bg);color:var(--ide-tab-inactive-fg);cursor:pointer;white-space:nowrap;border-right:1px solid var(--ide-tab-border);font-size:13px}
 .ide-tab[data-active='true']{background:var(--ide-tab-active-bg);color:var(--ide-tab-active-fg)}
 .ide-tab:hover:not([data-active='true']){background:#2a2d2e;color:var(--ide-fg)}
@@ -92,6 +94,45 @@ export const IDE_STYLES = `
 .ide-monaco-host{position:absolute;inset:0}
 .ide-editor-image{position:absolute;inset:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
 .ide-editor-image img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+/* ── Markdown split preview (VS Code Open-Preview-to-the-Side parity) ── */
+.ide-editor-container[data-md-split='true']{inset:0 50% 0 0}
+.ide-md-pane{position:absolute;top:0;bottom:0;right:0;width:50%;display:flex;flex-direction:column;background:var(--ide-bg);border-left:1px solid var(--ide-tab-border);z-index:1}
+.ide-md-pane-header{height:28px;flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px;color:var(--ide-fg)}
+.ide-md-pane-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.ide-tabbar-action{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
+.ide-tabbar-action:hover{color:var(--ide-fg);background:var(--ide-tree-hover)}
+.ide-tabbar-action[data-active='true']{color:var(--ide-fg);background:var(--ide-tree-active)}
+.ide-tabbar-action svg{width:16px;height:16px}
+/* Typography adapted from the official markdown preview (markdown.css:
+   14px/22px, headings 600, 24/16 margins) on the Dark Modern palette. */
+.ide-md-body{flex:1;min-height:0;overflow:auto;padding:12px 24px 24px;font-size:14px;line-height:22px;word-wrap:break-word;color:var(--ide-fg);font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
+.ide-md-body h1,.ide-md-body h2,.ide-md-body h3,.ide-md-body h4,.ide-md-body h5,.ide-md-body h6{font-weight:600;line-height:1.25;margin:24px 0 16px}
+.ide-md-body h1:first-child,.ide-md-body h2:first-child,.ide-md-body h3:first-child,.ide-md-body h4:first-child{margin-top:8px}
+.ide-md-body h1{font-size:28px}
+.ide-md-body h2{font-size:22px}
+.ide-md-body h3{font-size:18px}
+.ide-md-body h4{font-size:15px}
+.ide-md-body h5{font-size:14px}
+.ide-md-body h6{font-size:13px;color:var(--ide-fg-muted)}
+.ide-md-body p{margin:0 0 16px}
+.ide-md-body a{color:#4daafc;text-decoration:none}
+.ide-md-body a:hover{text-decoration:underline}
+.ide-md-body ul,.ide-md-body ol{margin:0 0 16px;padding-left:28px}
+.ide-md-body li{margin:2px 0}
+.ide-md-body li.ide-md-task{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:6px}
+.ide-md-body li.ide-md-task input{margin-top:5px}
+.ide-md-body blockquote{margin:0 0 16px;padding:0 12px;border-left:3px solid #3c3c3c;color:var(--ide-fg-muted)}
+.ide-md-body code{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:12px;background:rgba(255,255,255,.09);border-radius:3px;padding:1px 4px}
+.ide-md-body pre{position:relative;background:rgba(255,255,255,.045);border:1px solid #3c3c3c;border-radius:4px;padding:12px;overflow:auto;margin:0 0 16px}
+.ide-md-body pre code{background:none;padding:0;font-size:12px;line-height:18px;display:block;white-space:pre}
+.ide-md-body pre[data-lang]:not([data-lang=''])::before{content:attr(data-lang);position:absolute;top:4px;right:8px;font-size:10px;color:var(--ide-fg-dim);text-transform:uppercase;letter-spacing:.5px}
+.ide-md-body table{border-collapse:collapse;margin:0 0 16px;display:block;overflow-x:auto;max-width:100%}
+.ide-md-body th,.ide-md-body td{border:1px solid #3c3c3c;padding:5px 12px;font-size:13px}
+.ide-md-body th{background:rgba(255,255,255,.05);font-weight:600}
+.ide-md-body hr{border:none;border-top:1px solid #3c3c3c;margin:20px 0}
+.ide-md-body img{max-width:100%}
+.ide-md-body .ide-md-link{cursor:pointer}
+.ide-md-empty{display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-style:italic}
 .ide-editor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-size:13px;flex-direction:column;gap:8px}
 .ide-editor-empty svg{width:48px;height:48px;opacity:.4}
 .ide-statusbar{height:22px;flex:none;display:flex;align-items:center;background:var(--ide-statusbar-bg);color:var(--ide-statusbar-fg);font-size:12px;padding:0 8px;gap:12px}
@@ -156,7 +197,7 @@ export const IDE_STYLES = `
 .ide-git-branch-icon svg{width:14px;height:14px}
 .ide-git-branch-name{font-weight:500}
 .ide-git-branch-ab{color:var(--ide-fg-dim);font-size:11px;margin-left:4px}
-.ide-git-input{padding:4px 12px 8px;display:flex;flex-direction:column;gap:6px}
+.ide-git-input{position:relative;padding:4px 12px 8px;display:flex;flex-direction:column;gap:6px}
 .ide-git-input-field{width:100%;box-sizing:border-box;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;resize:vertical;min-height:40px;outline:none}
 .ide-git-input-field:focus{border-color:var(--ide-accent)}
 .ide-git-input-field::placeholder{color:var(--ide-fg-dim)}
@@ -172,6 +213,17 @@ export const IDE_STYLES = `
 .ide-git-input-button:disabled{opacity:.5;cursor:not-allowed}
 .ide-git-input-button svg{width:14px;height:14px}
 .ide-git-input-error{padding:4px 12px;color:#f48771;font-size:11px;word-break:break-word}
+/* AI commit message generation: shimmer bar over the input while the model
+   works (VS Code Copilot-style progress affordance) + stop/retry controls. */
+.ide-git-input[data-generating='true'] .ide-git-input-field{border-color:var(--ide-accent)}
+.ide-git-input[data-generating='true']::after{content:'';position:absolute;top:5px;left:12px;right:12px;height:2px;border-radius:1px;background:linear-gradient(90deg,transparent,var(--ide-accent),transparent);background-size:200% 100%;background-position:200% 0;animation:ide-shimmer 1.4s linear infinite;pointer-events:none}
+@keyframes ide-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.ide-git-action-busy{color:var(--ide-accent)}
+.ide-git-action-busy:hover:not(:disabled){color:var(--ide-accent)}
+.ide-git-action-busy svg{animation:ide-pulse 1.1s ease-in-out infinite}
+@keyframes ide-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.ide-git-retry{background:none;border:none;color:var(--ide-accent);cursor:pointer;font:inherit;font-size:11px;padding:0 0 0 6px;text-decoration:underline;text-underline-offset:2px}
+.ide-git-retry:hover{color:#4daafc}
 .ide-git-section{margin-top:4px}
 .ide-git-section-header{display:flex;align-items:center;gap:6px;padding:2px 12px 2px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--ide-fg-muted);cursor:default}
 .ide-git-section-chevron{display:flex;align-items:center;color:var(--ide-fg-muted)}

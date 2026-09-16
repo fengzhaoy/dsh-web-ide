@@ -74,8 +74,11 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
   const [discardError, setDiscardError] = useState<string | null>(null)
   /** Error from the one-file stage action, shown inline under the input. */
   const [stageError, setStageError] = useState<string | null>(null)
-  const genSeq = useRef(0)
+  /** Abort controller for the in-flight AI commit message generation. */
+  const genAbort = useRef<AbortController | null>(null)
   const seq = useRef(0)
+  /** The commit message textarea — focused after a successful generation. */
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   /** The caret half of the commit split button — dropdown anchor. */
   const caretRef = useRef<HTMLButtonElement>(null)
 
@@ -166,6 +169,10 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
     return ''
   })()
 
+  /** True when the working tree has no visible changes — the AI generate
+   *  button is then disabled with an explanatory tooltip. */
+  const noChanges = (result?.entries.length ?? 0) === 0
+
   const runCommit = useCallback(async (mode: CommitMode) => {
     const message = commitMessage.trim()
     // Amend may run with an empty input — it keeps the previous message.
@@ -233,37 +240,59 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
     ])
   }, [commitMessage, committing, runCommit, t])
 
+  /** AI-generate a commit message from the current changes (cancellable,
+   *  VS Code Copilot style: the result lands in the input, focused). */
   const handleGenerate = useCallback(async () => {
     if (generating) return
-    const myGen = ++genSeq.current
+    const ctrl = new AbortController()
+    genAbort.current = ctrl
     setGenerating(true)
     setGenError(null)
     try {
-      const res = await ideTools.gitGenerateCommitMessage(sessionId)
-      if (myGen !== genSeq.current) return
+      const res = await ideTools.gitGenerateCommitMessage(sessionId, ctrl.signal)
+      if (ctrl.signal.aborted) return
       if (res.ok) {
         setCommitMessage(res.value.message)
-      } else {
+        // VS Code parity: focus the SCM input with the caret at the end so
+        // the message can be reviewed and committed immediately.
+        const el = inputRef.current
+        if (el) {
+          el.focus()
+          const end = res.value.message.length
+          el.setSelectionRange(end, end)
+        }
+      } else if (res.error.code !== 'ide-tools/aborted') {
         setGenError(res.error.message ?? res.error.code)
       }
     } catch (err) {
-      if (myGen !== genSeq.current) return
+      if (ctrl.signal.aborted) return
       setGenError(err instanceof Error ? err.message : String(err))
     } finally {
-      if (myGen === genSeq.current) setGenerating(false)
+      if (genAbort.current === ctrl) genAbort.current = null
+      setGenerating(false)
     }
   }, [sessionId, generating, ideTools])
+
+  /** Stop the in-flight generation (stop button / Escape). */
+  const cancelGenerate = useCallback(() => {
+    genAbort.current?.abort()
+  }, [])
 
   return (
     <div className="ide-git-panel">
       <div className="ide-git-header">
         <span className="ide-git-header-title">{t('git.title')}</span>
         <button
-          className="ide-git-action"
-          title={generating ? t('git.aiGenerating') : t('git.aiGenerate')}
-          onClick={() => { void handleGenerate() }}
-          disabled={generating || status !== 'ready' || (result?.entries.length ?? 0) === 0}
-        >{generating ? Icons.loading : Icons.sparkle}</button>
+          className={generating ? 'ide-git-action ide-git-action-busy' : 'ide-git-action'}
+          title={
+            generating ? t('git.aiStop')
+              : status !== 'ready' || noChanges ? t('git.aiGenerateNoChanges')
+                : commitMessage.trim().length > 0 ? t('git.aiGenerateAgain')
+                  : t('git.aiGenerate')
+          }
+          onClick={() => { if (generating) cancelGenerate(); else void handleGenerate() }}
+          disabled={(status !== 'ready' || noChanges) && !generating}
+        >{generating ? Icons.close : Icons.sparkle}</button>
         <button
           className="ide-git-action"
           title={t('git.refresh')}
@@ -296,16 +325,20 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
             )}
 
             {/* Commit message input + commit button (VSCode-style SCM input) */}
-            <div className="ide-git-input">
+            <div className="ide-git-input" data-generating={generating ? 'true' : undefined}>
               <textarea
+                ref={inputRef}
                 className="ide-git-input-field"
-                placeholder={t('git.commitPlaceholder')}
+                placeholder={generating && commitMessage.length === 0 ? t('git.aiGeneratingPlaceholder') : t('git.commitPlaceholder')}
                 value={commitMessage}
                 onChange={(e) => { setCommitMessage(e.target.value); setCommitError(null) }}
                 onKeyDown={(e) => {
                   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                     e.preventDefault()
                     void runCommit('commit')
+                  } else if (e.key === 'Escape' && generating) {
+                    e.preventDefault()
+                    cancelGenerate()
                   }
                 }}
                 rows={2}
@@ -353,7 +386,10 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
               <div className="ide-git-input-error">{commitError}</div>
             )}
             {genError && (
-              <div className="ide-git-input-error">{t('git.aiGenerateError', { message: genError })}</div>
+              <div className="ide-git-input-error">
+                <span>{t('git.aiGenerateError', { message: genError })}</span>
+                <button className="ide-git-retry" title={t('git.aiRetry')} onClick={() => { void handleGenerate() }}>{t('git.aiRetry')}</button>
+              </div>
             )}
             {stageError && (
               <div className="ide-git-input-error">{stageError}</div>

@@ -58,7 +58,7 @@ function wrapModuleLoader() {
       if (!/client\.js$/.test(info.fileName)) return null
       const wrapped = [
         'window.__ModuleLoader__.load({',
-        '\tid: "@zhaoyang10/dsh-client-ui-ide",',
+        '\tid: "@zhaoyang10/dsh-web-ide",',
         '\tfactory: (require) => {',
         '\t\tvar module = { exports: {} };',
         '\t\tvar exports = module.exports;',

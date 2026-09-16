@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Icons } from '../icons.js'
 
 export interface OpenTab {
@@ -30,13 +31,17 @@ interface TabBarProps {
   active: string | undefined
   onSelect: (path: string) => void
   onClose: (path: string) => void
+  /** Editor-title actions rendered in the tab bar's right zone (VS Code
+   *  parity: the markdown preview toggle lives there for .md tabs). */
+  actions?: ReactNode
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
-export function TabBar({ tabs, active, onSelect, onClose, t }: TabBarProps) {
+export function TabBar({ tabs, active, onSelect, onClose, actions, t }: TabBarProps) {
   if (tabs.length === 0) return null
   return (
     <div className="ide-tabbar" role="tablist">
+      <div className="ide-tabbar-tabs">
       {tabs.map((tab) => (
         <div
           key={tab.path}
@@ -60,6 +65,8 @@ export function TabBar({ tabs, active, onSelect, onClose, t }: TabBarProps) {
           </span>
         </div>
       ))}
+      </div>
+      {actions !== undefined && <div className="ide-tabbar-actions">{actions}</div>}
     </div>
   )
 }

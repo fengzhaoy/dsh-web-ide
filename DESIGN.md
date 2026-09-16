@@ -27,7 +27,7 @@
 每个浏览器插件是独立 npm 包，双入口：
 
 ```
-@zhaoyang10/dsh-client-ui-ide/
+@zhaoyang10/dsh-web-ide/
 ├── package.json          # dsh.client.inject 声明依赖
 ├── cordis.patch.yml      # 可选，本插件不需要 host 行
 ├── src/                  # TypeScript 源码
@@ -133,7 +133,7 @@ Monaco 只读
 
 ```json
 {
-  "name": "@zhaoyang10/dsh-client-ui-ide",
+  "name": "@zhaoyang10/dsh-web-ide",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -478,10 +478,10 @@ pnpm run bundle     # 产出 lib/index.js + lib/client.js + lib/types/**
 dsh plugin --profile web add /Users/fengzy/Documents/gitmy/dsh-web-ide
 
 # 方式 B：手动在 web profile 的 package.json 加依赖
-#   "@zhaoyang10/dsh-client-ui-ide": "file:/Users/fengzy/Documents/gitmy/dsh-web-ide"
+#   "@zhaoyang10/dsh-web-ide": "file:/Users/fengzy/Documents/gitmy/dsh-web-ide"
 # 然后在 cordis.patch.yml 浏览器 roster 加：
 #   - id: ui-ide
-#     name: '@zhaoyang10/dsh-client-ui-ide'
+#     name: '@zhaoyang10/dsh-web-ide'
 ```
 
 `dsh plugin` 的 reconcile 会自动把声明了 `dsh.bundle` 的包加入 `dsh.profile.bundles` 层栈。本插件**不**声明 `dsh.bundle`（无 host patch），仅靠 `dsh.client` 的浏览器 roster 行生效——与 `ui-trajectory` 一致（trajectory 也无 cordis.patch.yml）。

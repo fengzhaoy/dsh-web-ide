@@ -9,6 +9,8 @@ import { DiffEditor } from './git/DiffEditor.js'
 import { TerminalPanel } from './terminal/TerminalPanel.js'
 import { TabBar } from './editor/TabBar.js'
 import { StatusBar } from './editor/StatusBar.js'
+import { MarkdownPreview } from './editor/MarkdownPreview.js'
+import { isMarkdownPath } from './editor/markdown.js'
 import { ContextMenuHost } from './ContextMenu.js'
 import type { OpenTab } from './editor/TabBar.js'
 import { detectLanguage } from './language.js'
@@ -120,6 +122,8 @@ const workspaceTabs = new Map<string, {
   activePath: string | undefined
   /** Open git-diff path, so the diff overlay survives a remount like the tabs. */
   diffPath: string | undefined
+  /** Whether the markdown split preview is open for this workspace. */
+  mdPreview: boolean
 }>()
 
 /**
@@ -353,6 +357,17 @@ export function IdeView(props: IdeViewInjected & {
     const key = storeKeyOf(cwd)
     return key === null ? undefined : workspaceTabs.get(key)?.diffPath
   })
+  /** Markdown split preview: open flag (parked per workspace), the live
+   *  content feed from the Monaco model, and a manual-refresh nonce. */
+  const [mdPreviewOpen, setMdPreviewOpen] = useState<boolean>(() => {
+    const key = storeKeyOf(cwd)
+    return key !== null && workspaceTabs.get(key)?.mdPreview === true
+  })
+  const [previewContent, setPreviewContent] = useState('')
+  const [previewNonce, setPreviewNonce] = useState(0)
+  const previewOpenRef = useRef(mdPreviewOpen)
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewScrollRef = useRef<HTMLDivElement | null>(null)
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   /** Bottom terminal dock: open flag + terminal identities. Seeded from the
@@ -404,6 +419,14 @@ export function IdeView(props: IdeViewInjected & {
         let path: string | undefined
         for (const [p, m] of ideEditor.models) if (m === model) { path = p; break }
         if (path === undefined) return
+        // The markdown preview renders the live model value (debounced).
+        if (isMarkdownPath(path) && previewOpenRef.current) {
+          if (previewTimerRef.current !== null) clearTimeout(previewTimerRef.current)
+          previewTimerRef.current = setTimeout(() => {
+            previewTimerRef.current = null
+            setPreviewContent(model.getValue())
+          }, 150)
+        }
         const saved = ideEditor.saved.get(path)
         const dirty = saved !== undefined && model.getValue() !== saved
         if (dirtyRef.current.has(path) === dirty) return
@@ -432,6 +455,8 @@ export function IdeView(props: IdeViewInjected & {
   const activeTab = useMemo(() => tabs.find((t) => t.path === activePath), [tabs, activePath])
   /** Data URI backing the active image tab, when it is an image. */
   const activeImageSrc = activeTab?.kind === 'image' ? activeTab.imageSrc : undefined
+  /** The active tab is a fully-loaded markdown document → preview available. */
+  const activeIsMd = activeTab !== undefined && activeTab.status === 'ready' && activeTab.kind === 'text' && isMarkdownPath(activeTab.path)
 
   // Workspace-scoped switching: when the workspace root (cwd) changes, park
   // the current tabs under the old key and restore the new workspace's tabs.
@@ -444,6 +469,7 @@ export function IdeView(props: IdeViewInjected & {
     setTabs(parked?.tabs ?? [])
     setActivePath(parked?.activePath)
     setDiffPath(parked?.diffPath)
+    setMdPreviewOpen(parked?.mdPreview === true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd])
 
@@ -452,9 +478,9 @@ export function IdeView(props: IdeViewInjected & {
   useEffect(() => {
     const key = storeKeyOf(cwd)
     if (key === null) return
-    workspaceTabs.set(key, { tabs, activePath, diffPath })
+    workspaceTabs.set(key, { tabs, activePath, diffPath, mdPreview: mdPreviewOpen })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, tabs, activePath, diffPath])
+  }, [cwd, tabs, activePath, diffPath, mdPreviewOpen])
 
   // Terminal dock restore: re-apply this session's parked dock state on mount
   // and after a session switch. Declared BEFORE the park effect so a session
@@ -567,6 +593,32 @@ export function IdeView(props: IdeViewInjected & {
     if (model) editorRef.current.setModel(model)
     editorRef.current.updateOptions({ readOnly: tab?.truncated === true })
   }, [activePath, monacoReady, tabs])
+
+  // Keep the preview feed in step with the open flag / active markdown tab.
+  useEffect(() => {
+    previewOpenRef.current = mdPreviewOpen
+    if (!mdPreviewOpen || !monacoReady) return
+    if (activePath === undefined || !isMarkdownPath(activePath)) return
+    const model = ideEditor.models.get(activePath)
+    if (model) setPreviewContent(model.getValue())
+  }, [mdPreviewOpen, monacoReady, activePath, tabs])
+
+  // VS Code parity: scrolling the editor scrolls the preview proportionally
+  // (one-way sync, editor → preview).
+  useEffect(() => {
+    if (!mdPreviewOpen || !monacoReady || !activeIsMd) return
+    const editor = editorRef.current
+    if (editor === null) return
+    const d = editor.onDidScrollChange((e) => {
+      const el = previewScrollRef.current
+      if (el === null) return
+      const layout = editor.getLayoutInfo()
+      const srcRange = e.scrollHeight - layout.height
+      const dstRange = el.scrollHeight - el.clientHeight
+      el.scrollTop = srcRange > 0 ? (e.scrollTop / srcRange) * dstRange : 0
+    })
+    return () => { d.dispose() }
+  }, [mdPreviewOpen, monacoReady, activeIsMd])
 
   const closeTabNow = useCallback((path: string) => {
     // Detach the editor before disposing the model: Monaco keeps rendering the
@@ -960,7 +1012,18 @@ export function IdeView(props: IdeViewInjected & {
           </div>
         </div>
         <div className="ide-editor-area">
-          <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t} />
+          <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t}
+            actions={!diffPath && activeIsMd ? (
+              <button
+                className="ide-tabbar-action"
+                data-active={mdPreviewOpen || undefined}
+                title={mdPreviewOpen ? t('md.closePreview') : t('md.openPreview')}
+                aria-label={mdPreviewOpen ? t('md.closePreview') : t('md.openPreview')}
+                data-testid="ide-md-preview-toggle"
+                onClick={() => setMdPreviewOpen((v) => !v)}
+              >{Icons.openPreview}</button>
+            ) : undefined}
+          />
           {/* The stack spans exactly the editor region (tab bar → panel dock →
               status bar). Everything below is absolutely positioned INSIDE it,
               so the git diff can never paint over the terminal dock — the dock
@@ -972,10 +1035,46 @@ export function IdeView(props: IdeViewInjected & {
               mounted at all times — the diff and image views are overlays — so
               the singleton editor host is never detached from a dead node (which
               is what made files stop opening after a diff was shown). */}
-          <div className="ide-editor-container" ref={containerRef} />
+          <div className="ide-editor-container" ref={containerRef} data-md-split={mdPreviewOpen && !diffPath && activeIsMd ? 'true' : undefined} />
           {activeImageSrc && (
             <div className="ide-editor-image">
               <img src={activeImageSrc} alt={activeTab?.name ?? ''} />
+            </div>
+          )}
+          {/* Markdown split preview (VS Code "Open Preview to the Side"):
+              the Monaco container narrows via data-md-split while this pane
+              owns the right half. Hidden while a git diff overlay is open. */}
+          {mdPreviewOpen && !diffPath && activeIsMd && (
+            <div className="ide-md-pane" data-testid="ide-md-preview">
+              <div className="ide-md-pane-header">
+                <span className="ide-md-pane-title">{activeTab?.name ?? ''}</span>
+                <button
+                  className="ide-tabbar-action"
+                  title={t('md.refresh')}
+                  aria-label={t('md.refresh')}
+                  onClick={() => {
+                    const m = activePath !== undefined ? ideEditor.models.get(activePath) : undefined
+                    if (m) setPreviewContent(m.getValue())
+                    setPreviewNonce((n) => n + 1)
+                  }}
+                >{Icons.refresh}</button>
+                <button
+                  className="ide-tabbar-action"
+                  title={t('md.closePreview')}
+                  aria-label={t('md.closePreview')}
+                  onClick={() => setMdPreviewOpen(false)}
+                >{Icons.close}</button>
+              </div>
+              <MarkdownPreview
+                sessionId={sessionId}
+                workspaceFiles={workspaceFiles}
+                basePath={activePath ?? ''}
+                content={previewContent}
+                nonce={previewNonce}
+                scrollRef={(el) => { previewScrollRef.current = el }}
+                onOpenPath={(p) => { void openFile(p) }}
+                t={t}
+              />
             </div>
           )}
           <div className="ide-editor-overlay">

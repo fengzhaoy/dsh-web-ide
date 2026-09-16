@@ -1,24 +1,24 @@
 # DSH Client UI IDE
 
-[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
-[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
+[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 DSH Web IDE Plugin — A modern web IDE integration solution built upon Monaco Editor.
 
 ## Install
 
-Current version: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide/v/0.1.0)
+Current version: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide/v/0.1.0)
 
 ```bash
 # Install into a DSH web profile (recommended)
-dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+dsh plugin --profile web add @zhaoyang10/dsh-web-ide
 
 # Or install the npm package alone
-npm install @zhaoyang10/dsh-client-ui-ide
+npm install @zhaoyang10/dsh-web-ide
 ```
 
-> After installing, append `@zhaoyang10/dsh-client-ui-ide` to the profile's `dsh.profile.bundles` and restart `dsh web` — see [Install into DSH](#install-into-dsh) for details.
+> After installing, append `@zhaoyang10/dsh-web-ide` to the profile's `dsh.profile.bundles` and restart `dsh web` — see [Install into DSH](#install-into-dsh) for details.
 
 ## Project Introduction
 
@@ -70,7 +70,7 @@ DSH Client UI IDE is a web IDE plugin designed specifically for the DSH platform
 ## Technical Architecture
 
 ```
-dsh-client-ui-ide/
+dsh-web-ide/
 ├── src/
 │   ├── client/                # Browser-side UI components
 │   │   ├── editor/            # Editor components (TabBar, StatusBar)
@@ -124,14 +124,14 @@ pnpm watch
 
 **Method A: Install from npm (recommended)**
 
-The plugin is published on the public npm registry: [@zhaoyang10/dsh-client-ui-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide).
+The plugin is published on the public npm registry: [@zhaoyang10/dsh-web-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide).
 
 ```bash
-dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
+dsh plugin --profile web add @zhaoyang10/dsh-web-ide
 dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
 ```
 
-Then append `@zhaoyang10/dsh-client-ui-ide` to the `dsh.profile.bundles` array in `~/.dsh/profiles/web/package.json` and restart `dsh web`. The bundled `cordis.patch.yml` registers the IDE tab and its workspace-files-write companion automatically.
+Then append `@zhaoyang10/dsh-web-ide` to the `dsh.profile.bundles` array in `~/.dsh/profiles/web/package.json` and restart `dsh web`. The bundled `cordis.patch.yml` registers the IDE tab and its workspace-files-write companion automatically.
 
 **Method B: Install from a local directory (development)**
 
@@ -149,7 +149,7 @@ The `link:` form always points at the source directory — rebuild and restart t
     - id: workspace-files-write
       name: '@deepseek-ai/dsh-api-workspace-files-write'
     - id: ui-ide
-      name: '@zhaoyang10/dsh-client-ui-ide'
+      name: '@zhaoyang10/dsh-web-ide'
 ```
 
 ### Verification
@@ -221,7 +221,7 @@ See [CHANGELOG.md](./CHANGELOG.md).
 
 | Version | Notes |
 | --- | --- |
-| 0.1.0 | First release: file tree, Monaco editor, Git panel, terminal, global search. Published on [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide). |
+| 0.1.0 | First release: file tree, Monaco editor, Git panel, terminal, global search. Published on [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide). |
 
 ## Contribution Guidelines
 
@@ -247,5 +247,5 @@ This project is open sourced under the MIT License. See the [LICENSE](./LICENSE)
 ---
 
 **Maintainer**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**Repository**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm package](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)  
+**Repository**: [gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · [npm package](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)  
 **Issue Feedback**: [Issue Page](https://gitee.com/fengzhaoy/dsh-web-ide/issues)

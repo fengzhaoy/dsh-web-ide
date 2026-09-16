@@ -1004,12 +1004,16 @@ export class IdeTools extends TypertRemoteService {
   }
 
   /**
-   * Generate a git-conventional commit message from the workspace's unstaged
-   * + untracked changes, using the currently configured LLM (agentDefaultModel).
+   * Generate a git-conventional commit message from the workspace's
+   * uncommitted changes, using the currently configured LLM (agentDefaultModel).
    *
-   * The method collects a unified diff of all changes (capped at 32 KiB to
-   * fit a one-shot prompt), asks the model for a Conventional Commits format
-   * message (type(scope): subject + optional body), and returns the raw text.
+   * Mirrors the VS Code SCM AI assistants (Copilot / WeCode): the staged diff
+   * is preferred when the index holds changes, otherwise the whole working
+   * tree is used. The prompt also carries the branch name and the recent
+   * commit subjects so the message matches the repository's language and
+   * message conventions. The diff is capped per file section at 32 KiB and
+   * the model output is sanitized (fences/labels stripped) before it lands in
+   * the commit input. A client abort surfaces as the ide-tools/aborted code.
    */
   async gitGenerateCommitMessage(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
@@ -1020,6 +1024,7 @@ export class IdeTools extends TypertRemoteService {
       if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
 
       let diff = ''
+      let diffSource: 'staged' | 'working-tree' = 'working-tree'
       try {
         const statusRaw = await this.runGit(cwd, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], signal)
         const untracked: string[] = []
@@ -1029,9 +1034,13 @@ export class IdeTools extends TypertRemoteService {
         if (untracked.length > 0) {
           try { await this.runGit(cwd, ['add', '-N', '--', ...untracked], signal) } catch { /* ignore */ }
         }
-        diff = await this.runGit(cwd, ['diff', 'HEAD', '--no-color'], signal)
-        if (diff.trim().length === 0) {
-          diff = await this.runGit(cwd, ['diff', '--cached', '--no-color'], signal)
+        // VS Code SCM assistants prefer the staged diff when the index holds
+        // changes, and fall back to the whole working tree otherwise.
+        diff = await this.runGit(cwd, ['diff', '--cached', '--no-color'], signal)
+        if (diff.trim().length > 0) {
+          diffSource = 'staged'
+        } else {
+          diff = await this.runGit(cwd, ['diff', 'HEAD', '--no-color'], signal)
           if (diff.trim().length === 0) {
             diff = await this.runGit(cwd, ['diff', '--no-color'], signal)
           }
@@ -1047,8 +1056,14 @@ export class IdeTools extends TypertRemoteService {
         return { ok: false, error: { code: 'ide-tools/no-changes', message: 'no uncommitted changes to generate a message from' } }
       }
 
+      // Style context: the branch name and the recent commit subjects teach the
+      // model the repository's language and message conventions (both are best
+      // effort — a missing history or detached HEAD must not block generation).
+      const branch = await this.runGit(cwd, ['branch', '--show-current'], signal).catch(() => '')
+      const recentSubjects = await this.runGit(cwd, ['log', '--format=%s', '-n', '10'], signal).catch(() => '')
+
       const MAX_DIFF = 32 * 1024
-      const trimmed = diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + '\n... (diff truncated)' : diff
+      const trimmed = this.truncateDiffForPrompt(diff, MAX_DIFF)
 
       const ctx = this.ctx as Context & { llm?: { stream(options: never): AsyncIterable<{ type: string; text?: string }> }; agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } } }
       if (!ctx.llm) {
@@ -1061,25 +1076,40 @@ export class IdeTools extends TypertRemoteService {
 
       const systemPrompt = [
         'You are an expert software engineer who writes git commit messages.',
-        'Analyze the provided git diff and generate a commit message following the Conventional Commits specification:',
+        'You will receive the current branch name, the recent commit subjects, and a git diff.',
+        'Generate ONE commit message following the Conventional Commits specification:',
         '  <type>(<optional scope>): <subject>',
         '  <optional body>',
         '',
         'Rules:',
         '- type: one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert',
-        '- subject: imperative mood, lowercase, no period, max 50 chars',
-        '- body (optional): wrap at 72 chars, explain what and why (not how)',
-        '- Output ONLY the commit message, no markdown fences, no explanations.',
-        '- If the diff is in Chinese or the repo appears Chinese, write the message in Chinese.',
+        '- subject: imperative mood, no trailing period, max 50 chars',
+        '- body (optional): wrap at 72 chars, explain what and why (not how); separate it from the subject with one blank line',
+        '- When recent commit subjects are provided, match their language and phrasing style (e.g. write Chinese if the history is Chinese); otherwise use the language of the diff, else English.',
+        '- Focus on the meaningful source changes; ignore generated/build artifacts when real changes exist.',
+        '- Output ONLY the commit message: no markdown fences, no quotes, no explanations.',
       ].join('\n')
 
-      const userText = 'Generate a commit message for this git diff:\n\n```\n' + trimmed + '\n```'
+      const styleBlock = recentSubjects.trim().length > 0
+        ? 'Recent commit subjects (style reference):\n' + recentSubjects.trim()
+        : 'No recent commit history available.'
+      const userText = [
+        'Branch: ' + (branch.trim().length > 0 ? branch.trim() : '(unknown)'),
+        '',
+        styleBlock,
+        '',
+        diffSource === 'staged' ? 'Staged changes (git diff --cached):' : 'Working tree changes (git diff HEAD):',
+        '',
+        '```',
+        trimmed,
+        '```',
+      ].join('\n')
 
       // Build a properly identified + frozen user message using the dsh-llm
       // helper (hand-built messages missing the id field crash the adapter).
       const messages = [createUserMessage({
         content: [{ type: 'text', text: userText }],
-        source: { kind: 'plugin', plugin: 'dsh-client-ui-ide' },
+        source: { kind: 'plugin', plugin: 'dsh-web-ide' },
       })]
 
       const options = deepFreeze({
@@ -1099,12 +1129,17 @@ export class IdeTools extends TypertRemoteService {
         assembler.push(chunk as never)
       }
 
+      if (signal?.aborted) {
+        return { ok: false, error: { code: 'ide-tools/aborted', message: 'commit message generation was cancelled' } }
+      }
+
       const blocks = assembler.blocks()
-      const message = blocks
-        .filter((b: { type: string }) => b.type === 'text')
-        .map((b: { text?: string }) => b.text ?? '')
-        .join('')
-        .trim()
+      const message = this.sanitizeCommitMessage(
+        blocks
+          .filter((b) => b.type === 'text')
+          .map((b) => ('text' in b ? b.text ?? '' : ''))
+          .join(''),
+      )
 
       if (message.length === 0) {
         return { ok: false, error: { code: 'ide-tools/llm-empty', message: 'the model returned an empty message' } }
@@ -1112,9 +1147,64 @@ export class IdeTools extends TypertRemoteService {
 
       return { ok: true, value: { message } }
     } catch (err) {
+      if (signal?.aborted) {
+        return { ok: false, error: { code: 'ide-tools/aborted', message: 'commit message generation was cancelled' } }
+      }
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: { code: 'ide-tools/llm-failed', message } }
     }
+  }
+
+  /** Cap a unified diff for the prompt: keep whole per-file sections while
+   *  the byte budget lasts (so no file is cut mid-hunk), then note how many
+   *  files were omitted. A single oversized section (e.g. a rebuilt bundle)
+   *  keeps its head at the budget. */
+  private truncateDiffForPrompt(diff: string, maxBytes: number): string {
+    if (diff.length <= maxBytes) return diff
+    const sections: string[] = []
+    let current: string[] = []
+    for (const line of diff.split('\n')) {
+      if (line.startsWith('diff --git ') && current.length > 0) {
+        sections.push(current.join('\n'))
+        current = [line]
+      } else {
+        current.push(line)
+      }
+    }
+    if (current.length > 0) sections.push(current.join('\n'))
+
+    let kept = ''
+    let omitted = 0
+    for (const section of sections) {
+      if (kept.length === 0 && section.length > maxBytes) {
+        kept = section.slice(0, maxBytes) + '\n… (file diff truncated)'
+        omitted = sections.length - 1
+        break
+      }
+      if (kept.length + section.length > maxBytes) { omitted += 1; continue }
+      kept = kept.length === 0 ? section : kept + '\n' + section
+    }
+    return kept + (omitted > 0 ? '\n… (' + omitted + ' more file diff(s) omitted)' : '')
+  }
+
+  /** Clean model output: strip markdown fences and commit-message label
+   *  lines and signature lines, collapse runs of blank lines, trim. */
+  private sanitizeCommitMessage(raw: string): string {
+    let text = raw.trim()
+    const label = /^\s*(?:suggested commit message|commit message|提交信息|提交消息)\s*[:：]\s*/i
+    text = text.replace(label, '')
+    // Strip one wrapping markdown fence, optionally language-tagged.
+    if (text.startsWith('```')) {
+      const firstNl = text.indexOf('\n')
+      const lastFence = text.lastIndexOf('```')
+      if (firstNl > 0 && lastFence > firstNl) text = text.slice(firstNl + 1, lastFence)
+    }
+    text = text.replace(label, '')
+    // Drop model signature lines (Generated with …).
+    text = text.split('\n').filter((line) => !/generated\s+(with|by)\b/i.test(line)).join('\n')
+    // Collapse runs of blank lines to one blank line.
+    text = text.replace(/\n{3,}/g, '\n\n').trim()
+    return text
   }
 
   /** Plugin teardown: terminate every still-live terminal. */

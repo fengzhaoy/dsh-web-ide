@@ -167,10 +167,10 @@ const _scope_parameter = (typeSymbol: string) => ({
 })
 
 export const TYPERT_REMOTE = {
-  package: '@zhaoyang10/dsh-client-ui-ide',
+  package: '@zhaoyang10/dsh-web-ide',
   descriptors: [
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/search',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/search',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'search',
@@ -183,7 +183,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/search:query',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/search:query',
             schema: _ide_tools_ideTools_search_parameter_1$schema,
           },
         },
@@ -191,13 +191,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#IdeSearchResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeSearchResult',
         schema: _ide_tools_ideTools_search_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 119, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalOpen',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalOpen',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'terminalOpen',
@@ -210,7 +210,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalOpen:spec',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalOpen:spec',
             schema: _ide_tools_ideTools_terminalOpen_parameter_1$schema,
           },
         },
@@ -218,13 +218,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#IdeTerminalOpenResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeTerminalOpenResult',
         schema: _ide_tools_ideTools_terminalOpen_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 150, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalWrite',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'terminalWrite',
@@ -237,7 +237,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalWrite:terminalId',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:terminalId',
             schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
@@ -247,7 +247,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalWrite:data',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:data',
             schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
@@ -255,13 +255,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalWrite:result',
+        typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:result',
         schema: _ide_tools_ideTools_terminalWrite_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 199, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalSignal',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'terminalSignal',
@@ -274,7 +274,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalSignal:terminalId',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:terminalId',
             schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
@@ -284,7 +284,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalSignal:signalName',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:signalName',
             schema: _ide_tools_ideTools_terminalSignal_parameter_2$schema,
           },
         },
@@ -292,13 +292,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalSignal:result',
+        typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:result',
         schema: _ide_tools_ideTools_terminalSignal_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 219, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalTerminate',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalTerminate',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'terminalTerminate',
@@ -311,7 +311,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalTerminate:terminalId',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalTerminate:terminalId',
             schema: _ide_tools_ideTools_terminalTerminate_parameter_1$schema,
           },
         },
@@ -319,13 +319,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalTerminate:result',
+        typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalTerminate:result',
         schema: _ide_tools_ideTools_terminalTerminate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 233, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalOutput',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalOutput',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'terminalOutput',
@@ -339,7 +339,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/terminalOutput:terminalId',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalOutput:terminalId',
             schema: _ide_tools_ideTools_terminalOutput_parameter_1$schema,
           },
         },
@@ -347,13 +347,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#IdeTerminalOutputFrame',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeTerminalOutputFrame',
         schema: _ide_tools_ideTools_terminalOutput_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 247, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStatus',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitStatus',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitStatus',
@@ -364,13 +364,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitStatusResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStatusResult',
         schema: _ide_tools_ideTools_gitStatus_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 430, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitBranches',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitBranches',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitBranches',
@@ -381,13 +381,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitBranchesResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitBranchesResult',
         schema: _ide_tools_ideTools_gitBranches_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 480, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiff',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitDiff',
@@ -400,7 +400,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiff:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff:path',
             schema: _ide_tools_ideTools_gitDiff_parameter_1$schema,
           },
         },
@@ -410,7 +410,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiff:kind',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff:kind',
             schema: _ide_tools_ideTools_gitDiff_parameter_2$schema,
           },
         },
@@ -418,13 +418,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitDiffResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiffResult',
         schema: _ide_tools_ideTools_gitDiff_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 510, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitCommit',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitCommit',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitCommit',
@@ -437,7 +437,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitCommit:message',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommit:message',
             schema: _ide_tools_ideTools_gitCommit_parameter_1$schema,
           },
         },
@@ -447,7 +447,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitCommit:options',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommit:options',
             schema: _ide_tools_ideTools_gitCommit_parameter_2$schema,
           },
         },
@@ -455,13 +455,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitCommitResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCommitResult',
         schema: _ide_tools_ideTools_gitCommit_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStageAll',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitStageAll',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitStageAll',
@@ -472,13 +472,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitStageAllResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStageAllResult',
         schema: _ide_tools_ideTools_gitStageAll_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStage',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitStage',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitStage',
@@ -491,7 +491,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitStage:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitStage:path',
             schema: _ide_tools_ideTools_gitStage_parameter_1$schema,
           },
         },
@@ -499,13 +499,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitStageResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStageResult',
         schema: _ide_tools_ideTools_gitStage_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 700, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiscard',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitDiscard',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitDiscard',
@@ -518,7 +518,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitDiscard:entry',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiscard:entry',
             schema: _ide_tools_ideTools_gitDiscard_parameter_1$schema,
           },
         },
@@ -526,13 +526,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitDiscardResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiscardResult',
         schema: _ide_tools_ideTools_gitDiscard_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 723, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileRename',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'fileRename',
@@ -545,7 +545,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileRename:path',
             schema: _ide_tools_ideTools_fileRename_parameter_1$schema,
           },
         },
@@ -555,7 +555,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileRename:newName',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileRename:newName',
             schema: _ide_tools_ideTools_fileRename_parameter_2$schema,
           },
         },
@@ -563,13 +563,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileRenameResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileRenameResult',
         schema: _ide_tools_ideTools_fileRename_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 746, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileDelete',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'fileDelete',
@@ -582,7 +582,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileDelete:path',
             schema: _ide_tools_ideTools_fileDelete_parameter_1$schema,
           },
         },
@@ -592,7 +592,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileDelete:kind',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileDelete:kind',
             schema: _ide_tools_ideTools_fileDelete_parameter_2$schema,
           },
         },
@@ -600,13 +600,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileDeleteResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileDeleteResult',
         schema: _ide_tools_ideTools_fileDelete_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 792, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileCreate',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'fileCreate',
@@ -619,7 +619,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCreate:path',
             schema: _ide_tools_ideTools_fileCreate_parameter_1$schema,
           },
         },
@@ -629,7 +629,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileCreate:kind',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCreate:kind',
             schema: _ide_tools_ideTools_fileCreate_parameter_2$schema,
           },
         },
@@ -637,13 +637,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileCreateResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileCreateResult',
         schema: _ide_tools_ideTools_fileCreate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileReveal',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileReveal',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'fileReveal',
@@ -656,7 +656,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/fileReveal:path',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileReveal:path',
             schema: _ide_tools_ideTools_fileReveal_parameter_1$schema,
           },
         },
@@ -664,13 +664,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#FileRevealResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileRevealResult',
         schema: _ide_tools_ideTools_fileReveal_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 902, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/hostPlatform',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/hostPlatform',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'hostPlatform',
@@ -681,13 +681,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#HostPlatformResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#HostPlatformResult',
         schema: _ide_tools_ideTools_hostPlatform_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 950, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitSync',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitSync',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitSync',
@@ -700,7 +700,7 @@ export const TYPERT_REMOTE = {
           source: 'json',
           codec: {
             mode: 'strict',
-            typeSymbol: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitSync:action',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitSync:action',
             schema: _ide_tools_ideTools_gitSync_parameter_1$schema,
           },
         },
@@ -708,13 +708,13 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitSyncResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitSyncResult',
         schema: _ide_tools_ideTools_gitSync_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 986, column: 3 },
     },
     {
-      id: '@zhaoyang10/dsh-client-ui-ide#ideTools/gitGenerateCommitMessage',
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitGenerateCommitMessage',
       service: 'ideTools',
       namespace: 'ideTools',
       method: 'gitGenerateCommitMessage',
@@ -725,7 +725,7 @@ export const TYPERT_REMOTE = {
       cancellation: { parameter: 'signal' },
       result: {
         mode: 'strict',
-        typeSymbol: '@zhaoyang10/dsh-client-ui-ide/types#GitGenerateCommitMessageResult',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitGenerateCommitMessageResult',
         schema: _ide_tools_ideTools_gitGenerateCommitMessage_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },

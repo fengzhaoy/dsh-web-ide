@@ -7,6 +7,12 @@ DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集
 
 DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完整的代码编辑、文件管理、Git 版本控制、终端模拟及全局搜索功能。该插件深度集成于 DSH 工作区，支持暗色主题，拥有流畅的用户体验和高效的开发工作流。
 
+## 核心功能预览
+
+![资源管理 - 文件浏览](browser-screenshots/resource.png)
+
+![Git 源代码管理](browser-screenshots/git.png)
+
 ## 核心功能
 
 ### 文件浏览与管理
@@ -50,7 +56,7 @@ DSH Client UI IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完
 ## 技术架构
 
 ```
-dsh-client-ui-ide/
+dsh-web-ide/
 ├── src/
 │   ├── client/                # 浏览器端 UI 组件
 │   │   ├── editor/            # 编辑器组件（TabBar、StatusBar）
@@ -110,7 +116,7 @@ pnpm build
 
 ```json
 "dependencies": {
-  "@zhaoyang10/dsh-client-ui-ide": "file:/path/to/dsh-web-ide"
+  "@zhaoyang10/dsh-web-ide": "file:/path/to/dsh-web-ide"
 }
 ```
 
@@ -118,7 +124,7 @@ pnpm build
 
 ```yaml
 - id: ui-ide
-  name: '@zhaoyang10/dsh-client-ui-ide'
+  name: '@zhaoyang10/dsh-web-ide'
 ```
 
 ### 验证装载
@@ -212,4 +218,4 @@ pnpm build
 ---
 
 **维护者**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-client-ui-ide/issues)
+**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-web-ide/issues)
