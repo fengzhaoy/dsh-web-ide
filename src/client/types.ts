@@ -167,6 +167,10 @@ export interface GitDiffResult {
   readonly newPath: string
   /** Detected language id for Monaco. */
   readonly language: string
+  /** Content type hint. 'text' for plain text (default), 'image' for binary image files. */
+  readonly contentType?: 'text' | 'image'
+  /** For image files, the new content as a base64 data URI (e.g. data:image/png;base64,...). */
+  readonly imageBase64?: string
 }
 
 /** The ideTools Remote face bound under ctx.remote.ideTools (self-mounted by
@@ -196,6 +200,8 @@ export interface IdeToolsRemote {
   gitCommit(sessionId: SessionId, message: string, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string }>>
   /** Stage all changes (git add -A). */
   gitStageAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Generate a Conventional Commits message from the current diff via the configured LLM. */
+  gitGenerateCommitMessage(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<{ message: string }>>
 }
 
 /** Props injected into the IdeView by the conversation.view slot registration. */

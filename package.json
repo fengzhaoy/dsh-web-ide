@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-client-ui-ide",
+  "name": "@zhaoyang10/dsh-client-ui-ide",
   "version": "0.1.0",
   "description": "IDE tab for the dsh web client: a VSCode-style read-only code viewer with the Dark Modern theme, registered into the conversation view ring.",
   "type": "module",

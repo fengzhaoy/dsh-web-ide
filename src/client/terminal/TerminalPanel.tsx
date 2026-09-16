@@ -142,9 +142,15 @@ export function TerminalPanel({
         if (cancelled) return
 
         const term = new Terminal({
-          fontFamily: 'var(--dsw-alias-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
+          // xterm.js measures character width via canvas at init time; CSS
+          // var() references are NOT resolved by canvas, so the measured cell
+          // width is wrong and characters render with excessive spacing.
+          // Use a concrete font stack matching iTerm2 / VSCode defaults:
+          // Menlo (macOS), Consolas (Windows), monospace (Linux fallback).
+          fontFamily: 'Menlo, Consolas, \'DejaVu Sans Mono\', monospace',
           fontSize: 13,
-          lineHeight: 1.2,
+          lineHeight: 1,
+          letterSpacing: 0,
           cursorBlink: true,
           cursorStyle: 'bar',
           scrollback: 5000,

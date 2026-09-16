@@ -25,7 +25,7 @@ export interface DiffEditorProps {
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
-type LoadState = 'loading' | 'ready' | 'empty' | 'error'
+type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'image'
 
 let monacoLoaded = false
 
@@ -51,6 +51,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, path, name, t }: DiffEdit
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [imageSrc, setImageSrc] = useState<string>('')
 
   // Load the diff and mount the diff editor when the path changes.
   useEffect(() => {
@@ -62,11 +63,18 @@ export function DiffEditor({ sessionId, cwd, ideTools, path, name, t }: DiffEdit
       if (!cwd) { setState('error'); setError('no cwd'); return }
       setState('loading')
       setError(null)
+      setImageSrc('')
       const res = await ideTools.gitDiff(sessionId, path, 'unstaged', ctrl.signal)
       if (cancelled) return
       if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
       const diff: GitDiffResult = res.value
       if (diff.empty) { setState('empty'); return }
+      // Image files: render as <img>, not Monaco.
+      if (diff.contentType === 'image' && diff.imageBase64) {
+        setImageSrc(diff.imageBase64)
+        setState('image')
+        return
+      }
       // Import Monaco (bundled with the client chunk).
       const Monaco = await import('monaco-editor')
       if (cancelled) return
@@ -115,24 +123,32 @@ export function DiffEditor({ sessionId, cwd, ideTools, path, name, t }: DiffEdit
         <span className="ide-diff-title">{name}</span>
         <span className="ide-diff-path">{path}</span>
       </div>
-      <div className="ide-diff-container" ref={containerRef} />
-      <div className="ide-diff-overlay">
-        {state === 'loading' && (
-          <div className="ide-diff-empty">{Icons.loading}</div>
-        )}
-        {state === 'empty' && (
-          <div className="ide-diff-empty">
-            {Icons.diff}
-            <span>{t('git.emptyDiff')}</span>
+      {state === 'image' ? (
+        <div className="ide-diff-image-container">
+          <img className="ide-diff-image" src={imageSrc} alt={name} />
+        </div>
+      ) : (
+        <>
+          <div className="ide-diff-container" ref={containerRef} />
+          <div className="ide-diff-overlay">
+            {state === 'loading' && (
+              <div className="ide-diff-empty">{Icons.loading}</div>
+            )}
+            {state === 'empty' && (
+              <div className="ide-diff-empty">
+                {Icons.diff}
+                <span>{t('git.emptyDiff')}</span>
+              </div>
+            )}
+            {state === 'error' && (
+              <div className="ide-diff-empty">
+                {Icons.diff}
+                <span>{t('git.diffError', { message: error ?? '' })}</span>
+              </div>
+            )}
           </div>
-        )}
-        {state === 'error' && (
-          <div className="ide-diff-empty">
-            {Icons.diff}
-            <span>{t('git.diffError', { message: error ?? '' })}</span>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }

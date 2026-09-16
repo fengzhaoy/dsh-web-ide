@@ -8,4 +8,4 @@
     - id: workspace-files-write
       name: '@deepseek-ai/dsh-api-workspace-files-write'
     - id: ui-ide
-      name: '@deepseek-ai/dsh-client-ui-ide'
+      name: '@zhaoyang10/dsh-client-ui-ide'

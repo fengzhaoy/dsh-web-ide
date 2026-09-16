@@ -57,6 +57,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
   const [result, setResult] = useState<GitStatusResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | undefined>(undefined)
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  const genSeq = useRef(0)
   const seq = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -127,10 +130,37 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
     }
   }, [sessionId, commitMessage, committing, ideTools, refresh])
 
+  const handleGenerate = useCallback(async () => {
+    if (generating) return
+    const myGen = ++genSeq.current
+    setGenerating(true)
+    setGenError(null)
+    try {
+      const res = await ideTools.gitGenerateCommitMessage(sessionId)
+      if (myGen !== genSeq.current) return
+      if (res.ok) {
+        setCommitMessage(res.value.message)
+      } else {
+        setGenError(res.error.message ?? res.error.code)
+      }
+    } catch (err) {
+      if (myGen !== genSeq.current) return
+      setGenError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (myGen === genSeq.current) setGenerating(false)
+    }
+  }, [sessionId, generating, ideTools])
+
   return (
     <div className="ide-git-panel">
       <div className="ide-git-header">
         <span className="ide-git-header-title">{t('git.title')}</span>
+        <button
+          className="ide-git-action"
+          title={generating ? t('git.aiGenerating') : t('git.aiGenerate')}
+          onClick={() => { void handleGenerate() }}
+          disabled={generating || status !== 'ready' || (result?.entries.length ?? 0) === 0}
+        >{generating ? Icons.loading : Icons.sparkle}</button>
         <button
           className="ide-git-action"
           title={t('git.refresh')}
@@ -191,6 +221,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
             {commitError && (
               <div className="ide-git-input-error">{commitError}</div>
             )}
+            {genError && (
+              <div className="ide-git-input-error">{t('git.aiGenerateError', { message: genError })}</div>
+            )}
 
             <div className="ide-git-section">
               <div className="ide-git-section-header">
@@ -214,7 +247,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
                         key={entry.path}
                         className="ide-git-entry"
                         data-selected={isSelected || undefined}
-                        title={entry.oldPath ? entry.oldPath + ' → ' + entry.path : entry.path}
+                        data-kind={entry.kind}
+                        title={entry.oldPath ? entry.oldPath + ' \u2192 ' + entry.path : entry.path}
                         onClick={() => handleClick(entry)}
                         onContextMenu={(e) => {
                           e.preventDefault()
@@ -230,10 +264,12 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, t }: 
                           ])
                         }}
                       >
-                        <span className="ide-git-entry-icon">{fileIcon(name, false)}</span>
-                        <span className="ide-git-entry-name">{name}</span>
-                        {dir && <span className="ide-git-entry-dir">{dir}</span>}
-                        <span className="ide-git-entry-status" style={{ color: statusColor(entry.kind) }}>
+                        <span className="ide-git-entry-icon" data-kind={entry.kind}>{fileIcon(name, false)}</span>
+                        <div className="ide-git-entry-label">
+                          <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
+                          {dir && <span className="ide-git-entry-dir">{' › '}{dir}</span>}
+                        </div>
+                        <span className="ide-git-entry-status" data-kind={entry.kind}>
                           {statusLetter(entry.kind)}
                         </span>
                       </div>

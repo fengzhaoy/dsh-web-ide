@@ -142,17 +142,36 @@ export const IDE_STYLES = `
 .ide-git-section-chevron{display:flex;align-items:center;color:var(--ide-fg-muted)}
 .ide-git-section-chevron svg{width:12px;height:12px}
 .ide-git-section-title{flex:1}
-.ide-git-section-count{background:var(--ide-tree-active);color:var(--ide-fg);border-radius:8px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px}
+.ide-git-section-count{background:#4d4d4d;color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 .ide-git-entries{display:flex;flex-direction:column}
-.ide-git-entry{display:flex;align-items:center;gap:6px;padding:2px 12px 2px 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px}
+.ide-git-entry{display:flex;align-items:center;gap:6px;padding:0 12px 0 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px;line-height:22px}
 .ide-git-entry:hover{background:var(--ide-tree-hover)}
 .ide-git-entry[data-selected='true']{background:var(--ide-tree-active)}
-.ide-git-entry-icon{width:16px;flex:none;display:flex;align-items:center;justify-content:center}
+.ide-git-entry-icon{width:16px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--ide-icon-fg,#c5c5c5)}
 .ide-git-entry-icon svg{width:16px;height:16px}
-.ide-git-entry-name{flex:none;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ide-git-entry-dir{flex:1;color:var(--ide-fg-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
-.ide-git-entry-status{flex:none;width:14px;text-align:center;font-weight:700;font-size:12px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+.ide-git-entry-icon[data-kind='modified']{color:#e2c08d}
+.ide-git-entry-icon[data-kind='added']{color:#73c991}
+.ide-git-entry-icon[data-kind='untracked']{color:#73c991}
+.ide-git-entry-icon[data-kind='deleted']{color:#f48771}
+.ide-git-entry-icon[data-kind='renamed']{color:#61afef}
+.ide-git-entry-icon[data-kind='conflicted']{color:#e2c08d}
+.ide-git-entry-label{display:flex;align-items:center;flex:1;min-width:0;overflow:hidden}
+.ide-git-entry-name{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+.ide-git-entry-name[data-kind='modified']{color:#e2c08d}
+.ide-git-entry-name[data-kind='added']{color:#73c991}
+.ide-git-entry-name[data-kind='untracked']{color:#73c991}
+.ide-git-entry-name[data-kind='deleted']{color:#f48771}
+.ide-git-entry-name[data-kind='renamed']{color:#61afef}
+.ide-git-entry-name[data-kind='conflicted']{color:#e2c08d}
+.ide-git-entry-dir{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ide-fg-dim);font-size:11px}
+.ide-git-entry-status{flex:none;width:16px;min-width:16px;text-align:center;font-weight:700;font-size:12px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+.ide-git-entry-status[data-kind='modified']{color:#e2c08d}
+.ide-git-entry-status[data-kind='added']{color:#73c991}
+.ide-git-entry-status[data-kind='untracked']{color:#73c991}
+.ide-git-entry-status[data-kind='deleted']{color:#f48771}
+.ide-git-entry-status[data-kind='renamed']{color:#61afef}
+.ide-git-entry-status[data-kind='conflicted']{color:#e2c08d}
 /* ── Diff editor view ─────────────────────────────────────────────────── */
 .ide-diff-root{position:absolute;inset:35px 0 22px 0;display:flex;flex-direction:column;background:var(--ide-bg)}
 .ide-diff-header{height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px}
@@ -163,6 +182,8 @@ export const IDE_STYLES = `
 .ide-diff-overlay:empty{display:none}
 .ide-diff-empty{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--ide-fg-dim);font-size:13px}
 .ide-diff-empty svg{width:32px;height:32px;opacity:.4}
+.ide-diff-image-container{flex:1;min-height:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
+.ide-diff-image{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 
 /** Monaco theme definition matching VSCode Dark Modern (Dark+ equivalent). */
 export const MONACO_DARK_MODERN = {
@@ -262,7 +283,7 @@ export function defineDarkModernTheme(monaco: typeof Monaco): void {
 .ide-terminal-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
 .ide-terminal-action svg{width:16px;height:16px}
 .ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}
-.ide-terminal-host{height:100%;padding:2px 6px;box-sizing:border-box;overflow:hidden}
+.ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
 .ide-terminal-error{padding:10px;font-size:12px;color:#f48771;overflow:auto}
 .ide-terminal-empty{padding:20px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);text-align:center}

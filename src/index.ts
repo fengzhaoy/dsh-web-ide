@@ -91,6 +91,8 @@ export interface GitDiffResult {
   readonly oldPath: string
   readonly newPath: string
   readonly language: string
+  readonly contentType?: 'text' | 'image'
+  readonly imageBase64?: string
 }
 
 /** One live interactive terminal plus its replay log and live subscribers. */
@@ -118,7 +120,7 @@ const MAX_LOG_BYTES = 512 * 1024
 const MAX_RESULTS = 250
 
 export class IdeTools extends TypertRemoteService {
-  static inject = ['subprocess', 'sessions', 'typert']
+  static inject = ['subprocess', 'sessions', 'typert', 'llm', 'agentDefaultModel']
 
   static Config = z.object({})
 
@@ -144,6 +146,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitStatus', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDiff', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
     })
@@ -571,6 +574,33 @@ export class IdeTools extends TypertRemoteService {
   ): Promise<GitDiffResult> {
     const { workspaceRoot: cwd } = workspaceFileScope
     const language = this.detectLanguage(path)
+    // Detect image file
+    const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+    const isImage = ['png','jpg','jpeg','gif','webp','bmp','ico','svg'].includes(ext)
+    if (isImage && cwd) {
+      // For image files, read the working-tree file from disk and return it as base64
+      let oldContent = ''
+      try {
+        oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
+      } catch { /* untracked */ }
+      let imageBase64 = ''
+      try {
+        const buf = await readFile(join(cwd, path))
+        const mime = ext === 'svg' ? 'image/svg+xml' : 'image/' + ext
+        imageBase64 = 'data:' + mime + ';base64,' + buf.toString('base64')
+      } catch { /* deleted */ }
+      return {
+        empty: !imageBase64,
+        diff: '',
+        oldContent,
+        newContent: '',
+        oldPath: path,
+        newPath: path,
+        language,
+        contentType: 'image',
+        imageBase64: imageBase64 || undefined,
+      }
+    }
     // Pick the diff scope:
     //  unstaged → git diff -- <path>            (worktree vs index)
     //  staged   → git diff --cached -- <path>   (index vs HEAD)
@@ -683,6 +713,116 @@ export class IdeTools extends TypertRemoteService {
         return { ok: true, value: { committed: false } }
       }
       return { ok: false, error: { code: 'ide-tools/git-commit-failed', message: message2 } }
+    }
+  }
+
+  /**
+   * Generate a git-conventional commit message from the workspace's unstaged
+   * + untracked changes, using the currently configured LLM (agentDefaultModel).
+   *
+   * The method collects a unified diff of all changes (capped at 32 KiB to
+   * fit a one-shot prompt), asks the model for a Conventional Commits format
+   * message (type(scope): subject + optional body), and returns the raw text.
+   */
+  async gitGenerateCommitMessage(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<{ ok: true; value: { message: string } } | { ok: false; error: { code: string; message: string } }> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+
+      let diff = ''
+      try {
+        const statusRaw = await this.runGit(cwd, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], signal)
+        const untracked: string[] = []
+        for (const part of statusRaw.split('\u0000')) {
+          if (part.startsWith('?? ')) untracked.push(part.slice(3))
+        }
+        if (untracked.length > 0) {
+          try { await this.runGit(cwd, ['add', '-N', '--', ...untracked], signal) } catch { /* ignore */ }
+        }
+        diff = await this.runGit(cwd, ['diff', 'HEAD', '--no-color'], signal)
+        if (diff.trim().length === 0) {
+          diff = await this.runGit(cwd, ['diff', '--cached', '--no-color'], signal)
+          if (diff.trim().length === 0) {
+            diff = await this.runGit(cwd, ['diff', '--no-color'], signal)
+          }
+        }
+      } catch (err) {
+        if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') {
+          return { ok: false, error: { code: 'ide-tools/not-a-repo', message: 'workspace is not a git repository' } }
+        }
+        throw err
+      }
+
+      if (diff.trim().length === 0) {
+        return { ok: false, error: { code: 'ide-tools/no-changes', message: 'no uncommitted changes to generate a message from' } }
+      }
+
+      const MAX_DIFF = 32 * 1024
+      const trimmed = diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + '\n... (diff truncated)' : diff
+
+      const ctx = this.ctx as Context & { llm?: { stream(options: { provider: string; model: string; messages: { role: string; content: { type: string; text: string }[]; source: { kind: string } }[]; system?: string; maxTokens?: number; signal?: AbortSignal }): AsyncIterable<{ type: string; text?: string }> }; agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } } }
+      if (!ctx.llm) {
+        return { ok: false, error: { code: 'ide-tools/llm-unavailable', message: 'LLM service is not available' } }
+      }
+      const selection = ctx.agentDefaultModel?.currentSelection()
+      if (!selection || !selection.provider || !selection.model) {
+        return { ok: false, error: { code: 'ide-tools/no-model', message: 'no model is configured' } }
+      }
+
+      const systemPrompt = [
+        'You are an expert software engineer who writes git commit messages.',
+        'Analyze the provided git diff and generate a commit message following the Conventional Commits specification:',
+        '  <type>(<optional scope>): <subject>',
+        '  <optional body>',
+        '',
+        'Rules:',
+        '- type: one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert',
+        '- subject: imperative mood, lowercase, no period, max 50 chars',
+        '- body (optional): wrap at 72 chars, explain what and why (not how)',
+        '- Output ONLY the commit message, no markdown fences, no explanations.',
+        '- If the diff is in Chinese or the repo appears Chinese, write the message in Chinese.',
+      ].join('\n')
+
+      const userText = 'Generate a commit message for this git diff:\n\n```\n' + trimmed + '\n```'
+
+      const stream = ctx.llm.stream({
+        provider: selection.provider,
+        model: selection.model,
+        reasoningEffort: selection.reasoningEffort as never,
+        system: systemPrompt,
+        messages: [{
+          role: 'user',
+          content: [{ type: 'text', text: userText }],
+          source: { kind: 'user' },
+        }],
+        maxTokens: 512,
+        signal,
+      } as never)
+
+      let message = ''
+      for await (const chunk of stream as AsyncIterable<{ type: string; text?: string }>) {
+        if (chunk.type === 'text-delta' && chunk.text) {
+          message += chunk.text
+        }
+        if (chunk.type === 'finish') break
+      }
+
+      message = message.trim()
+      if (message.startsWith('```')) {
+        message = message.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim()
+      }
+
+      if (message.length === 0) {
+        return { ok: false, error: { code: 'ide-tools/llm-empty', message: 'the model returned an empty message' } }
+      }
+
+      return { ok: true, value: { message } }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: { code: 'ide-tools/llm-failed', message } }
     }
   }
 
