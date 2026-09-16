@@ -51,9 +51,28 @@ function relPathOf(rootDir: string, absPath: string): string {
   return absPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')
 }
 
+/**
+ * Best-effort host OS guess from the browser itself: the DSH GUI is a local
+ * desktop app, so the browser and the plugin host share the machine in the
+ * common case. Seeding the cache with this guarantees the reveal menu item
+ * always renders; the authoritative ideTools.hostPlatform() answer refines it
+ * once it arrives (covers a remote browser against a local host).
+ */
+function guessHostPlatform(): 'darwin' | 'win32' | 'linux' {
+  if (typeof navigator === 'undefined') return 'linux'
+  const ua = navigator.userAgent
+  if (/Macintosh|Mac OS X|iPhone|iPad/.test(ua)) return 'darwin'
+  if (/Windows/.test(ua)) return 'win32'
+  return 'linux'
+}
+
 /** Cached host OS family so context menus label the reveal action correctly
- *  without refetching on every mount (VS Code picks the label per host OS). */
-let hostPlatformCache: 'darwin' | 'win32' | 'linux' | undefined
+ *  without refetching on every mount (VS Code picks the label per host OS).
+ *  Seeded with the navigator guess so the item never disappears. */
+let hostPlatformCache: 'darwin' | 'win32' | 'linux' = guessHostPlatform()
+
+/** True once ideTools.hostPlatform() has answered (its result beats the guess). */
+let hostPlatformAuthoritative = false
 
 /** Workspace-relative path of a directory, with '' for the workspace root itself. */
 function parentRelOf(rootDir: string, absPath: string): string {
@@ -329,17 +348,25 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | undefined>(undefined)
 
-  // Fetch the host OS family once per page (cached module-level).
+  // Refine the platform guess with the authoritative host answer, once per page
+  // (module-level cache). No cancellation flag: a response landing after a
+  // re-render is still valid, and React 18 tolerates setState after unmount.
   useEffect(() => {
-    if (hostPlatformCache !== undefined || !ideToolsFull) return
-    let cancelled = false
+    if (hostPlatformAuthoritative || !ideToolsFull) return
     void ideToolsFull.hostPlatform(sessionId).then((res) => {
-      if (cancelled || !res.ok) return
-      const platform = res.value === 'darwin' || res.value === 'win32' || res.value === 'linux' ? res.value : 'linux'
+      if (hostPlatformAuthoritative) return
+      if (!res.ok) {
+        // Keep the navigator-guessed label; leave a diagnostic breadcrumb.
+        console.warn('[ide] hostPlatform unavailable:', res.error.message)
+        return
+      }
+      const platform = res.value === 'darwin' || res.value === 'win32' ? res.value : 'linux'
+      hostPlatformAuthoritative = true
       hostPlatformCache = platform
       setHostPlatform(platform)
-    }).catch(() => undefined)
-    return () => { cancelled = true }
+    }).catch((err) => {
+      console.warn('[ide] hostPlatform call failed:', err instanceof Error ? err.message : String(err))
+    })
   }, [sessionId, ideToolsFull])
 
   const showNotice = useCallback((message: string) => {
@@ -766,6 +793,14 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    // The reveal item always renders: the prop starts as a navigator guess and
+    // is refined by the authoritative ideTools.hostPlatform() answer.
+    const revealPlatform: 'darwin' | 'win32' | 'linux' = hostPlatform ?? guessHostPlatform()
+    const revealItem = {
+      id: 'reveal',
+      label: revealPlatform === 'darwin' ? t('context.revealInFinder') : revealPlatform === 'win32' ? t('context.revealInExplorer') : t('context.revealInFolder'),
+      onClick: () => onReveal?.(childPath, entry.name),
+    }
     const items = isDir ? [
       { id: 'new-file', label: t('context.newFile'), icon: Icons.newFile, onClick: () => onCreateStart?.('file', childPath) },
       { id: 'new-folder', label: t('context.newFolder'), icon: Icons.newFolder, onClick: () => onCreateStart?.('directory', childPath) },
@@ -773,11 +808,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
       { id: 'sep-reveal', label: '', separator: true },
-      ...(hostPlatform ? [{
-        id: 'reveal',
-        label: hostPlatform === 'darwin' ? t('context.revealInFinder') : hostPlatform === 'win32' ? t('context.revealInExplorer') : t('context.revealInFolder'),
-        onClick: () => onReveal?.(childPath, entry.name),
-      }] : []),
+      revealItem,
       { id: 'sep2', label: '', separator: true },
       { id: 'rename', label: t('context.rename'), icon: Icons.edit, disabled: depth === 0, onClick: () => onRenameStart?.(childPath, entry.name) },
       { id: 'delete', label: t('context.delete'), icon: Icons.trash, disabled: depth === 0, onClick: () => onRequestDelete?.(childPath, entry.name, true) },
@@ -789,11 +820,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
       { id: 'sep-reveal', label: '', separator: true },
-      ...(hostPlatform ? [{
-        id: 'reveal',
-        label: hostPlatform === 'darwin' ? t('context.revealInFinder') : hostPlatform === 'win32' ? t('context.revealInExplorer') : t('context.revealInFolder'),
-        onClick: () => onReveal?.(childPath, entry.name),
-      }] : []),
+      revealItem,
       { id: 'sep2', label: '', separator: true },
       { id: 'rename', label: t('context.rename'), icon: Icons.edit, onClick: () => onRenameStart?.(childPath, entry.name) },
       { id: 'delete', label: t('context.delete'), icon: Icons.trash, onClick: () => onRequestDelete?.(childPath, entry.name, false) },

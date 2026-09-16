@@ -2,6 +2,10 @@
 
 # DSH Client UI IDE
 
+[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-client-ui-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-client-ui-ide)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
 
 ## 项目简介
@@ -105,7 +109,7 @@ pnpm bundle
 pnpm watch
 ```
 
-> 注意：本仓库部分依赖通过 `link:` 指向本机全局 DSH 安装路径，在其他机器检出后需按实际 DSH 安装位置调整 `package.json` 中的 `link:` 路径，再执行 `pnpm install`。
+> `@deepseek-ai/*` 系列依赖不在公共 npm 上，在 `devDependencies` 中以 `link:` 指向本机全局 DSH 安装；其他机器检出后请按实际 DSH 安装位置调整这些路径（它们仅参与本地类型检查，不影响发布产物）。
 
 ## 安装到 DSH
 
@@ -117,7 +121,7 @@ pnpm watch
 - 已有 web profile，且 `dsh web` 可正常启动（profile 目录默认在 `~/.dsh/profiles/web`）
 - 配套的文件写 API 包 `@deepseek-ai/dsh-api-workspace-files-write`：IDE 的保存/新建/重命名/删除等文件操作依赖它，DSH 本体暂未内置，需一并装入 profile
 
-### 方式一：本地目录安装（推荐，插件尚未发布 npm）
+### 方式一：从 npm 安装（推荐）
 
 1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
 
@@ -154,14 +158,23 @@ pnpm watch
 
 > `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
 
-### 方式二：从 npm 安装（包发布后可用）
+### 方式二：本地目录安装（开发调试用）
 
-```bash
-dsh plugin --profile web add @zhaoyang10/dsh-client-ui-ide
-dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
-```
+1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
 
-随后同样把 `@zhaoyang10/dsh-client-ui-ide` 加入 `dsh.profile.bundles` 并重启。
+   ```bash
+   pnpm install
+   pnpm bundle
+   ```
+
+2. 把插件与文件写 API 以本地 link 方式装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
+
+   ```bash
+   dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
+   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
+   ```
+
+> `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
 
 ### 方式三：手动注册 roster（不启用 bundle patch）
 
