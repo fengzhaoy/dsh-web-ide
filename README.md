@@ -2,7 +2,7 @@
 
 # DSH Client UI IDE
 
-DSH Web IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
+DSH Client UI IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
 
 ## 项目简介
 
