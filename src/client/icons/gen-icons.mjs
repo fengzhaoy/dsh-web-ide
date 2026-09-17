@@ -27,7 +27,7 @@ const nameMap = {
   repo: 'repo', 'git-pull-request': 'pullRequest',
   diff: 'diff', 'diff-added': 'diffAdded', 'diff-modified': 'diffModified',
   'diff-removed': 'diffRemoved', 'diff-renamed': 'diffRenamed', 'diff-ignored': 'diffIgnored',
-  refresh: 'refresh', 'cloud-download': 'cloudDownload', tag: 'tag', graph: 'gitGraph',
+  refresh: 'refresh', 'cloud-download': 'cloudDownload', tag: 'tag', graph: 'gitGraph', save: 'save',
   'chrome-maximize': 'maximize', 'chrome-restore': 'restore',
   // Symbol / file-type icons
   'symbol-file': 'symbolFile',
@@ -165,6 +165,7 @@ export const Icons = {
   maximize: render(ICONS.maximize),
   restore: render(ICONS.restore),
   cloudDownload: render(ICONS.cloudDownload),
+  save: render(ICONS.save),
   tag: render(ICONS.tag),
   gitGraph: render(ICONS.gitGraph),
 } as const

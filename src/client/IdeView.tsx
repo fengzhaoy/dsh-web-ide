@@ -150,6 +150,20 @@ const workspaceTabs = new Map<string, {
  */
 const sessionTerminals = new Map<string, { open: boolean; ids: string[]; activeIdx: number }>()
 
+/** Whether two git status entry lists render identically. Used to skip state
+ *  writes when a background refresh found nothing new — no write means no
+ *  re-render and no flicker (VS Code updates decorations in place, never
+ *  re-rendering the whole workbench). */
+function sameGitEntries(a: readonly import('./types.js').GitStatusEntry[] | undefined, b: readonly import('./types.js').GitStatusEntry[]): boolean {
+  if (a === undefined || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (x.path !== y.path || x.kind !== y.kind || x.statusCode !== y.statusCode || x.oldPath !== y.oldPath) return false
+  }
+  return true
+}
+
 /** The activity bar's selectable sidebar panels. */
 type SidebarView = 'explorer' | 'search' | 'git'
 
@@ -374,6 +388,8 @@ export function IdeView(props: IdeViewInjected & {
     if (parked === undefined) return undefined
     return typeof parked === 'string' ? { path: parked } : parked
   })
+  const diffPathRef = useRef<IdeDiffTarget | undefined>(diffPath)
+  useEffect(() => { diffPathRef.current = diffPath }, [diffPath])
   /** Markdown split preview: open flag (parked per workspace), the live
    *  content feed from the Monaco model, and a manual-refresh nonce. */
   const [mdPreviewOpen, setMdPreviewOpen] = useState<boolean>(() => {
@@ -387,6 +403,19 @@ export function IdeView(props: IdeViewInjected & {
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
+  const gitEntriesRef = useRef<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
+  /** Deduped write path for git status: identical lists leave state untouched
+   *  so background refreshes never re-render the view. */
+  const applyGitEntries = useCallback((entries: readonly import('./types.js').GitStatusEntry[] | undefined) => {
+    if (entries === undefined) {
+      if (gitEntriesRef.current !== undefined) { gitEntriesRef.current = undefined; setGitEntries(undefined) }
+      return
+    }
+    if (!sameGitEntries(gitEntriesRef.current, entries)) {
+      gitEntriesRef.current = entries
+      setGitEntries(entries)
+    }
+  }, [])
   /** Bottom terminal dock: open flag + terminal identities. Seeded from the
    *  session-parked state so a remount (chat ↔ IDE tab switch) reopens the
    *  dock with the same still-running host-side terminals. */
@@ -579,7 +608,7 @@ export function IdeView(props: IdeViewInjected & {
    * let a stray Ctrl+S write the discarded edits right back over HEAD.
    */
   const handleChangesDiscarded = useCallback((paths: readonly string[]) => {
-    setDiffPath((current) => (current !== undefined && paths.includes(current) ? undefined : current))
+    setDiffPath((current) => (current !== undefined && paths.includes(current.path) ? undefined : current))
     void (async () => {
       for (const path of paths) {
         const model = ideEditor.models.get(path)
@@ -668,7 +697,7 @@ export function IdeView(props: IdeViewInjected & {
   // Explorer renamed a file/folder: close affected tabs and reopen them under
   // the new path (content is re-read from disk; saved baselines follow).
   const handleFileRenamed = useCallback((oldAbs: string, newAbs: string) => {
-    setDiffPath((current) => (current !== undefined && (current === oldAbs || current.startsWith(oldAbs + '/')) ? undefined : current))
+    setDiffPath((current) => (current !== undefined && (current.path === oldAbs || current.path.startsWith(oldAbs + '/')) ? undefined : current))
     const affected = tabs.filter((tb) => tb.path === oldAbs || tb.path.startsWith(oldAbs + '/'))
     void (async () => {
       for (const tb of affected) {
@@ -681,7 +710,7 @@ export function IdeView(props: IdeViewInjected & {
   // Explorer deleted a file/folder: drop its diff and close its tab(s) without
   // prompting (the user explicitly removed the file).
   const handleFileDeleted = useCallback((abs: string) => {
-    setDiffPath((current) => (current !== undefined && (current === abs || current.startsWith(abs + '/')) ? undefined : current))
+    setDiffPath((current) => (current !== undefined && (current.path === abs || current.path.startsWith(abs + '/')) ? undefined : current))
     for (const tb of tabs) {
       if (tb.path === abs || tb.path.startsWith(abs + '/')) closeTabNow(tb.path)
     }
@@ -692,6 +721,13 @@ export function IdeView(props: IdeViewInjected & {
     if (!sessionId) return
     const ctrl = new AbortController()
     let cancelled = false
+    // Throttled SCM refresh: a burst of writes (an agent editing many files)
+    // triggers one git status refetch, not one per frame.
+    let bumpTimer: ReturnType<typeof setTimeout> | undefined
+    const bumpGit = () => {
+      if (bumpTimer !== undefined) return
+      bumpTimer = setTimeout(() => { bumpTimer = undefined; setGitRefreshKey((k) => k + 1) }, 1000)
+    }
     ;(async () => {
       try {
         for await (const frame of workspaceFiles.changes(sessionId, ctrl.signal)) {
@@ -700,18 +736,34 @@ export function IdeView(props: IdeViewInjected & {
           // Match by absolute path or relative path against open tabs.
           const hit = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))
           const newVersion = 'version' in frame.change ? frame.change.version : undefined
+          if ('absent' in frame.change) {
+            // Externally deleted: close a matching tab / diff overlay so a
+            // stale buffer is never saved back over a new file.
+            const victim = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))?.path
+              ?? (diffPathRef.current !== undefined && matchesPath(diffPathRef.current.path, absPath, cwd) ? diffPathRef.current.path : undefined)
+            if (victim !== undefined) {
+              ideEditor.models.get(victim)?.dispose()
+              ideEditor.models.delete(victim)
+              ideEditor.saved.delete(victim)
+              dirtyRef.current.delete(victim)
+              setTabs((prev) => prev.filter((t) => t.path !== victim))
+              setDiffPath((d) => (d?.path === victim ? undefined : d))
+            }
+            continue
+          }
           // Dirty tabs keep their in-editor edits; the user resolves the
           // divergence on save (stale-version conflict dialog).
           if (hit && hit.status === 'ready' && !hit.dirty && newVersion !== undefined && newVersion !== hit.version) {
-            // Re-open in the background; do not steal focus.
+            // Re-open IN PLACE (no remount); do not steal focus.
             void reopenFile(hit.path)
+            bumpGit()
           }
         }
       } catch {
         // The change stream is best-effort; ignore transport errors.
       }
     })()
-    return () => { cancelled = true; ctrl.abort() }
+    return () => { cancelled = true; ctrl.abort(); if (bumpTimer !== undefined) clearTimeout(bumpTimer) }
   }, [sessionId, workspaceFiles, cwd])
 
   // Keep a ref to tabs so the change-stream effect (created once per session) sees latest.
@@ -729,8 +781,8 @@ export function IdeView(props: IdeViewInjected & {
       void ideTools.gitStatus(sessionId, ctrl.signal).then((res) => {
         if (cancelled) return
         if (res.ok) {
-          if (res.value.notARepo) setGitEntries(undefined)
-          else if (res.value.entries) setGitEntries(res.value.entries)
+          if (res.value.notARepo) applyGitEntries(undefined)
+          else if (res.value.entries) applyGitEntries(res.value.entries)
         }
       }).catch(() => {
         // Swallow git status fetch errors (namespace not mounted, not a repo,
@@ -738,10 +790,69 @@ export function IdeView(props: IdeViewInjected & {
       })
     }
     fetch()
-    // Poll every 15s so the badge count stays fresh while the panel is closed.
+    // Poll every 15s as a slow fallback. Fast freshness comes from event
+    // bumps (file writes, diff saves) — and every fetch is deduped in
+    // applyGitEntries, so a no-change result never re-renders anything.
     const id = setInterval(fetch, 15000)
     return () => { cancelled = true; ctrl.abort(); clearInterval(id) }
-  }, [sessionId, cwd, ideTools, gitRefreshKey])
+  }, [sessionId, cwd, ideTools, gitRefreshKey, applyGitEntries])
+
+  // External-change fallback watch: a slow silent stat pass over the open
+  // tabs — covers changes no stream reports (external editors, terminal git
+  // commands). The `changes` stream (above) already pushes agent/IDE writes.
+  // Updates are in-place (no remount) so nothing ever flickers; unsaved
+  // buffers are never touched — their save flow's version guard surfaces the
+  // conflict instead.
+  useEffect(() => {
+    if (!sessionId || !workspaceFiles || !cwd) return
+    const reloading = new Set<string>()
+    let bumpTimer: ReturnType<typeof setTimeout> | undefined
+    // Throttle the SCM refresh bump: a burst of writes (an agent editing many
+    // files) should trigger one git status refetch, not one per frame.
+    const bumpGit = () => {
+      if (bumpTimer !== undefined) return
+      bumpTimer = setTimeout(() => { bumpTimer = undefined; setGitRefreshKey((k) => k + 1) }, 1000)
+    }
+    const dropTab = (path: string) => {
+      ideEditor.models.get(path)?.dispose()
+      ideEditor.models.delete(path)
+      ideEditor.saved.delete(path)
+      dirtyRef.current.delete(path)
+      setTabs((prev) => prev.filter((t) => t.path !== path))
+      setDiffPath((d) => (d?.path === path ? undefined : d))
+    }
+    const applyExternalVersion = (path: string, version: string) => {
+      const current = tabsRef.current.find((t) => t.path === path)
+      if (!current || current.dirty || reloading.has(path)) return
+      if (current.version === version) return
+      reloading.add(path)
+      void reopenRef.current(path).finally(() => reloading.delete(path))
+      bumpGit()
+    }
+    const ctrl = new AbortController()
+    // Slow silent stat pass for non-instrumented external writes.
+    const poll = () => {
+      const open = tabsRef.current.filter((t) => t.status === 'ready')
+      for (const tab of open) {
+        if (ctrl.signal.aborted) return
+        if (tab.dirty || reloading.has(tab.path)) continue
+        void workspaceFiles.stat(sessionId, tab.path, ctrl.signal).then((res) => {
+          if (ctrl.signal.aborted) return
+          const current = tabsRef.current.find((t) => t.path === tab.path)
+          if (!current || current.dirty) return
+          if (!res.ok) {
+            // Externally deleted: drop the tab like VS Code closes a vanished
+            // file, so a stale buffer is never saved back over a new file.
+            if (res.error.code === 'workspace-file/not-found') dropTab(tab.path)
+            return
+          }
+          applyExternalVersion(tab.path, res.value.version)
+        }).catch(() => { /* transient transport errors: next tick retries */ })
+      }
+    }
+    const id = setInterval(poll, 15000)
+    return () => { ctrl.abort(); clearInterval(id); if (bumpTimer !== undefined) clearTimeout(bumpTimer) }
+  }, [sessionId, workspaceFiles, cwd])
 
   // Register this mount with the sidebar bridge so sidebar clicks can route
   // here, and publish the active file so the sidebar tree can highlight it.
@@ -779,23 +890,43 @@ export function IdeView(props: IdeViewInjected & {
       setTabs((prev) => prev.map((t) => t.path === path ? { ...t, kind: 'image' as const, imageSrc: result.imageSrc, version: result.version, truncated: false, lines: 0, status: 'ready' as const, error: null, dirty: false } : t))
       return
     }
-    const m = await loadMonaco()
-    const old = ideEditor.models.get(path)
-    if (old) old.dispose()
-    const language = detectLanguage(path)
-    const model = createOrReuseModel(m, path, result.text, language)
-    ideEditor.models.set(path, model)
-    ideEditor.saved.set(path, result.text)
-    dirtyRef.current.delete(path)
-    if (activePath === path && editorRef.current) editorRef.current.setModel(model)
+    // In-place update (VS Code's auto-revert): refresh the SAME model via
+    // setValue instead of disposing and recreating it — the editor keeps its
+    // identity, so nothing flashes and the layout never jumps. The cursor is
+    // restored to its prior position afterwards.
+    const model = ideEditor.models.get(path)
+    const editor = editorRef.current
+    const prior = model !== undefined && activePathRef.current === path && editor !== null && editor.getModel() === model
+      ? editor.getPosition()
+      : null
+    if (model !== undefined) {
+      // Refresh the saved baseline BEFORE setValue: the content listener
+      // recomputes the dirty flag synchronously and must see the new text as
+      // the clean baseline.
+      ideEditor.saved.set(path, result.text)
+      dirtyRef.current.delete(path)
+      model.setValue(result.text)
+    } else {
+      const m = await loadMonaco()
+      const created = createOrReuseModel(m, path, result.text, detectLanguage(path))
+      ideEditor.models.set(path, created)
+      ideEditor.saved.set(path, result.text)
+      dirtyRef.current.delete(path)
+    }
+    if (prior !== null && editor !== null && editor.getModel() === model) {
+      editor.setPosition(prior)
+      editor.revealPositionInCenterIfOutsideViewport(prior)
+    }
     setTabs((prev) => prev.map((t) => t.path === path ? { ...t, text: undefined as never, version: result.version, truncated: result.truncated, lines: result.lines, status: 'ready' as const, error: null, dirty: false } : t))
-  }, [sessionId, workspaceFiles, activePath])
+  }, [sessionId, workspaceFiles])
 
   // Latest-values refs so the Monaco command and listeners never run stale closures.
   const activePathRef = useRef(activePath)
   useEffect(() => { activePathRef.current = activePath }, [activePath])
   const saveRef = useRef<(path: string) => Promise<boolean>>(async () => false)
   useEffect(() => { saveRef.current = saveFile })
+  const reopenRef = useRef<(path: string) => Promise<void>>(async () => {})
+  useEffect(() => { reopenRef.current = reopenFile })
 
   /** Save one tab through the write Remote with a version-guarded intent. */
   const saveFile = useCallback(async (path: string): Promise<boolean> => {
@@ -940,6 +1071,13 @@ export function IdeView(props: IdeViewInjected & {
                   setDiffPath({ path, oldPath, sha })
                 }}
                 onChangesDiscarded={handleChangesDiscarded}
+                refreshKey={gitRefreshKey}
+                onStatusChanged={(entries) => {
+                  // The panel just fetched fresh status: mirror it into the
+                  // activity-bar badge — deduped, so an unchanged list never
+                  // re-renders the view.
+                  applyGitEntries(entries)
+                }}
                 t={t}
               />
             ) : (
@@ -1145,9 +1283,18 @@ export function IdeView(props: IdeViewInjected & {
               cwd={cwd}
               ideTools={ideTools}
               workspaceFiles={workspaceFiles}
+              workspaceFilesWrite={workspaceFilesWrite}
               path={diffPath.path}
               name={diffPath.path.split('/').pop() ?? diffPath.path}
               commit={diffPath.sha !== undefined ? { sha: diffPath.sha, path: diffPath.path, oldPath: diffPath.oldPath } : undefined}
+              onSaved={(savedPath) => {
+                // A save from the editable diff pane changed the worktree: sync
+                // the matching normal tab (its model + saved baseline are stale
+                // now) and refresh the git badge immediately.
+                if (tabs.some((t) => t.path === savedPath)) void reopenFile(savedPath)
+                setGitRefreshKey((k) => k + 1)
+              }}
+              onExternalChange={() => setGitRefreshKey((k) => k + 1)}
               onClose={() => setDiffPath(undefined)}
               t={t}
             />

@@ -22,6 +22,12 @@ export interface SourceControlPanelProps {
   onOpenDiff: (path: string, kind: GitStatusEntry['kind']) => void
   /** Open one file of one commit as a diff in the editor area (graph view). */
   onOpenCommitDiff: (sha: string, path: string, oldPath: string | undefined) => void
+  /** Bumped by the owner whenever external activity may have changed git
+   *  state (file watcher hits, diff saves): retriggers a status fetch. */
+  refreshKey?: number
+  /** Mirrors each successful status fetch to the owner so the activity-bar
+   *  badge shows exactly what the panel sees (no lag, no duplicate fetch). */
+  onStatusChanged?: (entries: readonly GitStatusEntry[] | undefined) => void
   /** Paths whose changes were discarded (the view closes a matching diff and
    *  reloads an open editor buffer so it cannot be saved back over HEAD). */
   onChangesDiscarded?: (paths: readonly string[]) => void
@@ -63,7 +69,21 @@ function statusLetter(kind: GitStatusEntry['kind']): string {
   }
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, t }: SourceControlPanelProps) {
+/** Whether two status results render identically (entries + branch header).
+ *  Used to skip state writes when a background poll found nothing new — no
+ *  write means no re-render and no flicker. */
+function sameStatus(a: GitStatusResult | null, b: GitStatusResult): boolean {
+  if (a === null) return false
+  if (a.entries.length !== b.entries.length) return false
+  for (let i = 0; i < a.entries.length; i++) {
+    const x = a.entries[i]
+    const y = b.entries[i]
+    if (x.path !== y.path || x.kind !== y.kind || x.statusCode !== y.statusCode || x.oldPath !== y.oldPath) return false
+  }
+  return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind && a.detached === b.detached
+}
+
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, t }: SourceControlPanelProps) {
   const [view, setView] = useState<ScmView>('changes')
   const [status, setStatus] = useState<Status>('loading')
   const [commitMessage, setCommitMessage] = useState('')
@@ -92,19 +112,35 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   const caretRef = useRef<HTMLButtonElement>(null)
   /** The header view-switcher — dropdown anchor. */
   const switcherRef = useRef<HTMLButtonElement>(null)
+  /** Latest onStatusChanged — read through a ref so `refresh` stays stable
+   *  even when the owner passes an inline callback. */
+  const statusChangedRef = useRef(onStatusChanged)
+  useEffect(() => { statusChangedRef.current = onStatusChanged })
 
   const refresh = useCallback(async () => {
     if (!cwd) return
     const mySeq = ++seq.current
-    setStatus('loading')
+    // Silent background refresh (VS Code style): keep the current list visible
+    // while re-fetching — only the FIRST load (or a session switch) shows the
+    // loading state, otherwise every poll would blank the panel and flicker.
+    setStatus((current) => (current === 'ready' || current === 'error' ? current : 'loading'))
     setError(null)
     const ctrl = new AbortController()
     try {
       const res = await ideTools.gitStatus(sessionId, ctrl.signal)
       if (mySeq !== seq.current) return
       if (res.ok) {
-        if (res.value.notARepo) { setStatus('notrepo'); setResult(null) }
-        else { setStatus('ready'); setResult(res.value) }
+        if (res.value.notARepo) {
+          setStatus((current) => (current === 'notrepo' ? current : 'notrepo'))
+          setResult((current) => (current === null ? current : null))
+          statusChangedRef.current?.(undefined)
+        } else {
+          setStatus((current) => (current === 'ready' ? current : 'ready'))
+          // Write the result only when something actually changed: identical
+          // entries leave the component untouched (zero re-render, zero flicker).
+          setResult((current) => (sameStatus(current, res.value) ? current : res.value))
+          statusChangedRef.current?.(res.value.entries)
+        }
       } else {
         setStatus('error'); setError(res.error.message ?? res.error.code)
       }
@@ -118,10 +154,20 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   useEffect(() => { void refresh() }, [refresh])
 
   // Auto-refresh every 15s while the panel is mounted (cheap status poll).
+  // Freshness mostly comes from event bumps (writes, diff saves) via refreshKey
+  // — polling stays slow so the panel never churns (VS Code uses watchers, not
+  // fast polling; the silent refresh above keeps even a hit flicker-free).
   useEffect(() => {
     const id = setInterval(() => { void refresh() }, 15000)
     return () => clearInterval(id)
   }, [refresh])
+
+  // External-activity bumps (file-watcher hits, diff saves) refetch at once.
+  const firstRefreshKey = useRef(refreshKey)
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey !== firstRefreshKey.current) void refresh()
+    firstRefreshKey.current = refreshKey
+  }, [refreshKey, refresh])
 
   const handleClick = useCallback((entry: GitStatusEntry) => {
     setSelectedPath(entry.path)

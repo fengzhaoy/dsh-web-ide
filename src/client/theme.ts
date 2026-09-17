@@ -351,6 +351,10 @@ export const IDE_STYLES = `
 .ide-diff-close{flex:none;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--ide-fg-dim);cursor:pointer;border-radius:4px;padding:0}
 .ide-diff-close:hover{background:rgba(255,255,255,.12);color:var(--ide-fg)}
 .ide-diff-close svg{width:14px;height:14px}
+.ide-diff-dirty{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ide-accent,#0078d4);box-shadow:0 0 4px rgba(0,120,212,.8)}
+.ide-diff-save-error{flex:none;color:var(--ide-error,#f48771);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
+.ide-diff-reload{flex:none;height:22px;padding:0 8px;border:1px solid var(--ide-tab-border);background:transparent;color:var(--ide-fg);font-size:11px;cursor:pointer;border-radius:4px;white-space:nowrap}
+.ide-diff-reload:hover{background:rgba(255,255,255,.12)}
 .ide-diff-container{flex:1;min-height:0;position:relative}
 .ide-diff-overlay{position:absolute;inset:28px 0 0 0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .ide-diff-overlay:empty{display:none}

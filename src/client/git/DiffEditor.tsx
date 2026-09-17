@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
-import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote } from '../types.js'
+import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote, WorkspaceFilesWriteRemote, WorkspaceFileWriteIntent } from '../types.js'
 import { Icons } from '../icons.js'
 import { defineDarkModernTheme } from '../theme.js'
 import { installMonacoWorker } from '../monacoWorkerBootstrap.js'
@@ -21,6 +21,9 @@ export interface DiffEditorProps {
   ideTools: IdeToolsRemote
   /** Workspace-files Remote, used to read the working-tree side directly. */
   workspaceFiles: WorkspaceFilesRemote
+  /** Bounded-write Remote; set to make the working-tree (right) side
+   *  editable and savable — VS Code's editable SCM diff pane. */
+  workspaceFilesWrite?: WorkspaceFilesWriteRemote
   /** Path to diff (workspace-relative). */
   path: string
   /** Display basename for the tab title. */
@@ -31,6 +34,12 @@ export interface DiffEditorProps {
   commit?: { sha: string; path: string; oldPath?: string }
   /** Return to the normal editor (clears the diff overlay). */
   onClose?: () => void
+  /** The right side was saved through the write Remote: the owner reopens the
+   *  matching normal tab (sync its model + saved baseline) and refreshes git. */
+  onSaved?: (path: string) => void
+  /** The diffed file changed outside this view and the diff was refreshed
+   *  in place — the owner refreshes git state (badge / changes list). */
+  onExternalChange?: () => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -95,7 +104,7 @@ function applyUnifiedDiff(original: string, patch: string): string {
   return out.join('\n')
 }
 
-export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, name, commit, onClose, t }: DiffEditorProps) {
+export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, onClose, onSaved, onExternalChange, t }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
   const [state, setState] = useState<LoadState>('loading')
@@ -105,6 +114,30 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
   const [binaryLabel, setBinaryLabel] = useState<string | null>(null)
   /** Line counts of the two sides; shown in the header (also a build marker). */
   const [stats, setStats] = useState<{ old: number; new: number; source: string } | null>(null)
+  /** Editable working-tree mode (VS Code's editable SCM diff pane): the right
+   *  side carries unsaved edits. Tracked as state (button) AND ref (poll). */
+  const [dirty, setDirty] = useState(false)
+  const dirtyRef = useRef(false)
+  /** Saving lifecycle for the header button. */
+  const [savePhase, setSavePhase] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  /** The worktree file's version at load time — the save's replaceIfVersion guard. */
+  const versionRef = useRef<string | undefined>(undefined)
+  /** Whether the right side holds the COMPLETE worktree file (a truncated
+   *  page must never be saved back). */
+  const completeRef = useRef(false)
+  /** The editable modified model, for the save command + change listener. */
+  const modifiedRef = useRef<Monaco.editor.ITextModel | null>(null)
+  /** Bumped to re-run the load effect (external change reload / post-error reload). */
+  const [reloadNonce, setReloadNonce] = useState(0)
+  /** True while the polled file is known-absent on disk (deletion diff shown;
+   *  polling pauses so a vanished file causes no repeated refresh churn). */
+  const absentRef = useRef(false)
+  /** Quiet in-place refresh of both sides (re-fetch + setValue). Set inside
+   *  the load effect; used by the external-change poll and the manual reload. */
+  const reloadRef = useRef<() => Promise<void>>(async () => {})
+  /** Suppresses the dirty listener while a quiet refresh writes model content. */
+  const applyingRef = useRef(false)
 
   // Destructure `commit` to primitives for the deps array: IdeView creates a
   // fresh object per render, and an object dep would remount the editor on
@@ -112,11 +145,43 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
   const commitSha = commit?.sha
   const commitPath = commit?.path
   const commitOldPath = commit?.oldPath
+  const editable = workspaceFilesWrite !== undefined && commitSha === undefined
+
+  /** Write the edited right side back with a version guard (Ctrl/Cmd+S or the
+   *  header button). On a stale version the write is refused — the user
+   *  reloads the diff to pick up the external change first. */
+  const saveEdits = useRef<() => Promise<void>>(async () => {})
+  saveEdits.current = async () => {
+    if (!editable || !workspaceFilesWrite || commitSha !== undefined) return
+    const model = modifiedRef.current
+    if (!model || !dirtyRef.current || !completeRef.current) return
+    setSavePhase('saving')
+    setSaveError(null)
+    const content = model.getValue()
+    const intent: WorkspaceFileWriteIntent | undefined = versionRef.current !== undefined
+      ? { kind: 'replaceIfVersion', version: versionRef.current }
+      : undefined
+    const res = await workspaceFilesWrite.write(sessionId, path, content, intent)
+    if (!res.ok) {
+      setSavePhase('error')
+      setSaveError(res.error.code === 'workspace-file-write/stale-version'
+        ? t('diff.staleError')
+        : t('diff.saveError', { message: res.error.message ?? res.error.code }))
+      return
+    }
+    versionRef.current = res.value.version
+    dirtyRef.current = false
+    setDirty(false)
+    setSavePhase('idle')
+    // Let the owner sync the matching normal tab (model + saved baseline) and
+    // refresh git state — the save just changed the worktree.
+    onSaved?.(path)
+  }
 
   // Load the diff and mount the diff editor when the path changes.
   useEffect(() => {
     let cancelled = false
-    let editor: Monaco.editor.IDiffEditor | null = null
+    let editor: Monaco.editor.IStandaloneDiffEditor | null = null
     // Models are global to Monaco and are NOT disposed by editor.dispose(), so
     // this run must own and release exactly the pair it creates below.
     let models: Monaco.editor.ITextModel[] = []
@@ -129,6 +194,15 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       setImageSrc('')
       setBinaryLabel(null)
       setStats(null)
+      // Reset the per-load editing state.
+      dirtyRef.current = false
+      setDirty(false)
+      setSavePhase('idle')
+      setSaveError(null)
+      versionRef.current = undefined
+      completeRef.current = false
+      modifiedRef.current = null
+      absentRef.current = false
 
       // Commit mode (source control graph → commit details → file): BOTH
       // sides come from the commit's blobs via the git host — the working
@@ -176,8 +250,14 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       let source = 'host'
       const fileRes = await workspaceFiles.readAll(sessionId, path, ctrl.signal)
       if (cancelled) return
-      if (fileRes.ok) { newText = decodeBase64Utf8(fileRes.value.data); source = 'disk' }
-      else if (fileRes.error.code === 'workspace-file/not-found') { newText = ''; source = 'disk' }
+      if (fileRes.ok) {
+        newText = decodeBase64Utf8(fileRes.value.data)
+        source = 'disk'
+        // Editability guard: only a COMPLETE right side may be saved back —
+        // a truncated page would lose the tail on write.
+        completeRef.current = fileRes.value.eof === true
+        versionRef.current = fileRes.value.version
+      } else if (fileRes.error.code === 'workspace-file/not-found') { newText = ''; source = 'disk' }
       else {
         // Full-file read refused (e.g. over the byte cap): fall back to a text page.
         const pageRes = await workspaceFiles.read(sessionId, path, { limit: 1_000_000 }, ctrl.signal)
@@ -226,9 +306,22 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       const oldModel = Monaco.editor.createModel(oldText, language, oldUri)
       const newModel = Monaco.editor.createModel(newText, language, newUri)
       models = [oldModel, newModel]
+      // Editable working-tree pane (VS Code parity): the modified side takes
+      // typing; the original (HEAD) side stays read-only. Commit diffs and
+      // truncated reads remain fully read-only — history and partial pages
+      // must never be written back.
+      const canEdit = editable && completeRef.current && source === 'disk'
+      modifiedRef.current = canEdit ? newModel : null
+      const onDirty = () => {
+        if (!canEdit || applyingRef.current) return
+        if (!dirtyRef.current) { dirtyRef.current = true; setDirty(true) }
+      }
+      if (canEdit) {
+        newModel.onDidChangeContent(onDirty)
+      }
       editor = Monaco.editor.createDiffEditor(container, {
         theme: 'dsh-dark-modern',
-        readOnly: true,
+        readOnly: !canEdit,
         automaticLayout: true,
         fontSize: 13,
         lineHeight: 20,
@@ -245,6 +338,11 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
         minimap: { enabled: false },
       } as Monaco.editor.IDiffEditorConstructionOptions)
       editor.setModel({ original: oldModel, modified: newModel })
+      // Cmd/Ctrl+S inside the diff pane saves the working-tree side — the same
+      // shortcut the normal editor tabs use (explorer parity).
+      if (canEdit) {
+        editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { void saveEdits.current() })
+      }
       editorRef.current = editor
       setStats({ old: oldModel.getLineCount(), new: newModel.getLineCount(), source })
       setState('ready')
@@ -257,21 +355,122 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       setState('error')
       setError(e instanceof Error ? e.message : String(e))
     })
+
+    // Quiet reload: re-fetch both sides and write them into the LIVE models
+    // (setValue) — the mounted diff editor is never disposed, so there is no
+    // spinner, no layout jump, no flicker. Used by the external-change watch
+    // and the manual reload after a refused save.
+    reloadRef.current = async () => {
+      if (cancelled || dirtyRef.current) return
+      const liveEditor = editorRef.current
+      if (liveEditor === null) { setReloadNonce((n) => n + 1); return }
+      const original = liveEditor.getModel()?.original ?? null
+      const modified = liveEditor.getModel()?.modified ?? null
+      if (original === null || modified === null) return
+      try {
+        const diffRes = await ideTools.gitDiff(sessionId, path, 'head', ctrl.signal)
+        if (cancelled || dirtyRef.current) return
+        if (!diffRes.ok) return
+        const diff: GitDiffResult = diffRes.value
+        let newText = diff.newContent
+        let oldText = diff.oldContent
+        if (diff.contentType === 'image' || diff.contentType === 'binary') return
+        const fileRes = await workspaceFiles.readAll(sessionId, path, ctrl.signal)
+        if (cancelled || dirtyRef.current) return
+        if (fileRes.ok) {
+          newText = decodeBase64Utf8(fileRes.value.data)
+          versionRef.current = fileRes.value.version
+          completeRef.current = fileRes.value.eof === true
+        } else if (fileRes.error.code === 'workspace-file/not-found') {
+          newText = ''
+          versionRef.current = undefined
+          absentRef.current = true
+        }
+        if (oldText === '' && diff.diff.trim().length > 0 && newText === diff.oldContent) {
+          const applied = applyUnifiedDiff(diff.oldContent, diff.diff)
+          if (applied !== diff.oldContent) newText = applied
+        }
+        // Apply in place with the dirty listener suppressed.
+        applyingRef.current = true
+        try {
+          original.setValue(oldText)
+          modified.setValue(newText)
+        } finally {
+          applyingRef.current = false
+        }
+        dirtyRef.current = false
+        setDirty(false)
+        setStats({ old: original.getLineCount(), new: modified.getLineCount(), source: 'disk' })
+        if (diff.oldContent === newText && diff.empty) setState('empty')
+        else setState('ready')
+      } catch {
+        // Transport hiccup during a background refresh: keep showing the
+        // current diff; the next poll tick retries.
+      }
+    }
+
+    // External-change watch (working-tree mode): poll every 5s and refresh the
+    // diff IN PLACE when the file changed outside this view (another editor, a
+    // terminal git command) while the pane carries no unsaved edits. The
+    // refresh swaps model content via setValue — the editor is never torn
+    // down, so nothing flickers (VS Code updates the diff in place too). With
+    // unsaved edits the pane is left alone — saving then hits the version
+    // guard and offers a reload, so external work is never silently clobbered.
+    let poll: ReturnType<typeof setInterval> | undefined
+    let reloading = false
+    if (commitSha === undefined) {
+      poll = setInterval(() => {
+        if (cancelled || dirtyRef.current || reloading) return
+        reloading = true
+        void workspaceFiles.stat(sessionId, path, ctrl.signal).then((res) => {
+          if (cancelled || dirtyRef.current) return
+          if (!res.ok) {
+            // The file vanished externally: refresh once to show the deletion
+            // state, then stop polling (absentRef guards the churn).
+            if (res.error.code === 'workspace-file/not-found' && !absentRef.current) {
+              absentRef.current = true
+              versionRef.current = undefined
+              void reloadRef.current()
+              onExternalChange?.()
+            }
+            return
+          }
+          absentRef.current = false
+          if (versionRef.current !== undefined && res.value.version !== versionRef.current) {
+            versionRef.current = res.value.version
+            void reloadRef.current()
+            onExternalChange?.()
+          }
+        }).catch(() => { /* transient transport errors: next tick retries */ }).finally(() => {
+          reloading = false
+        })
+      }, 5000)
+    }
     return () => {
       cancelled = true
       ctrl.abort()
+      if (poll !== undefined) clearInterval(poll)
       if (editor) { editor.dispose(); editor = null }
       editorRef.current = null
       for (const model of models) model.dispose()
       models = []
     }
-  }, [sessionId, cwd, ideTools, workspaceFiles, path, commitSha, commitPath, commitOldPath])
+  }, [sessionId, cwd, ideTools, workspaceFiles, path, commitSha, commitPath, commitOldPath, reloadNonce])
 
   return (
     <div className="ide-diff-root">
       <div className="ide-diff-header">
         <span className="ide-diff-title">{name}</span>
         <span className="ide-diff-path">{commit !== undefined ? commit.sha.slice(0, 8) + ' · ' + path : path}</span>
+        {dirty && <span className="ide-diff-dirty" title={t('diff.unsaved')} />}
+        {saveError !== null && (
+          <span className="ide-diff-save-error" title={saveError}>{saveError}</span>
+        )}
+        {saveError !== null && (
+          <button className="ide-diff-reload" type="button" onClick={() => { setSaveError(null); setSavePhase('idle'); void reloadRef.current() }}>
+            {t('diff.reload')}
+          </button>
+        )}
         {stats && (
           <span className="ide-diff-stats" title={'right side: ' + stats.source}>
             {stats.old} &rarr; {stats.new} · {stats.source}
