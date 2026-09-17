@@ -1,223 +1,361 @@
-
 # DSH Web IDE
 
-DSH Web IDE 插件 — 基于 Monaco Editor 构建的现代化 Web IDE 集成方案。
+[![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
+[![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-## 项目简介
+DSH Web IDE 插件 —— 基于 Monaco Editor，在 DSH 会话页中内置一个 VSCode 风格的开发工作台：资源管理器、代码编辑与保存、Git 全流程管理、交互式终端、全局搜索，以及会话与 IDE 的双向联动。
 
-DSH Web IDE 是一个专为 DSH 平台设计的 Web IDE 插件，提供完整的代码编辑、文件管理、Git 版本控制、终端模拟及全局搜索功能。该插件深度集成于 DSH 工作区，支持暗色主题，拥有流畅的用户体验和高效的开发工作流。
+| 资源管理器与编辑器 | Git 源代码管理 |
+| :---: | :---: |
+| ![资源管理器与编辑器](browser-screenshots/resource.png) | ![Git 源代码管理](browser-screenshots/git.png) |
 
-## 核心功能预览
+## 安装
 
-![资源管理 - 文件浏览](browser-screenshots/resource.png)
+```bash
+# 安装到 DSH web profile（推荐）
+dsh plugin --profile web add @zhaoyang10/dsh-web-ide
 
-![Git 源代码管理](browser-screenshots/git.png)
+# 或仅安装 npm 包本体
+npm install @zhaoyang10/dsh-web-ide
+```
 
-## 核心功能
+> 安装后还需把 `@zhaoyang10/dsh-web-ide` 加入 profile 的 `dsh.profile.bundles` 并重启 `dsh web`，详见 [安装到 DSH](#安装到-dsh)。
 
-### 文件浏览与管理
-- 递归式目录树展示，支持无限层级展开
-- 文件图标自动识别（通过扩展名）
-- 基础文件操作：新建文件/文件夹、重命名、删除
-- 大文件自动截断展示，优化内存使用
-- Git 状态可视化（未跟踪/已修改/已暂存/已删除）
+## 目录
+
+- [功能特性](#功能特性)
+- [安装到 DSH](#安装到-dsh)
+- [使用指南](#使用指南)
+- [工作原理](#工作原理)
+- [开发指南](#开发指南)
+- [发布到 npm（维护者）](#发布到-npm维护者)
+- [版本历史](#版本历史)
+- [贡献指南](#贡献指南)
+
+## 功能特性
+
+### 资源管理器
+
+- 无限层级目录树，按扩展名自动匹配文件图标
+- 新建文件 / 文件夹、重命名、删除，全部经 host 侧工作区路径校验，杜绝越界访问
+- 文件条目带 Git 状态标记（未跟踪 / 修改 / 已暂存 / 已删除 / 冲突）
+- 超过 2MB 的大文件自动分页截断展示，避免界面卡顿
 
 ### 代码编辑器
-- 基于 Monaco Editor，提供 VS Code 级别编辑体验
-- 支持多种编程语言语法高亮
-- 行号显示与代码折叠
-- 多 Tab 页签管理，支持快捷切换
-- 实时文件内容加载与保存
 
-### Git 源代码管理
-- 完整的 Git 状态面板
-- 文件变更追踪与显示
-- 分支信息查看
-- 提交历史浏览
-- 提交图表（泳道式拓扑视图，支持按当前/全部分支过滤）
-- 分支管理（新建/检出/删除本地与远程分支）
-- 文件对比（Diff）编辑器，支持查看提交内单文件差异
+- Monaco Editor（VS Code 同款内核）+ Dark Modern 暗色主题
+- 常用编程语言语法高亮、行号、代码折叠，多 Tab 页签管理与快捷切换
+- 直接编辑并保存（`Ctrl/Cmd+S` 或状态栏按钮），关闭未保存 Tab 时询问保存 / 放弃
+- 保存冲突检测：磁盘文件被其他工具（或 AI）改动时，可选择覆盖磁盘或放弃修改并重新加载
+- Markdown 文件一键切换 编辑 / 预览 双视图
+- 内嵌真实 Monaco Editor Worker（Blob 实例化），diff 增删高亮离线可用，无 CDN 依赖
 
-### 终端模拟器
-- 集成 xterm.js 终端组件
-- 支持多终端实例
-- Base64 编码输出传输
-- 完善的信号处理（中断/终止）
+### 源代码管理（Git）
+
+- 更改列表：逐文件或全部 暂存 / 取消暂存 / 丢弃变更
+- 提交：常规 / 修正（amend）/ 签名（signoff）/ 提交并推送 / 提交并同步
+- **AI 生成提交信息**：复用当前会话模型自动撰写提交语
+- 分支管理：检出 / 新建 / 删除分支，领先 / 落后计数，一键发布分支（`git push -u origin`）
+- 图形化提交历史（Graph 视图）与提交详情浏览
+- 双栏 Diff 对比编辑器，增删行高亮
+- Fetch / Sync（拉取并推送）
+
+### 终端
+
+- node-pty 驱动的真实交互式终端，支持多实例与分屏
+- `Ctrl+C` 中断、终止终端、最大化 / 展开 / 还原
+- 关闭面板不终止进程，重新打开自动回放历史输出（scrollback 回放）
 
 ### 全局搜索
-- 支持目录范围搜索
-- 结果高亮与路径匹配
-- 搜索结果快速定位
 
-### UI 特性
-- Dark Modern 暗色主题
-- 响应式布局适配
-- 右键上下文菜单
-- 侧边栏与 IDE 联动交互
+- 基于 ripgrep 的全工作区检索
+- 支持正则表达式、区分大小写、include glob 过滤（如 `*.ts`）
+- 匹配计数与截断提示，点击结果直达目标文件与行
 
-## 技术架构
+### 平台集成
+
+- 注册为会话页第三个 Tab（会话 → 轨迹 → IDE），随插件卸载自动移除
+- 侧边栏联动：会话侧打开的文件自动落入 IDE，IDE 浏览时同步高亮
+- 中 / 英双语界面，跟随 DSH 客户端语言设置
+
+## 安装到 DSH
+
+本插件以 DSH bundle 形式分发。安装分两步：**把插件包装入 profile 依赖**，再把**包名加入 profile 清单的 `dsh.profile.bundles` 数组**。DSH 启动时会自动套用插件自带的 `cordis.patch.yml`，把 `ui-ide` 客户端插件与配套的 `workspace-files-write` 文件写 API 一起注册进 web 客户端 roster，无需手动改 roster。
+
+### 前置条件
+
+- 已安装 DSH CLI（`dsh` 命令可用，建议 0.1.6+）
+- 已有 web profile，且 `dsh web` 可正常启动（profile 目录默认在 `~/.dsh/profiles/web`）
+- 配套的文件写 API 包 `@deepseek-ai/dsh-api-workspace-files-write`：IDE 的保存 / 新建 / 重命名 / 删除等文件操作依赖它，DSH 本体暂未内置，需一并装入 profile
+
+### 方式一：从 npm 安装（推荐）
+
+1. 把插件与文件写 API 装入 web profile：
+
+   ```bash
+   dsh plugin --profile web add @zhaoyang10/dsh-web-ide
+   dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
+   ```
+
+2. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
+
+   ```json
+   "dsh": {
+     "profile": {
+       "bundles": [
+         "...其他 bundle...",
+         "@zhaoyang10/dsh-web-ide"
+       ]
+     }
+   }
+   ```
+
+3. 重启 DSH web：
+
+   ```bash
+   dsh web
+   ```
+
+### 方式二：本地目录安装（开发调试用）
+
+1. 构建插件（在本仓库检出目录执行，产出 `lib/`）：
+
+   ```bash
+   pnpm install
+   pnpm bundle
+   ```
+
+2. 把插件与文件写 API 以本地 link 方式装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
+
+   ```bash
+   dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
+   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
+   ```
+
+3. 同方式一第 2 步，把 `@zhaoyang10/dsh-web-ide` 加入 `dsh.profile.bundles` 并重启 `dsh web`。
+
+> `link:` 始终引用源目录，改动后重新构建并重启即可生效；若希望安装时拷贝一份快照，可改用 `dsh plugin --profile web add file:/absolute/path/to/dsh-web-ide`。
+
+### 方式三：手动注册 roster（不启用 bundle patch）
+
+若不想把插件列为 bundle（例如仅在某个 profile 临时启用），可以只完成依赖安装，然后在 profile 用户层 `~/.dsh/profiles/web/cordis.patch.yml` 中手动插入 roster 条目：
+
+```yaml
+- insert:
+    - id: workspace-files-write
+      name: '@deepseek-ai/dsh-api-workspace-files-write'
+    - id: ui-ide
+      name: '@zhaoyang10/dsh-web-ide'
+```
+
+### 验证安装
+
+1. 重启 DSH web（`dsh web`）
+2. 打开浏览器右侧工具栏，确认 "IDE" 入口可见
+3. 点击进入 IDE 界面，检查文件树、编辑器、终端、Git 面板等功能是否正常
+
+### 卸载
+
+1. 从 `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 中移除 `@zhaoyang10/dsh-web-ide`
+2. 移除依赖：`dsh plugin --profile web remove @zhaoyang10/dsh-web-ide`（写 API 不再需要时一并移除）
+3. 重启 `dsh web`
+
+## 使用指南
+
+### 界面入口
+
+在会话页顶部 Tab 栏切换：**会话 → 轨迹 → IDE**。IDE 视图与当前 session 绑定，工作区即该会话的 cwd。
+
+### 文件操作
+
+- **打开文件**：点击文件树中的文件，或使用搜索结果直达
+- **新建文件 / 文件夹**：使用资源管理器顶部操作栏或右键菜单
+- **重命名 / 删除**：右键文件选择对应操作（删除带二次确认）
+
+### 代码编辑与保存
+
+- 编辑器可直接修改内容，改动后 Tab 与状态栏出现未保存标记
+- `Ctrl/Cmd+S` 或点击状态栏未保存指示保存
+- 关闭未保存的 Tab 会弹出 保存 / 不保存 / 取消 确认
+- 磁盘文件被外部（其他工具或 AI）修改后再保存会提示冲突：覆盖磁盘，或放弃修改并重新加载
+
+### Git 操作
+
+- 打开 Source Control 面板查看更改，逐文件或全部暂存 / 取消暂存 / 丢弃
+- 点击文件查看 Diff；编写提交信息后 `Ctrl/Cmd+Enter` 提交
+- 点击「AI 生成提交信息」按钮，让会话模型代写提交语
+- 「更多提交操作」菜单：修正提交、签名提交、提交并推送、提交并同步
+- 分支视图检出 / 新建 / 删除分支；Graph 视图浏览提交历史
+
+### 终端
+
+- 终端面板新建终端，支持分屏与最大化
+- `Ctrl+C` 中断当前进程；关闭面板终端保持后台运行，重新打开自动回放输出
+
+### 全局搜索
+
+- 支持正则、区分大小写与 include glob（如 `*.ts`）过滤
+- 输入关键词回车搜索，点击结果跳转到对应文件与行
+
+### Markdown 预览
+
+打开 `.md` 文件后，点击编辑器工具栏的预览按钮，即可在 编辑 / 预览 之间切换。
+
+### 会话联动
+
+在会话中打开文件（如让模型把文件打开到侧边栏），文件会自动在 IDE 中打开；在 IDE 侧边栏浏览文件时，会话侧同步跟随高亮。
+
+## 工作原理
+
+```
+会话页 Tab：  [ 会话 ]  [ 轨迹 ]  [ IDE ]
+                                  │
+        浏览器 bundle：lib/client.js
+        注册 ide Tab · 文件树 · Monaco · Git · 终端 · 搜索
+                                  │
+                                  │  typert 远程调用
+                                  │  workspaceFiles / workspaceFilesWrite / ideTools
+                                  ▼
+        Host 服务：lib/index.js
+        ripgrep 搜索 · node-pty 终端 · git 全流程 · 文件写（+ 路径校验）
+```
+
+- **双入口**：`lib/index.js` 为 host 侧入口，挂载 `ideTools` 远程命名空间；`lib/client.js` 为浏览器 bundle，注册 `ide` 会话 Tab。
+- **自动注册**：DSH 启动时套用包内 `cordis.patch.yml`，把 `ui-ide` 与 `workspace-files-write` 一起写入浏览器 roster。
+- **依赖注入**：`package.json` 的 `dsh.client.inject` 声明所需浏览器服务（slots / sessions / locale / remote 等），由启动内核先行解析。
+- **安全边界**：所有重命名 / 删除等文件写操作在 host 侧做工作区路径校验，客户端无法越出会话工作区。
+
+## 开发指南
+
+### 环境要求
+
+- Node.js 20.19+（tsdown / rolldown 要求）
+- pnpm 8+
+- TypeScript 5.6+
+
+### 本地开发
+
+```bash
+# 安装依赖
+pnpm install
+
+# 生产构建（产出 lib/）
+pnpm bundle
+
+# 开发模式（监听重建，配合 HMR 热更新）
+pnpm watch
+
+# 远程契约测试
+pnpm test:contract
+```
+
+> `@deepseek-ai/*` 系列依赖不在公共 npm 上，在 `devDependencies` 中以 `link:` 指向本机全局 DSH 安装；其他机器检出后请按实际 DSH 安装位置调整这些路径（它们仅参与本地类型检查，不影响发布产物）。
+
+### 目录结构
 
 ```
 dsh-web-ide/
 ├── src/
-│   ├── client/                # 浏览器端 UI 组件
-│   │   ├── editor/            # 编辑器组件（TabBar、StatusBar）
-│   │   ├── explorer/          # 文件树组件（FileTree）
-│   │   ├── git/               # Git 集成面板
-│   │   ├── icons/             # SVG 图标资源
-│   │   ├── locale/            # 国际化资源
-│   │   ├── search/            # 搜索面板
-│   │   ├── sidebarBridge.ts   # 侧边栏桥接
-│   │   ├── terminal/          # 终端面板
-│   │   ├── theme.ts           # 暗色主题定义
-│   │   ├── icons.tsx          # 图标组件
-│   │   ├── language.ts        # 文件类型映射
-│   │   └── index.ts           # 客户端入口
-│   ├── index.ts               # Host 端入口
-│   ├── typert.host.ts         # 远程方法类型定义
-│   └── typert.remote-client.ts# 远程调用客户端
-├── tsdown.config.ts           # 构建配置
-├── tsconfig.json              # TypeScript 配置
-├── cordis.patch.yml           # Cordis 插件补丁
-└── package.json               # 项目依赖
+│   ├── index.ts                    # Host 入口：ideTools 远程服务（搜索/终端/Git/文件操作）
+│   ├── typert.host.ts              # 远程方法 zod 协议定义
+│   ├── typert.remote-client.ts     # 浏览器侧远程客户端
+│   └── client/
+│       ├── index.ts                # 客户端入口：注册 ide Tab + 字典 + 侧边栏桥
+│       ├── IdeView.tsx             # IDE 主视图（Tab / 编辑器 / 面板编排）
+│       ├── ContextMenu.tsx         # 右键菜单
+│       ├── sidebarBridge.ts        # 会话 ↔ IDE 联动
+│       ├── theme.ts                # Dark Modern 主题定义
+│       ├── locales.ts              # zh / en 字典
+│       ├── language.ts             # 扩展名 → 语言映射
+│       ├── icons.tsx / icons/      # SVG 图标（含生成脚本）
+│       ├── monaco-worker.ts        # Monaco Worker 打包入口
+│       ├── monacoWorkerBootstrap.ts # Blob URL Worker 引导
+│       ├── editor/                 # TabBar / StatusBar / MarkdownPreview
+│       ├── explorer/               # FileTree
+│       ├── git/                    # SourceControlPanel / DiffEditor / GraphView / BranchesView
+│       ├── search/                 # SearchPanel
+│       └── terminal/               # TerminalPanel
+├── scripts/
+│   ├── build-monaco-worker.mjs     # 把 Monaco Worker 源码内嵌进客户端产物
+│   ├── tsdown.worker.config.ts     # Worker 构建配置
+│   └── test-remote-contract.mjs    # 远程契约测试
+├── cordis.patch.yml                # bundle patch：自动注册 ui-ide 与 workspace-files-write
+└── tsdown.config.ts                # 主构建配置
 ```
 
-## 快速开始
+### 定制扩展
 
-### 环境要求
+- **主题**：`src/client/theme.ts` 定义 Dark Modern 配色，可调整 IDE CSS 变量与 Monaco 主题色
+- **文件类型**：编辑 `src/client/language.ts` 的 `EXT_MAP` / `NAME_MAP` 扩展图标与语言映射
+- **多语言**：`src/client/locales.ts` 维护 zh / en 字典
 
-- Node.js 18+
-- pnpm 8+
-- TypeScript 5.0+
+### 热更新调试（可选）
 
-### 安装依赖
-
-```bash
-pnpm install
-```
-
-### 开发构建
-
-```bash
-# 开发模式（监听构建）
-pnpm dev
-
-# 生产构建
-pnpm build
-```
-
-### 插件装载
-
-**方式 A：通过 dsh plugin 自动转发**
-
-确保 `cordis.patch.yml` 已正确配置，插件构建后自动装载。
-
-**方式 B：手动装载 web profile**
-
-在目标 web profile 的 `package.json` 中添加依赖：
-
-```json
-"dependencies": {
-  "@zhaoyang10/dsh-web-ide": "file:/path/to/dsh-web-ide"
-}
-```
-
-并在 `cordis.patch.yml` 的浏览器 roster 中添加：
+在 profile 用户层 `cordis.patch.yml` 中启用 `hmr` 行并指向本仓库，host 侧服务即可在 `pnpm watch` 重建后自动热载（浏览器侧仍需刷新页面）：
 
 ```yaml
-- id: ui-ide
-  name: '@zhaoyang10/dsh-web-ide'
+- id: hmr
+  disabled: false
+  config:
+    base: /absolute/path/to/dsh-web-ide
+    root:
+      - lib
 ```
 
-### 验证装载
+在本仓库执行 `pnpm watch`，并重启一次 `dsh web` 使配置生效。
 
-1. 重启 DSH 工作区
-2. 打开右侧工具栏，确认 "IDE" 入口可见
-3. 点击进入 IDE 界面，检查文件树、编辑器、终端等功能是否正常
+## 发布到 npm（维护者）
 
-## 使用指南
+```bash
+# 1. 版本号（会自动打 git tag）
+npm version patch   # 或 minor / major
 
-### 文件操作
+# 2. 发布（prepublishOnly 钩子自动执行 pnpm run bundle）
+npm publish --registry=https://registry.npmjs.org/
 
-- **打开文件**：点击文件树中的文件或使用搜索功能
-- **新建文件/文件夹**：使用顶部操作栏或右键菜单
-- **重命名**：右键文件选择重命名
-- **删除**：右键文件选择删除（带二次确认）
-
-### Git 操作
-
-- 打开 Source Control 面板查看变更
-- 暂存/取消暂存文件
-- 编写提交信息并执行提交
-- 查看文件历史与差异对比
-
-### 终端使用
-
-- 新建终端实例
-- 输入命令执行
-- 使用 Ctrl+C 中断当前进程
-- 关闭终端实例
-
-### 搜索功能
-
-- 输入搜索关键词
-- 选择搜索范围（当前目录/工作区）
-- 点击结果跳转至目标位置
-
-## 插件配置
-
-### package.json 入口
-
-```json
-{
-  "main": "dist/index.js",
-  "cordis": {
-    "host": true
-  }
-}
+# 3. 验证
+npm view @zhaoyang10/dsh-web-ide version --registry=https://registry.npmjs.org/
 ```
 
-### 主题定制
-
-通过 `src/client/theme.ts` 可自定义 IDE 配色方案。当前内置 Dark Modern 主题，符合现代化设计规范。
-
-### 文件类型映射
-
-编辑 `src/client/language.ts` 的 `EXT_MAP` 与 `NAME_MAP` 可扩展支持更多文件类型。
+> npm 已强制发布需 2FA：请在 npmjs.com 账号设置中绑定安全密钥 / 通行密钥（WebAuthn，macOS 可用 Touch ID），发布时按提示在浏览器中确认；新增 TOTP 验证器已不被支持。
 
 ## 浏览器兼容性
 
-- Chrome 90+
-- Firefox 88+
-- Safari 14+
-- Edge 90+
+| 浏览器 | 最低版本 |
+| --- | --- |
+| Chrome | 90+ |
+| Firefox | 88+ |
+| Safari | 14+ |
+| Edge | 90+ |
 
 ## 版本历史
 
-详见 [CHANGELOG.md](./CHANGELOG.md)（待补充）
+| 版本 | 说明 |
+| --- | --- |
+| 0.1.0 | 首次发布：文件树、Monaco 编辑器、Git 面板、终端、全局搜索，已上架 [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide) |
 
 ## 贡献指南
 
 欢迎提交 Issue 和 Pull Request 共建项目。
 
 1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/xxx`)
-3. 提交更改 (`git commit -am 'Add xxx feature'`)
-4. 推送到分支 (`git push origin feature/xxx`)
+2. 创建功能分支（`git checkout -b feature/xxx`）
+3. 提交更改（`git commit -am 'Add xxx feature'`）
+4. 推送到分支（`git push origin feature/xxx`）
 5. 创建 Pull Request
 
 ## 许可证
 
-本项目基于 MIT 许可证开源，详见 [LICENSE](./LICENSE) 文件。
+本项目基于 [MIT](./LICENSE) 许可证开源。
 
 ## 致谢
 
-- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — 强大的代码编辑器
-- [xterm.js](https://xtermjs.org/) — 终端模拟器
-- [Cordis](https://github.com/kyour-cn/cordis) — 插件框架
+- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — 代码编辑器内核
+- [xterm.js](https://xtermjs.org/) — 终端前端组件
+- [Cordis](https://github.com/satorijs/cordis) — 插件化上下文框架
 - [React](https://react.dev/) — UI 组件库
 
 ---
 
-**维护者**: [fengzhaoy](https://gitee.com/fengzhaoy)  
-**问题反馈**: [Issue 页面](https://gitee.com/fengzhaoy/dsh-web-ide/issues)
+**维护者**：[fengzhaoy](https://gitee.com/fengzhaoy) · **仓库**：[gitee.com/fengzhaoy/dsh-web-ide](https://gitee.com/fengzhaoy/dsh-web-ide) · **问题反馈**：[Issues](https://gitee.com/fengzhaoy/dsh-web-ide/issues) · **npm**：[@zhaoyang10/dsh-web-ide](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
