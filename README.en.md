@@ -1,4 +1,4 @@
-# DSH Client UI IDE
+# DSH Web IDE
 
 [![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
 [![npm downloads](https://img.shields.io/npm/dm/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)
@@ -22,7 +22,7 @@ npm install @zhaoyang10/dsh-web-ide
 
 ## Project Introduction
 
-DSH Client UI IDE is a web IDE plugin designed specifically for the DSH platform. It provides complete code editing, file management, Git version control, terminal simulation, and global search functionality. The plugin is deeply integrated into the DSH workspace, supports a dark theme, offers a smooth user experience, and enables an efficient development workflow.
+DSH Web IDE is a web IDE plugin designed specifically for the DSH platform. It provides complete code editing, file management, Git version control, terminal simulation, and global search functionality. The plugin is deeply integrated into the DSH workspace, supports a dark theme, offers a smooth user experience, and enables an efficient development workflow.
 
 ## Core Features
 
