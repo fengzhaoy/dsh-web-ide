@@ -4,25 +4,27 @@
  * The registration rides the slot service's effect wrapper, so plugin unload
  * removes the tab.
  */
-import type { IdeClientContext, IdeViewInjected } from './types.js'
+import type { IdeClientContext, IdeToolsRemote, IdeViewInjected, WorkspaceFilesWriteRemote } from './types.js'
 import { IdeView } from './IdeView.js'
 import { installSidebarBridge, uninstallSidebarBridge } from './sidebarBridge.js'
 import { TYPERT_REMOTE } from '../typert.remote-client.js'
 import { NS, zh, en } from './locales.js'
 
 /** Required browser services: slots, sessions, locale, and the workspaceFiles
- * Remote namespaces. Listing the namespace services here makes the boot kernel
+ * Remote namespace. Listing the namespace services here makes the boot kernel
  * resolve them before apply() runs — reading a not-yet-mounted namespace off
  * ctx.remote throws and would poison the whole conversation.view slot. The
  * ideTools namespace is deliberately ABSENT: this bundle mounts it itself
- * inside apply(), so pre-resolving it here would deadlock the boot. */
+ * inside apply(), so pre-resolving it here would deadlock the boot. Same for
+ * the write face, which this bundle also provides itself (see below) — the
+ * standalone workspace-files-write package it once came from was never
+ * published, and requiring it left this entry pending forever. */
 const inject = [
   'slots',
   'sessions',
   'locale',
   'remote',
   'remote.workspaceFiles',
-  'remote.workspaceFilesWrite',
 ] as const
 
 export { inject }
@@ -54,6 +56,7 @@ const stubIdeTools = {
   fileRename: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileDelete: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileCreate: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  writeFile: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileReveal: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   hostPlatform: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitSync: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
@@ -79,6 +82,34 @@ export async function apply(ctx: IdeClientContext) {
     return () => uninstallSidebarBridge()
   }, 'ui-ide: sidebar bridge')
 
+  /** Lazy reader for this bundle's own ideTools namespace. The namespace is
+   * mounted on the Remote service's internal namespaces Map by the
+   * fire-and-forget $mount above; reading ctx.remote.ideTools would require
+   * listing 'remote.ideTools' in inject — but this bundle mounts it itself, so
+   * pre-resolving it in inject deadlocks the boot. Instead, reach into the
+   * Remote service's own namespaces Map (ctx.remote is injected, its plain
+   * properties are not inject-gated) and grab the namespace service. Until it
+   * settles the call lands on the stub, which reports the degraded state
+   * instead of throwing. */
+  const ideToolsFace = (): IdeToolsRemote => {
+    const remote = ctx.remote as unknown as {
+      namespaces?: Map<string, { service: unknown }>
+    }
+    const ns = remote.namespaces?.get('ideTools')?.service as IdeToolsRemote | undefined
+    return ns ?? stubIdeTools
+  }
+
+  /** The write face the views consume, adapted onto this package's own
+   * namespace. It used to be the separate browser bundle of
+   * @deepseek-ai/dsh-api-workspace-files-write, which was never published on
+   * npm: requiring it left this entry pending and the whole IDE tab absent.
+   * The host method behind it has the same guards, the same wire shape, and
+   * the same error codes, so IdeView and the diff panel are unchanged. */
+  const workspaceFilesWrite: WorkspaceFilesWriteRemote = {
+    write: (sessionId, path, content, intent, signal) =>
+      ideToolsFace().writeFile(sessionId, path, content, intent, signal),
+  }
+
   ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
       {
@@ -94,21 +125,8 @@ export async function apply(ctx: IdeClientContext) {
             sessionId,
             cwd,
             workspaceFiles: ctx.remote.workspaceFiles,
-            workspaceFilesWrite: ctx.remote.workspaceFilesWrite,
-            ideTools: () => {
-              // The namespace is mounted on the Remote service's internal
-              // namespaces Map by our fire-and-forget $mount. Reading
-              // ctx.remote.ideTools would require listing 'remote.ideTools' in
-              // inject — but this bundle mounts it itself, so pre-resolving it
-              // in inject deadlocks the boot. Instead, reach into the Remote
-              // service's own namespaces Map (ctx.remote is injected, its plain
-              // properties are not inject-gated) and grab the namespace service.
-              const remote = ctx.remote as unknown as {
-                namespaces?: Map<string, { service: unknown }>
-              }
-              const ns = remote.namespaces?.get('ideTools')?.service as IdeViewInjected['ideTools'] | undefined
-              return ns ?? stubIdeTools
-            },
+            workspaceFilesWrite,
+            ideTools: ideToolsFace,
             t,
           }
         },

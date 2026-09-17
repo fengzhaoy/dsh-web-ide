@@ -81,24 +81,22 @@ npm install @zhaoyang10/dsh-web-ide
 
 ## 安装到 DSH
 
-本插件以 DSH bundle 形式分发。安装分两步：**把插件包装入 profile 依赖**，再把**包名加入 profile 清单的 `dsh.profile.bundles` 数组**。DSH 启动时会自动套用插件自带的 `cordis.patch.yml`，把 `ui-ide` 客户端插件与配套的 `workspace-files-write` 文件写 API 一起注册进 web 客户端 roster，无需手动改 roster。
+本插件以 DSH bundle 形式分发。安装分两步：**把插件包装入 profile 依赖**，再把**包名加入 profile 清单的 `dsh.profile.bundles` 数组**。DSH 启动时会自动套用插件自带的 `cordis.patch.yml`，把 `ui-ide` 客户端插件注册进 web 客户端 roster，无需手动改 roster。**除 DSH 本体外没有其他前置包**：IDE 的保存 / 新建等文件操作由本插件自己的 host 服务实现。
 
 ### 前置条件
 
 - 已安装 DSH CLI（`dsh` 命令可用，建议 0.1.6+）
 - 已有 web profile，且 `dsh web` 可正常启动（profile 目录默认在 `~/.dsh/profiles/web`）
-- 配套的文件写 API 包 `@deepseek-ai/dsh-api-workspace-files-write`：IDE 的保存 / 新建 / 重命名 / 删除等文件操作依赖它，DSH 本体暂未内置，需一并装入 profile
 
 ### 方式一：从 npm 安装（推荐）
 
-1. 把插件与文件写 API 装入 web profile：
+1. 把插件装入 web profile：
 
    ```bash
    dsh plugin --profile web add @zhaoyang10/dsh-web-ide
-   dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
    ```
 
-2. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名（只需本插件；写 API 由插件 patch 自动注册，不要加入该数组）：
+2. 编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 数组**末尾**追加本插件包名：
 
    ```json
    "dsh": {
@@ -126,11 +124,10 @@ npm install @zhaoyang10/dsh-web-ide
    pnpm bundle
    ```
 
-2. 把插件与文件写 API 以本地 link 方式装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
+2. 把插件以本地 link 方式装入 web profile（`dsh plugin` 会把命令转发到 profile 目录执行 `pnpm add`，`link:` 后接绝对路径）：
 
    ```bash
    dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
-   dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
    ```
 
 3. 同方式一第 2 步，把 `@zhaoyang10/dsh-web-ide` 加入 `dsh.profile.bundles` 并重启 `dsh web`。
@@ -143,8 +140,6 @@ npm install @zhaoyang10/dsh-web-ide
 
 ```yaml
 - insert:
-    - id: workspace-files-write
-      name: '@deepseek-ai/dsh-api-workspace-files-write'
     - id: ui-ide
       name: '@zhaoyang10/dsh-web-ide'
 ```
@@ -158,7 +153,7 @@ npm install @zhaoyang10/dsh-web-ide
 ### 卸载
 
 1. 从 `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 中移除 `@zhaoyang10/dsh-web-ide`
-2. 移除依赖：`dsh plugin --profile web remove @zhaoyang10/dsh-web-ide`（写 API 不再需要时一并移除）
+2. 移除依赖：`dsh plugin --profile web remove @zhaoyang10/dsh-web-ide`
 3. 重启 `dsh web`
 
 ## 使用指南
@@ -215,16 +210,16 @@ npm install @zhaoyang10/dsh-web-ide
         注册 ide Tab · 文件树 · Monaco · Git · 终端 · 搜索
                                   │
                                   │  typert 远程调用
-                                  │  workspaceFiles / workspaceFilesWrite / ideTools
+                                  │  workspaceFiles（读） / ideTools（写 · git · 终端）
                                   ▼
         Host 服务：lib/index.js
-        ripgrep 搜索 · node-pty 终端 · git 全流程 · 文件写（+ 路径校验）
+        ripgrep 搜索 · node-pty 终端 · git 全流程 · 文件写（+ 工作区校验 + sandbox 围栏）
 ```
 
 - **双入口**：`lib/index.js` 为 host 侧入口，挂载 `ideTools` 远程命名空间；`lib/client.js` 为浏览器 bundle，注册 `ide` 会话 Tab。
-- **自动注册**：DSH 启动时套用包内 `cordis.patch.yml`，把 `ui-ide` 与 `workspace-files-write` 一起写入浏览器 roster。
+- **自动注册**：DSH 启动时套用包内 `cordis.patch.yml`，把 `ui-ide` 写入浏览器 roster。
 - **依赖注入**：`package.json` 的 `dsh.client.inject` 声明所需浏览器服务（slots / sessions / locale / remote 等），由启动内核先行解析。
-- **安全边界**：所有重命名 / 删除等文件写操作在 host 侧做工作区路径校验，客户端无法越出会话工作区。
+- **保存链路自持**：编辑器保存走 `ideTools.writeFile`（本包 host 服务，非独立包）：先按会话工作区做路径校验，再交给宿主 `fs` seam 的 `writeText` —— 由 sandbox 策略围栏目标、按文件真实版本做原子并发校验（过期保存报冲突而非静默覆盖），成功后 `fs/observed` 回灌会话的文件变更流，会话侧与 agent 都能看到这次改动。
 
 ## 开发指南
 
@@ -250,7 +245,7 @@ pnpm watch
 pnpm test:contract
 ```
 
-> `@deepseek-ai/*` 系列依赖不在公共 npm 上，在 `devDependencies` 中以 `link:` 指向本机全局 DSH 安装；其他机器检出后请按实际 DSH 安装位置调整这些路径（它们仅参与本地类型检查，不影响发布产物）。
+> `@deepseek-ai/*` 系列依赖已发布在公共 npm 上，`devDependencies` 中以版本范围声明（与 `peerDependencies` 保持一致），`pnpm install` 即可直接装好，无需任何本机路径或 `link:`。tsdown 会把它们保持为 external，运行时由宿主 DSH 从自己的 `node_modules` 解析，因此这些依赖只参与本地类型检查，不影响发布产物。
 
 ### 目录结构
 
@@ -280,7 +275,7 @@ dsh-web-ide/
 │   ├── build-monaco-worker.mjs     # 把 Monaco Worker 源码内嵌进客户端产物
 │   ├── tsdown.worker.config.ts     # Worker 构建配置
 │   └── test-remote-contract.mjs    # 远程契约测试
-├── cordis.patch.yml                # bundle patch：自动注册 ui-ide 与 workspace-files-write
+├── cordis.patch.yml                # bundle patch：自动注册 ui-ide 到浏览器 roster
 └── tsdown.config.ts                # 主构建配置
 ```
 

@@ -324,6 +324,16 @@ export interface IdeToolsRemote {
   /** Create one new workspace entry (file with empty content, or directory).
    *  Missing parents are created; an existing target is refused. */
   fileCreate(sessionId: SessionId, path: string, kind: 'file' | 'directory', signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Write one file's whole content through the host fs seam (bounded write
+   *  with an optimistic version guard). Backs the editor save and the diff
+   *  panel's edit-save; the workspaceFilesWrite face below adapts onto it. */
+  writeFile(
+    sessionId: SessionId,
+    path: string,
+    content: string,
+    intent: WorkspaceFileWriteIntent | undefined,
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<WorkspaceFileWriteResult>>
   /** Reveal one workspace entry in the OS file manager (VS Code parity:
    *  Reveal in Finder / Reveal in File Explorer / Open Containing Folder).
    *  Pass '' to reveal the workspace root itself. */
@@ -341,9 +351,11 @@ export interface IdeViewInjected {
   cwd: string | undefined
   /** Workspace-files Remote face, already bound to the session. */
   workspaceFiles: WorkspaceFilesRemote
-  /** Workspace-files-write Remote face (bounded writes), mounted by the
-   *  dsh-api-workspace-files-write browser bundle; the service-level inject
-   *  array makes the kernel resolve it before this view registers. */
+  /** Workspace-files-write Remote face (bounded writes). Built by this
+   *  package's own client bundle as a thin adapter over the ideTools
+   *  namespace's writeFile (see ./index.ts) — the standalone package that used
+   *  to provide it was never published. Same method shape and error codes as
+   *  before, so the editor and the diff panel are unchanged. */
   workspaceFilesWrite: WorkspaceFilesWriteRemote
   /** ideTools Remote face (workspace grep + interactive terminals), mounted by
    *  this package's own client bundle. Delivered as a lazy getter: the slot's
@@ -379,8 +391,6 @@ export interface IdeClientContext {
   }
   remote: {
     workspaceFiles: WorkspaceFilesRemote
-    workspaceFilesWrite: WorkspaceFilesWriteRemote
-    ideTools: IdeToolsRemote
     $mount(artifact: unknown): Promise<() => void>
   }
 }

@@ -53,6 +53,131 @@ function resolveWorkspacePath(workspaceRoot: string, relPath: string): string {
   return abs
 }
 
+/**
+ * Guarded write intent, mirroring the host fs seam's own union: `createIfAbsent`
+ * refuses an existing target, `replaceIfVersion` refuses a version mismatch.
+ * An omitted intent means unconditional create-or-overwrite.
+ */
+export type WorkspaceFileWriteIntent =
+  | { readonly kind: 'createIfAbsent' }
+  | { readonly kind: 'replaceIfVersion'; readonly version: string }
+
+/** Outcome of one bounded write through this namespace (the browser's tabs and
+ *  diff panel read `version` back as the new optimistic-concurrency token). */
+export interface WorkspaceFileWriteResult {
+  readonly absolutePath: string
+  readonly version: string
+  readonly operation: 'create' | 'update'
+  readonly bytes: number
+}
+
+/**
+ * The write face of the host `fs` seam (dsh-fs), declared structurally: this
+ * package deliberately takes no dependency on dsh-fs, but a content write must
+ * still go through the seam so the deployment's sandbox policy fences it and
+ * the version guard is the backend's own — exactly as for the agent's fs tools.
+ * The two calls this file makes are `resolve` (path → opaque target token) and
+ * `writeText` (the guarded whole-file write).
+ */
+interface FsWriteSeam {
+  resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<unknown>
+  writeText(
+    target: unknown,
+    content: string,
+    expected?: WorkspaceFileWriteIntent,
+    signal?: AbortSignal,
+    sandboxPolicy?: SandboxWritePolicy,
+  ): Promise<{ readonly operation: 'create' | 'update'; readonly version: string }>
+}
+
+/** The per-call fence the sandboxed fs backend enforces: `read-only` denies
+ *  every mutation, `workspace-write` requires containment under `workspaceRoot`. */
+interface SandboxWritePolicy {
+  readonly mode: string
+  readonly workspaceRoot: string
+}
+
+/**
+ * The two host services that turn a wire-level Session id into that fence,
+ * declared structurally like the fs seam above. `sessions.get(id).header.cwd` is
+ * the Session workspace directory; `sandboxPolicy.resolve` folds it together
+ * with the Session's standing mode (its last `sandbox/mode` event, else the
+ * deployment default) — the same resolution the browser terminal controller
+ * performs for its own user-driven calls.
+ */
+interface SessionsSeam {
+  get(id: string): { readonly header?: { readonly cwd?: string } } | undefined
+}
+interface SandboxPolicySeam {
+  resolve(request?: { session?: unknown }): SandboxWritePolicy
+}
+/**
+ * The host context slice a write fence is resolved from (see writePolicyFor),
+ * reached through cordis's soft lookup rather than `static inject`: a plugin
+ * that HARD-depends on a service it cannot resolve takes the whole plugin tree
+ * down with it — which is exactly how this package's install used to crash
+ * `dsh web`. Both services only ever NARROW a save that the caller's own
+ * confinement has already bounded, so their absence degrades the fence, never
+ * the editor.
+ */
+interface WritePolicyContext {
+  get?(name: string): unknown
+}
+
+/**
+ * The fence stamped onto one save: the Session's standing mode (its last
+ * `sandbox/mode` event, else the deployment default) over the Session's own
+ * workspace directory.
+ *
+ * Resolving it per call — rather than letting the seam fall back — is what makes
+ * a save land wherever `dsh web` was launched from. Without a policy the seam
+ * uses the DEPLOYMENT default root, which is the server process's `cwd()`: a
+ * server started outside the workspace (a `cd /tmp && dsh web`, a service
+ * manager's working directory) then denies every save to a file that the
+ * Session, and the browser, consider plainly inside the workspace.
+ *
+ * `scope.workspaceRoot` is host-derived — the typert `workspaceFileScope` lookup
+ * fills it from the same `header.cwd` the policy would read — so it stands in
+ * for the Session's directory when the Session is no longer live (a save racing
+ * a reconnect) and is used verbatim then.
+ *
+ * An absent policy service means an unsandboxed backend, which ignores the
+ * argument entirely; returning undefined rather than inventing a mode keeps this
+ * file from widening a fence it did not establish.
+ */
+function writePolicyFor(
+  ctx: WritePolicyContext,
+  scope: { sessionId: string; workspaceRoot: string },
+): SandboxWritePolicy | undefined {
+  const sandboxPolicy = ctx.get?.('sandboxPolicy') as SandboxPolicySeam | undefined
+  if (sandboxPolicy === undefined) return undefined
+  const sessions = ctx.get?.('sessions') as SessionsSeam | undefined
+  const session = sessions?.get(scope.sessionId)
+  const policy = sandboxPolicy.resolve(session === undefined ? {} : { session })
+  return { mode: policy.mode, workspaceRoot: scope.workspaceRoot || policy.workspaceRoot }
+}
+
+/**
+ * The fs seam's stable `FsError` codes mapped onto this namespace's own, which
+ * the browser already branches on — notably 'workspace-file-write/stale-version',
+ * which opens the diff panel's and the editor's reload/overwrite conflict
+ * prompt. `FS_SANDBOX_DENIED` is the seam's single refusal code for both
+ * boundaries it enforces (outside the writable roots, and the Session standing
+ * at `read-only`); its own message already names which one, and that message —
+ * not the code — is what the editor's 保存失败 banner shows. Unmapped codes
+ * collapse to a generic write failure.
+ */
+const FS_WRITE_ERROR_CODES: Readonly<Record<string, string>> = {
+  FS_STALE_VERSION: 'workspace-file-write/stale-version',
+  FS_NOT_OBSERVED: 'workspace-file-write/already-exists',
+  FS_SANDBOX_DENIED: 'workspace-file-write/outside-workspace',
+  FS_NOT_TEXT: 'workspace-file-write/not-text',
+  FS_NOT_REGULAR_FILE: 'workspace-file-write/not-regular-file',
+  FS_NOT_FOUND: 'workspace-file-write/not-found',
+  FS_TOO_LARGE: 'workspace-file-write/too-large',
+  FS_PERMISSION_DENIED: 'workspace-file-write/permission-denied',
+}
+
 /** Wire shapes (mirrored as strict zod in ./typert.host.ts). */
 export interface IdeSearchMatch {
   readonly path: string
@@ -222,7 +347,7 @@ const MAX_LOG_BYTES = 512 * 1024
 const MAX_RESULTS = 250
 
 export class IdeTools extends TypertRemoteService {
-  static inject = ['subprocess', 'sessions', 'typert', 'llm', 'agentDefaultModel']
+  static inject = ['subprocess', 'sessions', 'typert', 'llm', 'agentDefaultModel', 'fs']
 
   static Config = z.object({})
 
@@ -253,6 +378,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileCreate', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'writeFile', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileReveal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'hostPlatform', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -1322,6 +1448,75 @@ export class IdeTools extends TypertRemoteService {
       if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
       throw new RemoteError('ide-tools/create-failed', message, {})
+    }
+  }
+
+  /**
+   * Write one workspace file's whole content (editor save, diff-panel save).
+   * Host-side twin of the never-published `@deepseek-ai/dsh-api-workspace-files-write`
+   * package this plugin used to depend on: same wire shape, same error codes,
+   * same agent 回灌.
+   *
+   * The write goes through the host fs seam's `writeText` rather than
+   * `node:fs`, for two properties the seam owns and this file cannot restate:
+   * the Session's sandbox policy fences the target (`read-only` denies,
+   * `workspace-write` re-canonicalizes and requires containment, so a swapped
+   * symlink cannot redirect the write), and the guarded intent is applied
+   * atomically against the file's real version — a tab saved from a stale
+   * buffer loses the race and gets `FS_STALE_VERSION`, not a silent clobber.
+   * The fence is resolved per call by {@link writePolicyFor}; the caller's own
+   * `workspaceRoot` is only the lexical half of the confinement, and the seam's
+   * re-canonicalization is the half that survives symlinks.
+   *
+   * The seam emits nothing on its own, and the `workspaceFiles.changes` stream
+   * replays only instrumented writes (the OS is not watched), so a successful
+   * write is announced explicitly — otherwise the session's own file-change
+   * feed, and the agent's view of the tree, would not see it.
+   */
+  async writeFile(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    content: string,
+    intent: WorkspaceFileWriteIntent | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<WorkspaceFileWriteResult> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
+      let abs: string
+      try {
+        abs = resolveWorkspacePath(workspaceRoot, path)
+      } catch {
+        throw new RemoteError('workspace-file-write/outside-workspace', `"${path}" is outside the workspace`, { path })
+      }
+      // Refuse a directory (or any other non-regular target) before the seam
+      // sees it: the backend would otherwise fail it as a raw EISDIR.
+      const info = await stat(abs).catch(() => undefined)
+      if (info !== undefined && !info.isFile()) {
+        throw new RemoteError('workspace-file-write/not-regular-file', `"${path}" is not a regular file`, { path })
+      }
+      const ctx = this.ctx as unknown as {
+        fs: FsWriteSeam
+        emit(event: string, ...args: unknown[]): void
+      } & WritePolicyContext
+      const target = await ctx.fs.resolve(abs, { cwd: resolve(workspaceRoot), signal })
+      const outcome = await ctx.fs.writeText(target, content, intent, signal, writePolicyFor(ctx, workspaceFileScope))
+      ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version })
+      return {
+        absolutePath: abs,
+        version: outcome.version,
+        operation: outcome.operation,
+        bytes: Buffer.byteLength(content, 'utf8'),
+      }
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const rawCode = (err as { code?: unknown }).code
+      const message = err instanceof Error ? err.message : String(err)
+      const code = typeof rawCode === 'string'
+        ? FS_WRITE_ERROR_CODES[rawCode] ?? 'workspace-file-write/failed'
+        : 'workspace-file-write/failed'
+      throw new RemoteError(code, message, { path })
     }
   }
 

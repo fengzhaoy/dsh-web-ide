@@ -1,11 +1,17 @@
 # The dsh-web-ide bundle patch: register the IDE browser plugin into the
 # web profile's client roster. The browser modules node scans this roster into
 # window.__DSH_BOOT__, and the client bundle at lib/client.js registers the
-# 'ide' conversation.view tab on activation. The workspace-files-write row loads
-# the write API's host service and browser roster bundle alongside the IDE.
+# 'ide' conversation.view tab on activation.
+#
+# This patch used to also insert a row for
+# '@deepseek-ai/dsh-api-workspace-files-write', a package that was never
+# published on npm: the loader resolves every inserted row at boot, so the row
+# could never resolve and took the whole plugin tree down with it
+# (ERR_MODULE_NOT_FOUND, `dsh web` refuses to start). The write face now lives
+# in this package's own host service (ideTools.writeFile over the host fs
+# seam) and reaches the browser through the client bundle, so no second package
+# is involved.
 
 - insert:
-    - id: workspace-files-write
-      name: '@deepseek-ai/dsh-api-workspace-files-write'
     - id: ui-ide
       name: '@zhaoyang10/dsh-web-ide'

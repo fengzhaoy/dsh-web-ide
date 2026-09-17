@@ -224,6 +224,18 @@ const _ide_tools_ideTools_fileCreate_parameter_2$schema = z.union([
   z.literal('file'), z.literal('directory'),
 ])
 const _ide_tools_ideTools_fileCreate_result$schema = z.void()
+const _ide_tools_ideTools_writeFile_parameter_1$schema = z.string()
+const _ide_tools_ideTools_writeFile_parameter_2$schema = z.string()
+const _ide_tools_ideTools_writeFile_parameter_3$schema = z.union([
+  z.object({ 'kind': z.literal('createIfAbsent') }).readonly(),
+  z.object({ 'kind': z.literal('replaceIfVersion'), 'version': z.string().readonly() }).readonly(),
+]).optional()
+const _ide_tools_ideTools_writeFile_result$schema = z.object({
+  'absolutePath': z.string().readonly(),
+  'version': z.string().readonly(),
+  'operation': z.union([z.literal('create'), z.literal('update')]).readonly(),
+  'bytes': z.number().readonly(),
+}).readonly()
 const _ide_tools_ideTools_fileReveal_parameter_1$schema = z.string()
 const _ide_tools_ideTools_fileReveal_result$schema = z.void()
 const _ide_tools_ideTools_hostPlatform_result$schema = z.string()
@@ -962,6 +974,53 @@ export const TYPERT = {
         schema: _ide_tools_ideTools_fileCreate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/writeFile',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'writeFile',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('writeFile', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:path',
+            schema: _ide_tools_ideTools_writeFile_parameter_1$schema,
+          },
+        },
+        {
+          name: 'content',
+          wire: 'content',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:content',
+            schema: _ide_tools_ideTools_writeFile_parameter_2$schema,
+          },
+        },
+        {
+          name: 'intent',
+          wire: 'intent',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:intent',
+            schema: _ide_tools_ideTools_writeFile_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#WorkspaceFileWriteResult',
+        schema: _ide_tools_ideTools_writeFile_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1401, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/fileReveal',

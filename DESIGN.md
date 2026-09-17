@@ -61,7 +61,7 @@
 | `list(sessionId, path, signal)` | 目录子项 `{ entries, truncated }` |
 | `changes(sessionId, signal)` | 文件变更流（`{kind:"ready"}` 后 `{kind:"change",change}`） |
 
-**该服务明确无写操作。** 第一版只读，完全匹配此服务能力。后续加写需新增 host 端 API。
+**该服务明确无写操作。** 第一版只读，完全匹配此服务能力。写能力后来由本包自己的 host 服务 `ideTools.writeFile` 提供（见 §10.1），未再引入第二个包。
 
 ### 1.4 Session 与 workspace 根
 
@@ -506,7 +506,7 @@ dsh plugin --profile web add /Users/fengzy/Documents/gitmy/dsh-web-ide
 | 浏览/打开/查看 workspace 文件（workspaceFiles API） | ✅ 做 |
 | Monaco 只读编辑（高亮、minimap、行号、查找） | ✅ 做 |
 | 文件变更流刷新已打开文件 | ✅ 做 |
-| 文件保存/写操作 | ❌ 不做（workspaceFiles 无写 API） |
+| 文件保存/写操作 | ✅ 做（本包 `ideTools.writeFile`，见 §10.1；第一版曾因 workspaceFiles 无写 API 而排除） |
 | 终端、搜索面板、Git、扩展、设置 | ❌ 不做 |
 | 跨 session 状态持久化 | ❌ 不做 |
 | 与右侧栏 sidebar-files 联动 | ❌ 不做（自渲染树） |
@@ -526,7 +526,7 @@ dsh plugin --profile web add /Users/fengzy/Documents/gitmy/dsh-web-ide
 
 ## 8. 后续可扩展（不在第一版）
 
-- 写操作：新增 `@deepseek-ai/dsh-api-workspace-files-write` host 端 API（bounded write + agent-write 回灌）
+- 写操作：~~新增 `@deepseek-ai/dsh-api-workspace-files-write` host 端 API~~ → 已改为本包 host 服务实现（§10.1）
 - 终端集成：复用 `dsh-terminal` / `dsh-tool-bash`
 - 全局搜索：复用 `dsh-tool-fs-search`
 - 多 session 状态持久化：session-scoped store 升级为 workspace-scoped
@@ -555,15 +555,16 @@ dsh plugin --profile web add /Users/fengzy/Documents/gitmy/dsh-web-ide
 
 ### 10.1 写操作 ✅（已完成并验证）
 
-**新增包 '@deepseek-ai/dsh-api-workspace-files-write'**（/Users/fengzy/Documents/gitmy/dsh-api-workspace-files-write）：
+**写 API 落在本包自己的 host 服务**（`ideTools.writeFile`）。原设计曾是"另建 `@deepseek-ai/dsh-api-workspace-files-write` 包"，该包从未发布，而 bundle patch 里那条 insert row 会在启动时被 loader 解析 —— 解析失败即整棵插件树加载失败，`dsh web` 直接起不来（ERR_MODULE_NOT_FOUND）。写 API 因此收回本包，安装只剩插件本身。
 
-- host 端 'WorkspaceFilesWrite extends TypertRemoteService'（namespace 'workspaceFilesWrite'），单方法 write(scope, path, content, intent, signal)：
-  - 有界：maxWriteBytes 配置（默认 2MiB）；
-  - 圈禁：fs.resolve + fs.contains 限定在 session workspace root 内；
-  - 拒绝非普通文件（lstat type check）；
-  - 乐观并发：intent createIfAbsent / replaceIfVersion 直通 ctx.fs.writeText；
-  - 回灌：写成功后 ctx.emit('fs/observed', target, {kind:'present', version}, undefined) —— 与 agent 的 dsh-tool-fs 写入同一条管道（changes 流只重放 instrumented 写入，OS 不被监视；直接 writeText 不经过工具层，必须手动 emit）；
-  - 错误码映射：FS_STALE_VERSION→'workspace-file-write/stale-version'、FS_NOT_OBSERVED→'already-exists'、FS_SANDBOX_DENIED→'outside-workspace'、FS_NOT_TEXT→'not-text'。
+- host 端 `ideTools` 命名空间新增单方法 `writeFile(workspaceFileScope, path, content, intent, signal)`：
+  - 圈禁：`resolveWorkspacePath` 按会话工作区做词法校验，再由宿主 fs seam 的 `checkedTarget` 做 realpath 复检（换掉的软链无法把写重定向出去）；
+  - 拒绝非普通文件（stat 预检，避免后端抛裸 EISDIR）；
+  - 乐观并发：intent createIfAbsent / replaceIfVersion 直通 `ctx.fs.writeText`；
+  - 围栏：**每次调用现解析策略** `sandboxPolicy.resolve({session})` 后随写传入。不传则 seam 回落到部署默认根（即 server 进程的 cwd）—— 从工作区外启动的 `dsh web` 会把工作区内的保存判为 "file access denied under workspace-write mode"（2026-09-17 实测复现并修复）；会话已不在时用 scope 里 host 侧派生的 workspaceRoot 兜底，绝不回落到部署根；
+  - 服务经 `ctx.get()` 软查（不进 `static inject`）：硬依赖解析不到会让整个插件停用，正是本包安装崩启动的成因；
+  - 回灌：写成功后 `ctx.emit('fs/observed', target, {kind:'present', version})` —— 与 agent 的 dsh-tool-fs 写入同一条管道（changes 流只重放 instrumented 写入，OS 不被监视；直接 writeText 不经过工具层，必须手动 emit）；
+  - 错误码映射：FS_STALE_VERSION→'workspace-file-write/stale-version'、FS_NOT_OBSERVED→'already-exists'、FS_SANDBOX_DENIED→'outside-workspace'、FS_NOT_TEXT→'not-text'。`FS_SANDBOX_DENIED` 是 seam 对"越出可写根"与"会话处于 read-only"两种边界共用的拒绝码，文案由 seam 给出、不在此改写。
 - typert 工件为 strict 模式（手写 zod v4 schema 的 typert.host.ts / typert.remote-client.ts）：client $mount 拒绝 src-json codec（requireStrictCodec），strict 是唯一可挂载形态。
 - 不用装饰器语法：rolldown 原生转换不降级 Stage-3 装饰器（Node 无法解析），改为构造函数里手写协议 marker（'@deepseek-ai/dsh-typert-protocol/remote-methods' prototype 属性）。
 - client bundle 自挂载：apply 直接 return await ctx.remote.$mount(TYPERT_REMOTE)。关键坑：async apply 中 await 之后注册 ctx.effect(dispose) 会落在已 settle 的 fiber 上并立即执行、把 namespace 卸载掉 —— 必须像 dsh-api-remotes 一样从 apply 返回 disposer。

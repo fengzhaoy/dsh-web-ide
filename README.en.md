@@ -118,7 +118,7 @@ pnpm bundle
 pnpm watch
 ```
 
-> The `@deepseek-ai/*` packages are not on the public npm registry; they are referenced via `link:` to the local global DSH installation in `devDependencies`. Adjust those paths after checking out on another machine (they only participate in local type checking and do not affect the published artifact).
+> The `@deepseek-ai/*` packages are published on the public npm registry and declared in `devDependencies` with version ranges (mirroring `peerDependencies`), so `pnpm install` works out of the box with no local paths or `link:` specs. tsdown keeps them external and the host DSH resolves them from its own `node_modules` at runtime — they only participate in local type checking and do not affect the published artifact.
 
 ### Install into DSH
 
@@ -128,16 +128,14 @@ The plugin is published on the public npm registry: [@zhaoyang10/dsh-web-ide](ht
 
 ```bash
 dsh plugin --profile web add @zhaoyang10/dsh-web-ide
-dsh plugin --profile web add @deepseek-ai/dsh-api-workspace-files-write
 ```
 
-Then append `@zhaoyang10/dsh-web-ide` to the `dsh.profile.bundles` array in `~/.dsh/profiles/web/package.json` and restart `dsh web`. The bundled `cordis.patch.yml` registers the IDE tab and its workspace-files-write companion automatically.
+Then append `@zhaoyang10/dsh-web-ide` to the `dsh.profile.bundles` array in `~/.dsh/profiles/web/package.json` and restart `dsh web`. The bundled `cordis.patch.yml` registers the IDE tab in the browser roster automatically. Nothing beyond DSH itself is required: the IDE's save path is served by this plugin's own host service.
 
 **Method B: Install from a local directory (development)**
 
 ```bash
 dsh plugin --profile web add link:/absolute/path/to/dsh-web-ide
-dsh plugin --profile web add link:/absolute/path/to/dsh-api-workspace-files-write
 ```
 
 The `link:` form always points at the source directory — rebuild and restart to pick up changes; use `file:` instead if you prefer an install-time snapshot.
@@ -146,8 +144,6 @@ The `link:` form always points at the source directory — rebuild and restart t
 
 ```yaml
 - insert:
-    - id: workspace-files-write
-      name: '@deepseek-ai/dsh-api-workspace-files-write'
     - id: ui-ide
       name: '@zhaoyang10/dsh-web-ide'
 ```
