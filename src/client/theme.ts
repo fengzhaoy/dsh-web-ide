@@ -262,6 +262,84 @@ export const IDE_STYLES = `
 .ide-git-entry-status[data-kind='deleted']{color:#f48771}
 .ide-git-entry-status[data-kind='renamed']{color:#61afef}
 .ide-git-entry-status[data-kind='conflicted']{color:#e2c08d}
+/* ── SCM graph + branches views (VS Code Source Control Graph parity) ── */
+/* Header view switcher (VS Code's SCM view picker button). */
+.ide-git-header-switch{flex:1;min-width:0;display:flex;align-items:center;gap:4px;background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:2px 0;cursor:pointer;text-align:left}
+.ide-git-header-switch:hover{color:var(--ide-fg)}
+.ide-git-header-switch .ide-git-header-title{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-git-header-switch .ide-git-header-caret{display:flex;align-items:center}
+.ide-git-header-switch .ide-git-header-caret svg{width:12px;height:12px}
+/* Graph toolbar: branch filter segmented control + fetch/refresh actions. */
+.ide-git-graph-toolbar{display:flex;align-items:center;gap:2px;padding:4px 12px 6px 16px}
+.ide-git-graph-filter{flex:1;display:flex;background:#313131;border-radius:4px;padding:1px;gap:1px;max-width:200px}
+.ide-git-graph-filter-btn{flex:1;background:transparent;border:none;border-radius:3px;color:var(--ide-fg-dim);font-size:11px;padding:2px 8px;cursor:pointer;white-space:nowrap}
+.ide-git-graph-filter-btn:hover{color:var(--ide-fg)}
+.ide-git-graph-filter-btn[data-active='true']{background:#4d4d4d;color:var(--ide-fg)}
+/* Commit rows: swimlane cell + two-line content (subject+refs, author+age). */
+.ide-git-graph-list{display:flex;flex-direction:column}
+.ide-git-graph-row{border-left:2px solid transparent}
+.ide-git-graph-row:hover{background:var(--ide-tree-hover)}
+.ide-git-graph-row[data-expanded='true']{background:var(--ide-tree-active)}
+.ide-git-graph-row[data-head='true']{border-left-color:var(--ide-accent)}
+.ide-git-graph-item{display:flex;align-items:flex-start;gap:6px;padding:3px 12px 3px 12px;cursor:pointer}
+.ide-git-graph-cell{flex:none;margin-top:8px}
+.ide-git-graph-main{flex:1;min-width:0;padding-top:3px}
+.ide-git-graph-subject-row{display:flex;align-items:center;gap:4px;min-width:0}
+.ide-git-graph-subject{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ide-fg);min-width:0}
+.ide-git-graph-row[data-expanded='true'] .ide-git-graph-subject{font-weight:600}
+/* Ref pills (branches blue, remotes grey-purple, tags amber-grey). */
+.ide-git-graph-pill{flex:none;display:inline-flex;align-items:center;gap:2px;border-radius:9px;padding:0 6px;font-size:10px;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#4d4d4d;color:var(--ide-fg);border:1px solid transparent}
+.ide-git-graph-pill svg{width:10px;height:10px;flex:none}
+.ide-git-graph-pill[data-type='remote']{background:#473a5c;color:#c8b7ea}
+.ide-git-graph-pill[data-type='tag']{background:#5c5c3a;color:#e2d67a}
+.ide-git-graph-pill[data-current='true']{color:#fff}
+/* Second meta line: author · age · HEAD badge. */
+.ide-git-graph-meta{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ide-fg-dim);overflow:hidden;white-space:nowrap}
+.ide-git-graph-author{overflow:hidden;text-overflow:ellipsis}
+.ide-git-graph-head{flex:none;background:var(--ide-accent);color:#fff;border-radius:3px;padding:0 4px;font-size:9px;font-weight:700;letter-spacing:.5px}
+/* Expanded commit details: full message + changed files. */
+.ide-git-graph-details{padding:2px 12px 8px 12px}
+.ide-git-graph-details-msg{font-size:12px;color:var(--ide-fg);white-space:pre-wrap;word-break:break-word;padding:2px 0 4px;border-left:2px solid #4d4d4d;padding-left:8px}
+.ide-git-graph-details-meta{font-size:10px;color:var(--ide-fg-dim);padding-bottom:4px}
+.ide-git-graph-details-files{display:flex;flex-direction:column;border-top:1px solid #3c3c3c;padding-top:2px}
+.ide-git-graph-details-loading{display:flex;align-items:center;gap:6px;padding:6px 4px;color:var(--ide-fg-dim);font-size:12px}
+.ide-git-graph-details-loading svg{width:14px;height:14px}
+.ide-git-graph-file{display:flex;align-items:center;gap:4px;padding:2px 4px 2px 10px;font-size:12px;cursor:pointer;color:var(--ide-fg);border-radius:3px;white-space:nowrap}
+.ide-git-graph-file:hover{background:var(--ide-tree-hover)}
+.ide-git-graph-file-name{overflow:hidden;text-overflow:ellipsis;max-width:55%}
+.ide-git-graph-adds{color:#81b88b;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:11px}
+.ide-git-graph-dels{color:#c74e39;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:11px}
+.ide-git-graph-file .ide-git-entry-status[data-kind='binary']{color:var(--ide-fg-dim)}
+/* Load More row: placeholder lanes keep the open swimlanes visible. */
+.ide-git-graph-more{display:flex;align-items:center;gap:8px;background:transparent;border:none;border-top:1px solid #3c3c3c;color:var(--ide-accent);font-size:12px;padding:6px 12px;cursor:pointer;width:100%;text-align:left}
+.ide-git-graph-more:hover{background:var(--ide-tree-hover)}
+.ide-git-graph-more span{display:flex;align-items:center;gap:6px}
+.ide-git-graph-more svg{width:14px;height:14px}
+/* Branches view: toolbar + section trees. */
+.ide-git-branches-toolbar{display:flex;align-items:center;gap:2px;padding:4px 12px 6px 16px}
+.ide-git-branches-new{display:flex;align-items:center;gap:6px;flex:1;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg-dim);font-size:12px;padding:3px 8px;cursor:pointer;max-width:160px}
+.ide-git-branches-new:hover{color:var(--ide-fg);background:#3a3a3a}
+.ide-git-branches-new svg{width:14px;height:14px}
+.ide-git-branch-current{display:flex;align-items:center;gap:6px;padding:2px 12px 4px 16px;color:var(--ide-fg);font-size:12px}
+.ide-git-branch-current-icon{display:flex;align-items:center;color:var(--ide-accent)}
+.ide-git-branch-current-icon svg{width:14px;height:14px}
+.ide-git-branch-current-name{font-weight:600}
+.ide-git-branch-row{display:flex;align-items:center;gap:6px;padding:3px 12px 3px 24px;font-size:12px;cursor:pointer;color:var(--ide-fg);white-space:nowrap}
+.ide-git-branch-row:hover{background:var(--ide-tree-hover)}
+.ide-git-branch-row[data-current='true']{background:var(--ide-tree-active)}
+.ide-git-branch-row[data-remote='true']{padding-left:28px}
+.ide-git-branch-row-icon{display:flex;align-items:center;color:var(--ide-fg-muted);flex:none}
+.ide-git-branch-row-icon svg{width:13px;height:13px}
+.ide-git-branch-row[data-current='true'] .ide-git-branch-row-icon{color:#73c991}
+.ide-git-branch-row-name{overflow:hidden;text-overflow:ellipsis}
+.ide-git-branch-row-remote{color:var(--ide-fg-dim)}
+.ide-git-branch-row-ab{color:var(--ide-fg-dim);font-size:11px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+.ide-git-branch-row-current{margin-left:auto;color:#73c991;font-size:10px}
+.ide-git-branch-row-sha{margin-left:auto;color:var(--ide-fg-dim);font-size:10px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+/* Dialog inputs (create branch). */
+.ide-git-branch-input{width:100%;box-sizing:border-box;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;outline:none;margin-bottom:6px}
+.ide-git-branch-input:focus{border-color:var(--ide-accent)}
+.ide-git-branch-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ide-fg);cursor:pointer}
 /* ── Diff editor view ─────────────────────────────────────────────────── */
 /* The diff covers the tab bar + editor (the container stays mounted under it),
    leaving the status bar visible. */

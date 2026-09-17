@@ -83,8 +83,91 @@ const _ide_tools_ideTools_gitBranches_result$schema = z.object({
     'lastCommit': z.string().optional(),
     'lastCommitDate': z.string().optional(),
   }).readonly()).readonly(),
+  'remoteBranches': z.array(z.object({
+    'name': z.string().readonly(),
+    'lastCommit': z.string().optional(),
+    'lastCommitDate': z.string().optional(),
+  }).readonly()).optional().readonly(),
+  'remotes': z.array(z.string()).optional().readonly(),
   'current': z.string().nullable().readonly(),
 }).readonly()
+
+const _ide_tools_ideTools_gitLog_parameter_1$schema = z.object({
+  'limit': z.number().optional(),
+  'skip': z.number().optional(),
+  'scope': z.union([
+    z.literal('current'), z.literal('all'), z.literal('branch'),
+  ]).optional(),
+  'ref': z.string().optional(),
+}).readonly()
+const _ide_tools_ideTools_gitLog_ref$schema = z.object({
+  'name': z.string().readonly(),
+  'type': z.union([z.literal('head'), z.literal('remote'), z.literal('tag')]).readonly(),
+  'current': z.boolean().readonly(),
+}).readonly()
+const _ide_tools_ideTools_gitLog_result$schema = z.object({
+  'notARepo': z.boolean().readonly(),
+  'commits': z.array(z.object({
+    'hash': z.string().readonly(),
+    'displayId': z.string().readonly(),
+    'parents': z.array(z.string()).readonly(),
+    'author': z.string().readonly(),
+    'authorEmail': z.string().readonly(),
+    'authorDate': z.number().readonly(),
+    'subject': z.string().readonly(),
+    'refs': z.array(_ide_tools_ideTools_gitLog_ref$schema).readonly(),
+  }).readonly()).readonly(),
+  'hasMore': z.boolean().readonly(),
+  'head': z.string().nullable().readonly(),
+  'currentBranch': z.string().nullable().readonly(),
+  'upstream': z.string().nullable().readonly(),
+  'detached': z.boolean().readonly(),
+}).readonly()
+
+const _ide_tools_ideTools_gitCommitDetails_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitCommitDetails_result$schema = z.object({
+  'hash': z.string().readonly(),
+  'displayId': z.string().readonly(),
+  'author': z.string().readonly(),
+  'authorEmail': z.string().readonly(),
+  'authorDate': z.number().readonly(),
+  'subject': z.string().readonly(),
+  'message': z.string().readonly(),
+  'parents': z.array(z.string()).readonly(),
+  'refs': z.array(_ide_tools_ideTools_gitLog_ref$schema).readonly(),
+  'files': z.array(z.object({
+    'path': z.string().readonly(),
+    'oldPath': z.string().optional(),
+    'kind': z.union([
+      z.literal('modified'), z.literal('added'), z.literal('deleted'),
+      z.literal('renamed'), z.literal('binary'),
+    ]).readonly(),
+    'additions': z.number().optional(),
+    'deletions': z.number().optional(),
+  }).readonly()).readonly(),
+}).readonly()
+
+const _ide_tools_ideTools_gitCommitFileDiff_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitCommitFileDiff_parameter_2$schema = z.string()
+const _ide_tools_ideTools_gitCommitFileDiff_parameter_3$schema = z.string().optional()
+
+const _ide_tools_ideTools_gitCheckout_parameter_1$schema = z.object({
+  'ref': z.string().readonly(),
+  'localName': z.string().optional(),
+  'detach': z.boolean().optional(),
+}).readonly()
+const _ide_tools_ideTools_gitCheckout_result$schema = z.void()
+
+const _ide_tools_ideTools_gitCreateBranch_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitCreateBranch_parameter_2$schema = z.string().optional()
+const _ide_tools_ideTools_gitCreateBranch_parameter_3$schema = z.boolean().optional()
+const _ide_tools_ideTools_gitCreateBranch_result$schema = z.void()
+
+const _ide_tools_ideTools_gitDeleteBranch_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitDeleteBranch_parameter_2$schema = z.boolean().optional()
+const _ide_tools_ideTools_gitDeleteBranch_result$schema = z.void()
+
+const _ide_tools_ideTools_gitFetch_result$schema = z.void()
 
 const _ide_tools_ideTools_gitDiff_parameter_1$schema = z.string()
 const _ide_tools_ideTools_gitDiff_parameter_2$schema = z.union([
@@ -101,6 +184,7 @@ const _ide_tools_ideTools_gitDiff_result$schema = z.object({
   'contentType': z.union([z.literal('text'), z.literal('image')]).optional().readonly(),
   'imageBase64': z.string().optional().readonly(),
 }).readonly()
+const _ide_tools_ideTools_gitCommitFileDiff_result$schema = _ide_tools_ideTools_gitDiff_result$schema
 
 const _ide_tools_ideTools_gitCommit_parameter_1$schema = z.string()
 const _ide_tools_ideTools_gitCommit_parameter_2$schema = z.object({
@@ -388,6 +472,240 @@ export const TYPERT = {
         schema: _ide_tools_ideTools_gitBranches_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 480, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitLog',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitLog',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitLog', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'options',
+          wire: 'options',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitLog:options',
+            schema: _ide_tools_ideTools_gitLog_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitLogResult',
+        schema: _ide_tools_ideTools_gitLog_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 734, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitDetails',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitCommitDetails',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitCommitDetails', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'sha',
+          wire: 'sha',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitDetails:sha',
+            schema: _ide_tools_ideTools_gitCommitDetails_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCommitDetailsResult',
+        schema: _ide_tools_ideTools_gitCommitDetails_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 800, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitCommitFileDiff',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitCommitFileDiff', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'sha',
+          wire: 'sha',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:sha',
+            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_1$schema,
+          },
+        },
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:path',
+            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_2$schema,
+          },
+        },
+        {
+          name: 'oldPath',
+          wire: 'oldPath',
+          source: 'json',
+          acceptsUndefined: true,
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:oldPath',
+            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiffResult',
+        schema: _ide_tools_ideTools_gitCommitFileDiff_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 906, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitCheckout',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitCheckout',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitCheckout', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'spec',
+          wire: 'spec',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCheckout:spec',
+            schema: _ide_tools_ideTools_gitCheckout_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCheckoutResult',
+        schema: _ide_tools_ideTools_gitCheckout_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 940, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitCreateBranch',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitCreateBranch', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'name',
+          wire: 'name',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:name',
+            schema: _ide_tools_ideTools_gitCreateBranch_parameter_1$schema,
+          },
+        },
+        {
+          name: 'revision',
+          wire: 'revision',
+          source: 'json',
+          acceptsUndefined: true,
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:revision',
+            schema: _ide_tools_ideTools_gitCreateBranch_parameter_2$schema,
+          },
+        },
+        {
+          name: 'checkout',
+          wire: 'checkout',
+          source: 'json',
+          acceptsUndefined: true,
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:checkout',
+            schema: _ide_tools_ideTools_gitCreateBranch_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCreateBranchResult',
+        schema: _ide_tools_ideTools_gitCreateBranch_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 967, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitDeleteBranch',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitDeleteBranch',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitDeleteBranch', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'name',
+          wire: 'name',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDeleteBranch:name',
+            schema: _ide_tools_ideTools_gitDeleteBranch_parameter_1$schema,
+          },
+        },
+        {
+          name: 'force',
+          wire: 'force',
+          source: 'json',
+          acceptsUndefined: true,
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDeleteBranch:force',
+            schema: _ide_tools_ideTools_gitDeleteBranch_parameter_2$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDeleteBranchResult',
+        schema: _ide_tools_ideTools_gitDeleteBranch_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 990, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitFetch',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitFetch',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitFetch', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitFetchResult',
+        schema: _ide_tools_ideTools_gitFetch_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1010, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff',

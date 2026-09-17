@@ -110,6 +110,19 @@ const ideEditor = {
 }
 
 /**
+ * The git diff shown in the editor area: a working-tree path diff (the
+ * Source Control changes list), or one file inside a specific commit
+ * (Source Control graph → commit details → file). sha set = commit diff.
+ */
+interface IdeDiffTarget {
+  path: string
+  /** Previous path for commit renames/copies. */
+  oldPath?: string
+  /** Commit hash; undefined = working-tree diff. */
+  sha?: string
+}
+
+/**
  * Workspace-scoped editor persistence: tabs, the active tab, and the open git
  * diff are keyed by the workspace root (cwd), not the session, so switching
  * sessions that share a workspace keeps the editor's open state, and returning
@@ -120,8 +133,8 @@ const ideEditor = {
 const workspaceTabs = new Map<string, {
   tabs: OpenTab[]
   activePath: string | undefined
-  /** Open git-diff path, so the diff overlay survives a remount like the tabs. */
-  diffPath: string | undefined
+  /** Open git-diff target, so the diff overlay survives a remount like the tabs. */
+  diffPath: IdeDiffTarget | undefined
   /** Whether the markdown split preview is open for this workspace. */
   mdPreview: boolean
 }>()
@@ -352,10 +365,14 @@ export function IdeView(props: IdeViewInjected & {
     applySidebarWidth(SIDEBAR_WIDTH_DEFAULT)
   }, [applySidebarWidth])
   /** Path whose git diff is shown in the editor area (overrides normal tabs).
-   *  Seeded from the parked workspace state so a remount keeps it open. */
-  const [diffPath, setDiffPath] = useState<string | undefined>(() => {
+   *  Seeded from the parked workspace state so a remount keeps it open. A
+   *  legacy parked string (older build) normalizes to a worktree target. */
+  const [diffPath, setDiffPath] = useState<IdeDiffTarget | undefined>(() => {
     const key = storeKeyOf(cwd)
-    return key === null ? undefined : workspaceTabs.get(key)?.diffPath
+    if (key === null) return undefined
+    const parked = workspaceTabs.get(key)?.diffPath
+    if (parked === undefined) return undefined
+    return typeof parked === 'string' ? { path: parked } : parked
   })
   /** Markdown split preview: open flag (parked per workspace), the live
    *  content feed from the Monaco model, and a manual-refresh nonce. */
@@ -916,7 +933,11 @@ export function IdeView(props: IdeViewInjected & {
                   // The diff overlays the editor area, so the underlying Monaco
                   // host stays attached and closing the diff returns to the
                   // previously active file untouched.
-                  setDiffPath(path)
+                  setDiffPath({ path })
+                }}
+                onOpenCommitDiff={(sha, path, oldPath) => {
+                  // One file inside one commit (source control graph details).
+                  setDiffPath({ path, oldPath, sha })
                 }}
                 onChangesDiscarded={handleChangesDiscarded}
                 t={t}
@@ -1124,8 +1145,9 @@ export function IdeView(props: IdeViewInjected & {
               cwd={cwd}
               ideTools={ideTools}
               workspaceFiles={workspaceFiles}
-              path={diffPath}
-              name={diffPath.split('/').pop() ?? diffPath}
+              path={diffPath.path}
+              name={diffPath.path.split('/').pop() ?? diffPath.path}
+              commit={diffPath.sha !== undefined ? { sha: diffPath.sha, path: diffPath.path, oldPath: diffPath.oldPath } : undefined}
               onClose={() => setDiffPath(undefined)}
               t={t}
             />

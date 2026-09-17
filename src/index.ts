@@ -100,6 +100,10 @@ export interface GitBranch {
 export interface GitBranchesResult {
   readonly notARepo: boolean
   readonly branches: readonly GitBranch[]
+  /** Remote-tracking branches (origin/main, …), when requested. */
+  readonly remoteBranches?: readonly GitRemoteBranch[]
+  /** Configured remote names (git remote), when requested. */
+  readonly remotes?: readonly string[]
   readonly current: string | undefined
 }
 export interface GitDiffResult {
@@ -110,8 +114,87 @@ export interface GitDiffResult {
   readonly oldPath: string
   readonly newPath: string
   readonly language: string
-  readonly contentType?: 'text' | 'image'
+  readonly contentType?: 'text' | 'image' | 'binary'
   readonly imageBase64?: string
+}
+
+/** One decorated reference pointing at a commit (graph pill). */
+export interface GitLogRef {
+  /** Short display name ('main', 'origin/main', 'v1.0'). */
+  readonly name: string
+  /** Reference class: local branch / remote-tracking branch / tag. */
+  readonly type: 'head' | 'remote' | 'tag'
+  /** True for the checked-out branch (or the HEAD itself). */
+  readonly current: boolean
+}
+
+/** One commit in the source-control graph history. */
+export interface GitLogEntry {
+  /** Full 40-char commit hash (swimlane node id). */
+  readonly hash: string
+  /** Abbreviated hash for display. */
+  readonly displayId: string
+  /** Parent hashes (first parent first). */
+  readonly parents: readonly string[]
+  readonly author: string
+  readonly authorEmail: string
+  /** Author date, unix seconds. */
+  readonly authorDate: number
+  /** Subject line (single line). */
+  readonly subject: string
+  /** Decorated refs at this commit (branches, remotes, tags). */
+  readonly refs: readonly GitLogRef[]
+}
+
+/** Result of one gitLog page (VS Code SCM Graph history provider). */
+export interface GitLogResult {
+  readonly notARepo: boolean
+  /** Page of commits, newest first (topo-order). */
+  readonly commits: readonly GitLogEntry[]
+  /** True when more commits exist beyond this page (Load More). */
+  readonly hasMore: boolean
+  /** HEAD commit hash ('' / undefined when the repo has no commits). */
+  readonly head: string | undefined
+  /** Current branch short name (undefined when detached). */
+  readonly currentBranch: string | undefined
+  /** Upstream tracking ref of the current branch, when set. */
+  readonly upstream: string | undefined
+  readonly detached: boolean
+}
+
+/** One file changed by a commit (gitCommitDetails). */
+export interface GitCommitFile {
+  readonly path: string
+  /** Previous path for renames/copies. */
+  readonly oldPath?: string
+  readonly kind: 'modified' | 'added' | 'deleted' | 'renamed' | 'binary'
+  /** Line insertions (undefined for binary files). */
+  readonly additions?: number
+  /** Line deletions (undefined for binary files). */
+  readonly deletions?: number
+}
+
+/** Metadata + changed files of one commit (VS Code commit details view). */
+export interface GitCommitDetailsResult {
+  readonly hash: string
+  readonly displayId: string
+  readonly author: string
+  readonly authorEmail: string
+  readonly authorDate: number
+  readonly subject: string
+  /** Full commit message body (subject + body, trimmed). */
+  readonly message: string
+  readonly parents: readonly string[]
+  readonly refs: readonly GitLogRef[]
+  readonly files: readonly GitCommitFile[]
+}
+
+/** One remote-tracking branch (refs/remotes, without the remote's HEAD). */
+export interface GitRemoteBranch {
+  /** Short name including the remote, e.g. 'origin/main'. */
+  readonly name: string
+  readonly lastCommit?: string
+  readonly lastCommitDate?: string
 }
 
 /** One live interactive terminal plus its replay log and live subscribers. */
@@ -173,6 +256,13 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'fileReveal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'hostPlatform', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitLog', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitCommitDetails', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitCommitFileDiff', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitCheckout', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitCreateBranch', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitDeleteBranch', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitFetch', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
     })
@@ -187,7 +277,7 @@ export class IdeTools extends TypertRemoteService {
     signal: AbortSignal,
   ): Promise<IdeSearchResult> {
     const { workspaceRoot } = workspaceFileScope
-    if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty')
+    if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty', {})
     const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
     if (query.include !== undefined && query.include.length > 0) input.include = query.include
     if (query.path !== undefined && query.path.length > 0) input.path = query.path
@@ -282,8 +372,8 @@ export class IdeTools extends TypertRemoteService {
     _signal: AbortSignal,
   ): Promise<void> {
     const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
-    if (entry.exited) throw new RemoteError('ide-tools/terminal-exited', 'terminal ' + JSON.stringify(terminalId) + ' has exited')
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    if (entry.exited) throw new RemoteError('ide-tools/terminal-exited', 'terminal ' + JSON.stringify(terminalId) + ' has exited', {})
     const text = Buffer.from(data, 'base64').toString('utf8')
     await entry.handle.write(text)
   }
@@ -296,7 +386,7 @@ export class IdeTools extends TypertRemoteService {
     _signal: AbortSignal,
   ): Promise<void> {
     const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
     await entry.handle.signalForeground(signalName)
   }
 
@@ -326,7 +416,7 @@ export class IdeTools extends TypertRemoteService {
     signal: AbortSignal,
   ): AsyncGenerator<IdeTerminalOutputFrame, void, void> {
     const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open')
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
     // Replay everything the terminal emitted before this subscription.
     // Yield each log entry as a SEPARATE frame: joining base64 strings
     // concatenates padding chars (=) mid-string, yielding invalid base64.
@@ -392,27 +482,27 @@ export class IdeTools extends TypertRemoteService {
     try {
       handle = this.ctx.subprocess.spawn(spec as never)
     } catch {
-      throw new RemoteError('ide-tools/git-failed', 'git command could not start')
+      throw new RemoteError('ide-tools/git-failed', 'git command could not start', {})
     }
     let outcome: import('@deepseek-ai/dsh-subprocess').SubprocessOutcome
     try {
       outcome = await handle.done
     } catch {
-      throw new RemoteError('ide-tools/git-failed', 'git process failed before reporting an outcome')
+      throw new RemoteError('ide-tools/git-failed', 'git process failed before reporting an outcome', {})
     }
     const stdout = handle.collected.stdout?.readFrom(0)
     const stderr = handle.collected.stderr?.readFrom(0)
-    if (stdout === undefined) throw new RemoteError('ide-tools/git-failed', 'git produced no collected stdout')
+    if (stdout === undefined) throw new RemoteError('ide-tools/git-failed', 'git produced no collected stdout', {})
     // Exit 128 with a "not a git repository" message → notARepo, not a failure.
     const stderrText = stderr?.text ?? ''
     if (outcome.exitCode === 128 && /not a git repository/i.test(stderrText)) {
-      throw new RemoteError('ide-tools/not-a-repo', 'the workspace root is not a git repository')
+      throw new RemoteError('ide-tools/not-a-repo', 'the workspace root is not a git repository', {})
     }
     if (outcome.signal !== null || outcome.exitCode === null) {
-      throw new RemoteError('ide-tools/git-failed', 'git was killed by signal ' + (outcome.signal ?? '(unknown)'))
+      throw new RemoteError('ide-tools/git-failed', 'git was killed by signal ' + (outcome.signal ?? '(unknown)'), {})
     }
     if (outcome.exitCode !== 0) {
-      throw new RemoteError('ide-tools/git-failed', 'git exited with code ' + outcome.exitCode + ': ' + stderrText.trim())
+      throw new RemoteError('ide-tools/git-failed', 'git exited with code ' + outcome.exitCode + ': ' + stderrText.trim(), {})
     }
     return stdout.text
   }
@@ -564,10 +654,393 @@ export class IdeTools extends TypertRemoteService {
           })
         }
       }
-      return { notARepo: false, branches, current }
+      // Remote-tracking branches (refs/remotes, minus each remote's HEAD
+      // symref) plus the configured remote names — the branches view lists
+      // both. Best effort: a repo without remotes still lists local branches.
+      let remoteBranches: GitRemoteBranch[] | undefined
+      let remotes: string[] | undefined
+      try {
+        const remoteFmt = '%(refname:short)%00%(objectname:short)%00%(committerdate:short)%00'
+        const remoteRaw = await this.runGit(cwd, ['for-each-ref', '--format=' + remoteFmt, 'refs/remotes'], signal)
+        remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
+        remoteBranches = []
+        for (const line of remoteRaw.split('\n')) {
+          if (line.length === 0) continue
+          const [name, sha, date] = line.split('\u0000')
+          if (name.endsWith('/HEAD')) continue
+          remoteBranches.push({ name, lastCommit: sha, lastCommitDate: date })
+        }
+      } catch { /* no remotes configured */ }
+      return { notARepo: false, branches, remoteBranches, remotes, current }
     } catch (err) {
       if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
       throw err
+    }
+  }
+
+  // ── Git graph (VS Code Source Control Graph parity) ──────────────────
+  // The history provider feeds the swimlane graph: git log pages with
+  // decorations parsed into typed refs, plus the per-commit actions the
+  // graph's context menu exposes (checkout / create branch / fetch ...).
+
+  /** Refuse ref-ish arguments that git could parse as its own options. */
+  private static assertGitRevision(rev: string, label: string): void {
+    if (rev.length === 0 || rev.startsWith('-')) {
+      throw new RemoteError('ide-tools/bad-request', 'invalid ' + label, {})
+    }
+  }
+
+  /** Strip a --decorate=full full-ref prefix down to the short name. */
+  private gitRefShortName(fullname: string): string {
+    for (const prefix of ['refs/heads/', 'refs/remotes/', 'refs/tags/']) {
+      if (fullname.startsWith(prefix)) return fullname.slice(prefix.length)
+    }
+    return fullname
+  }
+
+  /** Parse git log --decorate=full %D into typed graph refs. */
+  private parseGitLogDecorations(decorations: string): GitLogRef[] {
+    const refs: GitLogRef[] = []
+    if (decorations.length === 0) return refs
+    for (const part of decorations.split(', ')) {
+      if (part.startsWith('HEAD -> ')) {
+        // The checked-out branch: e.g. "HEAD -> refs/heads/main".
+        const name = this.gitRefShortName(part.slice('HEAD -> '.length))
+        if (name.length > 0) refs.push({ name, type: 'head', current: true })
+        continue
+      }
+      if (part === 'HEAD') continue
+      if (part.startsWith('tag: ')) {
+        const name = this.gitRefShortName(part.slice('tag: '.length))
+        if (name.length > 0) refs.push({ name, type: 'tag', current: false })
+        continue
+      }
+      if (part.startsWith('refs/heads/')) {
+        refs.push({ name: part.slice('refs/heads/'.length), type: 'head', current: false })
+      } else if (part.startsWith('refs/remotes/')) {
+        const name = part.slice('refs/remotes/'.length)
+        if (name.endsWith('/HEAD')) continue // remote HEAD symref, not a branch
+        refs.push({ name, type: 'remote', current: false })
+      }
+      // Other namespaces (refs/stash ...) are not surfaced in the graph.
+    }
+    return refs
+  }
+
+  /** One page of the commit history for the SCM graph (VS Code's history
+   *  provider): git log --topo-order --decorate=full -z with NUL-separated
+   *  records, so multi-line data can never split a page. scope: 'current' =
+   *  HEAD history, 'all' = every ref, 'branch' = one named ref. */
+  async gitLog(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    options: { limit?: number; skip?: number; scope?: 'current' | 'all' | 'branch'; ref?: string },
+    signal: AbortSignal | undefined,
+  ): Promise<GitLogResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const EMPTY: GitLogResult = {
+      notARepo: true, commits: [], hasMore: false,
+      head: undefined, currentBranch: undefined, upstream: undefined, detached: false,
+    }
+    try {
+      if (!cwd) return EMPTY
+      const limit = Math.max(1, Math.min(500, Math.round(options?.limit ?? 100)))
+      const skip = Math.max(0, Math.round(options?.skip ?? 0))
+      const scope = options?.scope ?? 'current'
+      // Unborn repository (no commits yet): rev-parse HEAD fails quietly.
+      const head = (await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal)).trim()
+      if (head.length === 0) return { ...EMPTY, notARepo: false }
+      const argv = [
+        '-c', 'i18n.logOutputEncoding=UTF-8',
+        'log', '--format=%H%x1f%h%x1f%aN%x1f%aE%x1f%at%x1f%P%x1f%D%x1f%s',
+        '-z', '--topo-order', '--decorate=full',
+        '-n', String(limit + 1), '--skip', String(skip),
+      ]
+      if (scope === 'all') argv.push('--all')
+      if (scope === 'branch') {
+        const ref = options?.ref ?? ''
+        IdeTools.assertGitRevision(ref, 'branch name')
+        argv.push(ref)
+      }
+      const raw = await this.runGit(cwd, argv, signal)
+      const commits: GitLogEntry[] = []
+      let hasMore = false
+      for (const record of raw.split('\u0000')) {
+        if (record.length === 0) continue
+        if (commits.length === limit) { hasMore = true; break }
+        const [hash, displayId, author, authorEmail, authorDate, parents, decorations, subject] = record.split('\u001f')
+        commits.push({
+          hash, displayId,
+          parents: parents.length > 0 ? parents.split(' ') : [],
+          author, authorEmail,
+          authorDate: Number(authorDate) || 0,
+          subject: subject ?? '',
+          refs: this.parseGitLogDecorations(decorations ?? ''),
+        })
+      }
+      const [currentBranch, upstream] = await Promise.all([
+        this.runGit(cwd, ['branch', '--show-current'], signal).then((s) => s.trim()).catch(() => ''),
+        this.runGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], signal).then((s) => s.trim()).catch(() => ''),
+      ])
+      return {
+        notARepo: false,
+        commits, hasMore, head,
+        currentBranch: currentBranch.length > 0 ? currentBranch : undefined,
+        upstream: upstream.length > 0 ? upstream : undefined,
+        detached: currentBranch.length === 0,
+      }
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
+      throw err
+    }
+  }
+
+  /** One commit's metadata + changed files (VS Code's commit details view).
+   *  Merge commits diff against their FIRST parent; root commits diff
+   *  against the empty tree (git diff-tree --root). */
+  async gitCommitDetails(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    sha: string,
+    signal: AbortSignal | undefined,
+  ): Promise<GitCommitDetailsResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    IdeTools.assertGitRevision(sha, 'commit hash')
+    if (!/^[0-9a-fA-F]{4,40}$/.test(sha)) throw new RemoteError('ide-tools/bad-request', 'invalid commit hash', {})
+    const meta = (
+      await this.runGit(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%aN%x1f%aE%x1f%at%x1f%P%x1f%D', sha], signal)
+    ).trimEnd()
+    const [hash, displayId, author, authorEmail, authorDate, parentsRaw, decorations] = meta.split('\u001f')
+    const parents = parentsRaw.length > 0 ? parentsRaw.split(' ') : []
+    const message = (await this.runGit(cwd, ['show', '-s', '--format=%B', sha], signal)).trimEnd()
+    const files = await this.commitChangedFiles(cwd, sha, parents[0], signal)
+    return {
+      hash, displayId, author, authorEmail,
+      authorDate: Number(authorDate) || 0,
+      subject: message.split('\n', 1)[0] ?? '',
+      message,
+      parents,
+      refs: this.parseGitLogDecorations(decorations ?? ''),
+      files,
+    }
+  }
+
+  /** Changed files of one commit: name-status (kinds + renames, -z) joined
+   *  with numstat (line counts) keyed by the new path. */
+  private async commitChangedFiles(
+    cwd: string,
+    sha: string,
+    firstParent: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<GitCommitFile[]> {
+    const nameArgs = firstParent !== undefined
+      ? ['diff-tree', '-M', '--no-commit-id', '--name-status', '-r', '-z', firstParent, sha]
+      : ['diff-tree', '-M', '--no-commit-id', '--name-status', '-r', '-z', '--root', sha]
+    const raw = await this.runGit(cwd, nameArgs, signal)
+    const counts = new Map<string, { additions?: number; deletions?: number; binary: boolean }>()
+    try {
+      const numArgs = firstParent !== undefined
+        ? ['diff-tree', '-M', '--no-commit-id', '--numstat', '-r', firstParent, sha]
+        : ['diff-tree', '-M', '--no-commit-id', '--numstat', '-r', '--root', sha]
+      const numRaw = await this.runGit(cwd, numArgs, signal)
+      for (const line of numRaw.split('\n')) {
+        if (line.length === 0) continue
+        const tab = line.indexOf('\t')
+        const tab2 = line.indexOf('\t', tab + 1)
+        if (tab < 0 || tab2 < 0) continue
+        const adds = line.slice(0, tab)
+        const dels = line.slice(tab + 1, tab2)
+        const path = this.numstatNewPath(line.slice(tab2 + 1))
+        if (path === undefined) continue
+        counts.set(path, adds === '-' || dels === '-'
+          ? { binary: true }
+          : { additions: Number(adds) || 0, deletions: Number(dels) || 0, binary: false })
+      }
+    } catch { /* counts are optional decoration */ }
+
+    // -z name-status records: <status> NUL <path> [NUL <origPath>] NUL ...
+    // (the rename pair is printed src first, then dst — verified against
+    // git 2.x diff-tree -z --name-status).
+    const files: GitCommitFile[] = []
+    const fields = raw.split('\u0000')
+    for (let i = 0; i < fields.length; i++) {
+      const status = fields[i]
+      if (status.length === 0) continue
+      const letter = status[0]
+      const count = (newPath: string) => {
+        const c = counts.get(newPath)
+        return {
+          additions: c?.binary === true ? undefined : c?.additions,
+          deletions: c?.binary === true ? undefined : c?.deletions,
+        }
+      }
+      if (letter === 'R' || letter === 'C') {
+        const oldPath = fields[++i] ?? ''
+        const path = fields[++i] ?? ''
+        if (path.length === 0) continue
+        files.push({ path, oldPath: oldPath.length > 0 ? oldPath : undefined, kind: 'renamed', ...count(path) })
+        continue
+      }
+      const path = fields[++i] ?? ''
+      if (path.length === 0) continue
+      const kind: GitCommitFile['kind'] = letter === 'A' ? 'added'
+        : letter === 'D' ? 'deleted'
+        : counts.get(path)?.binary === true ? 'binary'
+        : 'modified'
+      files.push({ path, kind, ...count(path) })
+    }
+    return files
+  }
+
+  /** The new-path side of a numstat rename field ('old => new', or git's
+   *  braces form '{pre/old => post}/suffix'). */
+  private numstatNewPath(field: string): string | undefined {
+    if (!field.includes(' => ')) return field
+    const brace = field.match(/^(.*)\{(.*) => (.*)\}(.*)$/)
+    if (brace) return brace[1] + brace[3] + brace[4]
+    const arrow = field.split(' => ')
+    return arrow[arrow.length - 1]
+  }
+
+  /** Old/new content + patch of ONE file inside one commit (graph commit
+   *  details -> per-file diff). Same base rules as gitCommitDetails; the new
+   *  side is the COMMIT's blob — never the working tree. */
+  async gitCommitFileDiff(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    sha: string,
+    path: string,
+    oldPath: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<GitDiffResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    IdeTools.assertGitRevision(sha, 'commit hash')
+    if (!/^[0-9a-fA-F]{4,40}$/.test(sha)) throw new RemoteError('ide-tools/bad-request', 'invalid commit hash', {})
+    if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
+    const language = this.detectLanguage(path)
+    const parentsRaw = (await this.runGit(cwd, ['show', '-s', '--format=%P', sha], signal)).trim()
+    const firstParent = parentsRaw.split(' ')[0] ?? ''
+    const target = oldPath !== undefined && oldPath.length > 0 && oldPath !== path ? [oldPath, path] : [path]
+    const diffArgv = firstParent.length > 0
+      ? ['diff', '-M', firstParent, sha, '--', ...target]
+      : ['diff-tree', '-p', '-M', '--root', '--no-commit-id', sha, '--', ...target]
+    let diff = ''
+    try { diff = await this.runGit(cwd, diffArgv, signal) } catch { /* e.g. file untouched by a merge */ }
+    // Old side: the first parent's blob (empty for root commits / adds).
+    let oldContent = ''
+    if (firstParent.length > 0) {
+      try { oldContent = await this.runGit(cwd, ['show', firstParent + ':' + (oldPath ?? path)], signal) } catch { /* added */ }
+    }
+    // New side: the commit's blob (empty for deletions).
+    let newContent = ''
+    try { newContent = await this.runGit(cwd, ['show', sha + ':' + path], signal) } catch { /* deleted */ }
+    // Binary blobs do not survive the text subprocess seam (lossy utf8 decode).
+    // git numstat prints '-' for binary counts — flag the result so the
+    // client renders a placeholder instead of garbled utf8-decoded bytes.
+    try {
+      const numArgs = firstParent.length > 0
+        ? ['diff-tree', '-M', '--no-commit-id', '--numstat', '-r', firstParent, sha, '--', oldPath ?? path]
+        : ['diff-tree', '-M', '--no-commit-id', '--numstat', '-r', '--root', sha, '--', oldPath ?? path]
+      const numstat = (await this.runGit(cwd, numArgs, signal)).trim()
+      if (/^-\t-\t/m.test(numstat)) {
+        return {
+          empty: false, diff: '', oldContent: '', newContent: path,
+          oldPath: oldPath ?? path, newPath: path, language, contentType: 'binary',
+        }
+      }
+    } catch { /* fall through to the text path */ }
+    const isEmpty = diff.trim().length === 0 && oldContent === newContent
+    return { empty: isEmpty, diff, oldContent, newContent, oldPath: oldPath ?? path, newPath: path, language }
+  }
+
+  /** Check out a branch, a remote branch (creating the local tracking branch
+   *  via -b), or a detached commit (graph + branches views). */
+  async gitCheckout(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    spec: { ref: string; localName?: string; detach?: boolean },
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const ref = spec?.ref ?? ''
+    IdeTools.assertGitRevision(ref, 'branch name')
+    try {
+      if (spec?.detach === true) {
+        await this.runGit(cwd, ['checkout', '-q', '--detach', ref], signal)
+      } else if (spec?.localName !== undefined && spec.localName.length > 0) {
+        const local = spec.localName
+        if (local.startsWith('-')) throw new RemoteError('ide-tools/bad-request', 'invalid branch name', {})
+        await this.runGit(cwd, ['checkout', '-q', '-b', local, ref], signal)
+      } else {
+        await this.runGit(cwd, ['checkout', '-q', ref], signal)
+      }
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-checkout-failed', message, {})
+    }
+  }
+
+  /** Create a branch at HEAD (or an explicit revision), optionally checking
+   *  it out (branches view + graph context menu -> Create Branch). */
+  async gitCreateBranch(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    name: string,
+    revision: string | undefined,
+    checkout: boolean | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (name.length === 0 || name.startsWith('-')) {
+      throw new RemoteError('ide-tools/bad-request', 'invalid branch name', {})
+    }
+    if (revision !== undefined && revision.length > 0) IdeTools.assertGitRevision(revision, 'revision')
+    try {
+      const rev = revision !== undefined && revision.length > 0 ? [revision] : []
+      await this.runGit(cwd, checkout === true ? ['checkout', '-q', '-b', name, ...rev] : ['branch', name, ...rev], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-branch-failed', message, {})
+    }
+  }
+
+  /** Delete a LOCAL branch (-d, or -D when force). Remote branches are never
+   *  touched from the UI. */
+  async gitDeleteBranch(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    name: string,
+    force: boolean | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (name.length === 0 || name.startsWith('-')) {
+      throw new RemoteError('ide-tools/bad-request', 'invalid branch name', {})
+    }
+    try {
+      await this.runGit(cwd, ['branch', force === true ? '-D' : '-d', name], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-branch-failed', message, {})
+    }
+  }
+
+  /** Fetch remotes with prune (graph + branches toolbar -> Fetch). Prefers
+   *  'origin'; falls back to --all when origin is not configured. */
+  async gitFetch(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      const remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
+      if (remotes.length === 0) {
+        throw new RemoteError('ide-tools/git-fetch-failed', 'your repository has no remotes configured', {})
+      }
+      if (remotes.includes('origin')) {
+        await this.runGit(cwd, ['fetch', '--prune', 'origin'], signal)
+      } else {
+        await this.runGit(cwd, ['fetch', '--all', '--prune'], signal)
+      }
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-fetch-failed', message, {})
     }
   }
 
@@ -676,18 +1149,20 @@ export class IdeTools extends TypertRemoteService {
     return map[ext] ?? 'plaintext'
   }
 
-  /** Stage all changes (git add -A) in the workspace root. */
+  /** Stage all changes (git add -A) in the workspace root. Throws a
+   *  RemoteError on failure — the wire layer maps it to the client's error
+   *  branch, so host methods return PLAIN business values (the transport
+   *  always wraps them into { ok, value } itself). */
   async gitStageAll(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot: cwd } = workspaceFileScope
     try {
       await this.runGit(cwd, ['add', '-A'], signal)
-      return { ok: true, value: undefined }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/git-stage-failed', message } }
+      throw new RemoteError('ide-tools/git-stage-failed', message, {})
     }
   }
 
@@ -696,16 +1171,15 @@ export class IdeTools extends TypertRemoteService {
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     path: string,
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+    if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
     try {
-      if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
-      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is empty' } }
       await this.runGit(cwd, ['add', '--', path], signal)
-      return { ok: true, value: undefined }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/git-stage-failed', message } }
+      throw new RemoteError('ide-tools/git-stage-failed', message, {})
     }
   }
 
@@ -729,11 +1203,11 @@ export class IdeTools extends TypertRemoteService {
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot: cwd } = workspaceFileScope
-    if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
     const { path, oldPath, kind } = entry
-    if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is empty' } }
+    if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
     try {
       if (kind === 'untracked') {
         await this.runGit(cwd, ['clean', '-f', '-q', '--', path], signal)
@@ -747,10 +1221,9 @@ export class IdeTools extends TypertRemoteService {
         await this.runGit(cwd, ['reset', '-q', 'HEAD', '--', path], signal)
         await this.runGit(cwd, ['checkout', '-q', '--', path], signal)
       }
-      return { ok: true, value: undefined }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/git-discard-failed', message } }
+      throw new RemoteError('ide-tools/git-discard-failed', message, {})
     }
   }
 
@@ -765,28 +1238,28 @@ export class IdeTools extends TypertRemoteService {
     path: string,
     newName: string,
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot } = workspaceFileScope
     try {
-      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
-      if (path.length === 0 || newName.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path and name are required' } }
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0 || newName.length === 0) throw new RemoteError('ide-tools/bad-request', 'path and name are required', {})
       if (newName === '.' || newName === '..' || /[/\\]/.test(newName)) {
-        return { ok: false, error: { code: 'ide-tools/bad-request', message: 'invalid name' } }
+        throw new RemoteError('ide-tools/bad-request', 'invalid name', {})
       }
       const abs = resolveWorkspacePath(workspaceRoot, path)
       const target = resolve(dirname(abs), newName)
       const root = resolve(workspaceRoot)
       if (!target.startsWith(root + sep)) {
-        return { ok: false, error: { code: 'ide-tools/bad-path', message: 'target escapes the workspace root' } }
+        throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
       }
       if (existsSync(target)) {
-        return { ok: false, error: { code: 'ide-tools/exists', message: 'an entry with that name already exists' } }
+        throw new RemoteError('ide-tools/exists', 'an entry with that name already exists', {})
       }
       await rename(abs, target)
-      return { ok: true, value: undefined }
     } catch (err) {
+      if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/rename-failed', message } }
+      throw new RemoteError('ide-tools/rename-failed', message, {})
     }
   }
 
@@ -800,17 +1273,17 @@ export class IdeTools extends TypertRemoteService {
     path: string,
     kind: 'file' | 'directory',
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot } = workspaceFileScope
     try {
-      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
-      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is required' } }
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
       const abs = resolveWorkspacePath(workspaceRoot, path)
       await rm(abs, { recursive: kind === 'directory', force: true })
-      return { ok: true, value: undefined }
     } catch (err) {
+      if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/delete-failed', message } }
+      throw new RemoteError('ide-tools/delete-failed', message, {})
     }
   }
 
@@ -826,14 +1299,14 @@ export class IdeTools extends TypertRemoteService {
     path: string,
     kind: 'file' | 'directory',
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot } = workspaceFileScope
     try {
-      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
-      if (path.length === 0) return { ok: false, error: { code: 'ide-tools/bad-request', message: 'path is required' } }
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
       const abs = resolveWorkspacePath(workspaceRoot, path)
       if (existsSync(abs)) {
-        return { ok: false, error: { code: 'ide-tools/exists', message: 'an entry with that name already exists' } }
+        throw new RemoteError('ide-tools/exists', 'an entry with that name already exists', {})
       }
       if (kind === 'directory') {
         await mkdir(abs, { recursive: true })
@@ -841,10 +1314,10 @@ export class IdeTools extends TypertRemoteService {
         await mkdir(dirname(abs), { recursive: true })
         await writeFile(abs, '', { flag: 'wx' })
       }
-      return { ok: true, value: undefined }
     } catch (err) {
+      if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/create-failed', message } }
+      throw new RemoteError('ide-tools/create-failed', message, {})
     }
   }
 
@@ -862,13 +1335,13 @@ export class IdeTools extends TypertRemoteService {
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     path: string,
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: void } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<void> {
     const { workspaceRoot } = workspaceFileScope
     try {
-      if (!workspaceRoot) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
       // '' (the tree root) is allowed here: it reveals the workspace root itself.
       const abs = path.length === 0 ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, path)
-      if (!existsSync(abs)) return { ok: false, error: { code: 'ide-tools/not-found', message: 'the entry no longer exists on disk' } }
+      if (!existsSync(abs)) throw new RemoteError('ide-tools/not-found', 'the entry no longer exists on disk', {})
       const platform = process.platform
       let argv: string[]
       if (platform === 'darwin') {
@@ -894,19 +1367,19 @@ export class IdeTools extends TypertRemoteService {
       try {
         handle = this.ctx.subprocess.spawn(spec as never)
       } catch {
-        return { ok: false, error: { code: 'ide-tools/reveal-failed', message: 'the OS opener could not start' } }
+        throw new RemoteError('ide-tools/reveal-failed', 'the OS opener could not start', {})
       }
       const outcome = await handle.done
       // Windows explorer.exe exits 1 even when it successfully opened a window.
       const benign = outcome.exitCode === 0 || (platform === 'win32' && outcome.exitCode === 1)
       if (!benign) {
         const stderrText = handle.collected.stderr?.readFrom(0)?.text ?? ''
-        return { ok: false, error: { code: 'ide-tools/reveal-failed', message: `opener exited with code ${outcome.exitCode}: ${stderrText.trim()}` } }
+        throw new RemoteError('ide-tools/reveal-failed', `opener exited with code ${outcome.exitCode}: ${stderrText.trim()}`, {})
       }
-      return { ok: true, value: undefined }
     } catch (err) {
+      if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/reveal-failed', message } }
+      throw new RemoteError('ide-tools/reveal-failed', message, {})
     }
   }
 
@@ -915,8 +1388,8 @@ export class IdeTools extends TypertRemoteService {
   async hostPlatform(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: string } | { ok: false; error: { code: string; message: string } }> {
-    return { ok: true, value: process.platform }
+  ): Promise<string> {
+    return process.platform
   }
 
   /** Stage all changes and commit with a message (git add -A && git commit).
@@ -929,7 +1402,7 @@ export class IdeTools extends TypertRemoteService {
     message: string,
     options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: { committed: boolean; hash?: string; pushed?: boolean } } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<{ committed: boolean; hash?: string; pushed?: boolean }> {
     const { workspaceRoot: cwd } = workspaceFileScope
     const opts = options ?? {}
     try {
@@ -956,14 +1429,14 @@ export class IdeTools extends TypertRemoteService {
         await this.runGit(cwd, ['push'], signal)
         pushed = true
       }
-      return { ok: true, value: { committed: true, hash: hashMatch?.[1], pushed } }
+      return { committed: true, hash: hashMatch?.[1], pushed }
     } catch (err) {
       const message2 = err instanceof Error ? err.message : String(err)
-      // "nothing to commit" is not a hard error — report it as ok but not committed.
+      // "nothing to commit" is not a hard error — report it as committed:false.
       if (message2.includes('nothing to commit') || message2.includes('no changes')) {
-        return { ok: true, value: { committed: false } }
+        return { committed: false }
       }
-      return { ok: false, error: { code: 'ide-tools/git-commit-failed', message: message2 } }
+      throw new RemoteError('ide-tools/git-commit-failed', message2, {})
     }
   }
 
@@ -976,7 +1449,7 @@ export class IdeTools extends TypertRemoteService {
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     action: 'sync' | 'publish',
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: { pushed: boolean } } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<{ pushed: boolean }> {
     const { workspaceRoot: cwd } = workspaceFileScope
     try {
       if (action === 'sync') {
@@ -985,21 +1458,22 @@ export class IdeTools extends TypertRemoteService {
       } else {
         const branch = (await this.runGit(cwd, ['branch', '--show-current'], signal)).trim()
         if (branch.length === 0) {
-          return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: 'cannot determine the current branch (detached HEAD?)' } }
+          throw new RemoteError('ide-tools/git-sync-failed', 'cannot determine the current branch (detached HEAD?)', {})
         }
         // VS Code parity: single remote publishes via remotes[0]; prefer the
         // conventional origin when present, else the first listed remote.
         const remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
         if (remotes.length === 0) {
-          return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: 'your repository has no remotes configured to publish to' } }
+          throw new RemoteError('ide-tools/git-sync-failed', 'your repository has no remotes configured to publish to', {})
         }
         const remote = remotes.includes('origin') ? 'origin' : remotes[0]
         await this.runGit(cwd, ['push', '-u', remote, branch], signal)
       }
-      return { ok: true, value: { pushed: true } }
+      return { pushed: true }
     } catch (err) {
+      if (err instanceof RemoteError) throw err
       const message2 = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/git-sync-failed', message: message2 } }
+      throw new RemoteError('ide-tools/git-sync-failed', message2, {})
     }
   }
 
@@ -1018,10 +1492,10 @@ export class IdeTools extends TypertRemoteService {
   async gitGenerateCommitMessage(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     signal: AbortSignal | undefined,
-  ): Promise<{ ok: true; value: { message: string } } | { ok: false; error: { code: string; message: string } }> {
+  ): Promise<{ message: string }> {
     const { workspaceRoot: cwd } = workspaceFileScope
     try {
-      if (!cwd) return { ok: false, error: { code: 'ide-tools/no-workspace', message: 'workspace root is not set' } }
+      if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
 
       let diff = ''
       let diffSource: 'staged' | 'working-tree' = 'working-tree'
@@ -1047,13 +1521,13 @@ export class IdeTools extends TypertRemoteService {
         }
       } catch (err) {
         if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') {
-          return { ok: false, error: { code: 'ide-tools/not-a-repo', message: 'workspace is not a git repository' } }
+          throw new RemoteError('ide-tools/not-a-repo', 'workspace is not a git repository', {})
         }
         throw err
       }
 
       if (diff.trim().length === 0) {
-        return { ok: false, error: { code: 'ide-tools/no-changes', message: 'no uncommitted changes to generate a message from' } }
+        throw new RemoteError('ide-tools/no-changes', 'no uncommitted changes to generate a message from', {})
       }
 
       // Style context: the branch name and the recent commit subjects teach the
@@ -1067,11 +1541,11 @@ export class IdeTools extends TypertRemoteService {
 
       const ctx = this.ctx as Context & { llm?: { stream(options: never): AsyncIterable<{ type: string; text?: string }> }; agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } } }
       if (!ctx.llm) {
-        return { ok: false, error: { code: 'ide-tools/llm-unavailable', message: 'LLM service is not available' } }
+        throw new RemoteError('ide-tools/llm-unavailable', 'LLM service is not available', {})
       }
       const selection = ctx.agentDefaultModel?.currentSelection()
       if (!selection || !selection.provider || !selection.model) {
-        return { ok: false, error: { code: 'ide-tools/no-model', message: 'no model is configured' } }
+        throw new RemoteError('ide-tools/no-model', 'no model is configured', {})
       }
 
       const systemPrompt = [
@@ -1130,7 +1604,7 @@ export class IdeTools extends TypertRemoteService {
       }
 
       if (signal?.aborted) {
-        return { ok: false, error: { code: 'ide-tools/aborted', message: 'commit message generation was cancelled' } }
+        throw new RemoteError('ide-tools/aborted', 'commit message generation was cancelled', {})
       }
 
       const blocks = assembler.blocks()
@@ -1142,16 +1616,17 @@ export class IdeTools extends TypertRemoteService {
       )
 
       if (message.length === 0) {
-        return { ok: false, error: { code: 'ide-tools/llm-empty', message: 'the model returned an empty message' } }
+        throw new RemoteError('ide-tools/llm-empty', 'the model returned an empty message', {})
       }
 
-      return { ok: true, value: { message } }
+      return { message }
     } catch (err) {
       if (signal?.aborted) {
-        return { ok: false, error: { code: 'ide-tools/aborted', message: 'commit message generation was cancelled' } }
+        throw new RemoteError('ide-tools/aborted', 'commit message generation was cancelled', {})
       }
+      if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: { code: 'ide-tools/llm-failed', message } }
+      throw new RemoteError('ide-tools/llm-failed', message, {})
     }
   }
 

@@ -75,7 +75,8 @@
     "build:worker": "node scripts/build-monaco-worker.mjs",
     "bundle": "pnpm run build:worker && tsdown",
     "watch": "pnpm run build:worker && tsdown --watch",
-    "prepublishOnly": "pnpm run bundle"
+    "prepublishOnly": "pnpm run bundle",
+    "test:contract": "node scripts/test-remote-contract.mjs"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {

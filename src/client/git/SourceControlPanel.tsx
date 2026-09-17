@@ -11,6 +11,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitStatusEntry, GitStatusResult, IdeToolsRemote, SessionId } from '../types.js'
 import { Icons, fileIcon } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
+import { GraphView } from './GraphView.js'
+import { BranchesView } from './BranchesView.js'
 
 export interface SourceControlPanelProps {
   sessionId: SessionId
@@ -18,6 +20,8 @@ export interface SourceControlPanelProps {
   ideTools: IdeToolsRemote
   /** Open one path's diff in the editor area. */
   onOpenDiff: (path: string, kind: GitStatusEntry['kind']) => void
+  /** Open one file of one commit as a diff in the editor area (graph view). */
+  onOpenCommitDiff: (sha: string, path: string, oldPath: string | undefined) => void
   /** Paths whose changes were discarded (the view closes a matching diff and
    *  reloads an open editor buffer so it cannot be saved back over HEAD). */
   onChangesDiscarded?: (paths: readonly string[]) => void
@@ -25,6 +29,10 @@ export interface SourceControlPanelProps {
 }
 
 type Status = 'loading' | 'ready' | 'error' | 'notrepo'
+
+/** The SCM sidebar's sub-views, mirroring VS Code's view switcher
+ *  (Source Control / Source Control Graph) plus a branches list. */
+type ScmView = 'changes' | 'graph' | 'branches'
 
 /** The commit split-button modes (VS Code SCM dropdown parity). */
 type CommitMode = 'commit' | 'amend' | 'signoff' | 'push' | 'sync'
@@ -55,7 +63,8 @@ function statusLetter(kind: GitStatusEntry['kind']): string {
   }
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onChangesDiscarded, t }: SourceControlPanelProps) {
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, t }: SourceControlPanelProps) {
+  const [view, setView] = useState<ScmView>('changes')
   const [status, setStatus] = useState<Status>('loading')
   const [commitMessage, setCommitMessage] = useState('')
   const [committing, setCommitting] = useState(false)
@@ -81,6 +90,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
   const inputRef = useRef<HTMLTextAreaElement>(null)
   /** The caret half of the commit split button — dropdown anchor. */
   const caretRef = useRef<HTMLButtonElement>(null)
+  /** The header view-switcher — dropdown anchor. */
+  const switcherRef = useRef<HTMLButtonElement>(null)
 
   const refresh = useCallback(async () => {
     if (!cwd) return
@@ -189,7 +200,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
     try {
       const res = await ideTools.gitCommit(sessionId, message, options)
       if (res.ok) {
-        setCommitMessage('')
+        // The host reports committed=false when the tree was clean (nothing
+        // created) — surface that instead of silently eating the message.
+        if (res.value.committed === false) {
+          setCommitError(t('git.commitNothing'))
+        } else {
+          setCommitMessage('')
+        }
         await refresh()
       } else {
         setCommitError(res.error.message ?? res.error.code)
@@ -278,30 +295,89 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
     genAbort.current?.abort()
   }, [])
 
+  /** The header view switcher (VS Code's SCM view picker): lists the
+   *  Source Control / Graph / Branches views, checking the active one. */
+  const openViewMenu = useCallback(() => {
+    const el = switcherRef.current
+    const rect = el?.getBoundingClientRect()
+    const x = rect ? rect.left : 16
+    const y = rect ? rect.bottom + 2 : 40
+    const entries: readonly { view: ScmView; label: string; icon: typeof Icons.git }[] = [
+      { view: 'changes', label: t('git.title'), icon: Icons.git },
+      { view: 'graph', label: t('git.graphTitle'), icon: Icons.gitGraph },
+      { view: 'branches', label: t('git.branchesTitle'), icon: Icons.branch },
+    ]
+    showContextMenu(x, y, entries.map((entry) => ({
+      id: entry.view,
+      label: entry.label,
+      icon: view === entry.view ? Icons.check : entry.icon,
+      onClick: () => setView(entry.view),
+    })))
+  }, [view, t])
+
+  /** Any history-mutating action from the graph/branches views resyncs the
+   *  status-driven parts (branch row, changes list, activity bar badge). */
+  const handleMutated = useCallback(() => { void refresh() }, [refresh])
+
+  /** The active view's title for the switcher button. */
+  const viewTitle = view === 'graph' ? t('git.graphTitle')
+    : view === 'branches' ? t('git.branchesTitle')
+    : t('git.title')
+
   return (
     <div className="ide-git-panel">
-      <div className="ide-git-header">
-        <span className="ide-git-header-title">{t('git.title')}</span>
+      <div className="ide-git-header" data-view={view}>
         <button
-          className={generating ? 'ide-git-action ide-git-action-busy' : 'ide-git-action'}
-          title={
-            generating ? t('git.aiStop')
-              : status !== 'ready' || noChanges ? t('git.aiGenerateNoChanges')
-                : commitMessage.trim().length > 0 ? t('git.aiGenerateAgain')
-                  : t('git.aiGenerate')
-          }
-          onClick={() => { if (generating) cancelGenerate(); else void handleGenerate() }}
-          disabled={(status !== 'ready' || noChanges) && !generating}
-        >{generating ? Icons.close : Icons.sparkle}</button>
-        <button
-          className="ide-git-action"
-          title={t('git.refresh')}
-          onClick={() => { void refresh() }}
-          disabled={status === 'loading'}
-        >{status === 'loading' ? Icons.loading : Icons.refresh}</button>
+          ref={switcherRef}
+          className="ide-git-header-switch"
+          title={t('git.graphSwitchView')}
+          onClick={openViewMenu}
+        >
+          <span className="ide-git-header-title">{viewTitle}</span>
+          <span className="ide-git-header-caret">{Icons.chevronDown}</span>
+        </button>
+        {view === 'changes' && (
+          <>
+            <button
+              className={generating ? 'ide-git-action ide-git-action-busy' : 'ide-git-action'}
+              title={
+                generating ? t('git.aiStop')
+                  : status !== 'ready' || noChanges ? t('git.aiGenerateNoChanges')
+                    : commitMessage.trim().length > 0 ? t('git.aiGenerateAgain')
+                      : t('git.aiGenerate')
+              }
+              onClick={() => { if (generating) cancelGenerate(); else void handleGenerate() }}
+              disabled={(status !== 'ready' || noChanges) && !generating}
+            >{generating ? Icons.close : Icons.sparkle}</button>
+            <button
+              className="ide-git-action"
+              title={t('git.refresh')}
+              onClick={() => { void refresh() }}
+              disabled={status === 'loading'}
+            >{status === 'loading' ? Icons.loading : Icons.refresh}</button>
+          </>
+        )}
       </div>
 
       <div className="ide-git-body">
+        {view === 'graph' ? (
+          <GraphView
+            sessionId={sessionId}
+            cwd={cwd}
+            ideTools={ideTools}
+            onOpenCommitDiff={onOpenCommitDiff}
+            onMutated={handleMutated}
+            t={t}
+          />
+        ) : view === 'branches' ? (
+          <BranchesView
+            sessionId={sessionId}
+            cwd={cwd}
+            ideTools={ideTools}
+            onMutated={handleMutated}
+            t={t}
+          />
+        ) : (<>
         {status === 'loading' && (
           <div className="ide-git-state">{Icons.loading}<span>{t('git.loading')}</span></div>
         )}
@@ -449,6 +525,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onCha
             </div>
           </>
         )}
+          </>)}
       </div>
 
       {/* Discard confirmation (VS Code-style destructive-action dialog). */}

@@ -37,18 +37,29 @@ function slugify(text: string): string {
   return text.toLowerCase().trim().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-')
 }
 
-/** Join a possibly-relative link/image target against the document's dir. */
+/**
+ * Join a possibly-relative link/image target against the document's dir.
+ * Rooted bases keep their root: an absolute baseDir must yield an absolute
+ * result (the workspace-files Remote treats a slash-less path as relative to
+ * the workspace root, which silently misresolves every absolute join).
+ */
 export function joinRelativePath(baseDir: string, target: string): string {
   const clean = target.replace(/\\/g, '/').split('#')[0]
   if (clean === '') return ''
-  const parts = (baseDir.replace(/\\/g, '/').replace(/\/+$/, '') + '/' + clean).split('/')
+  if (clean.startsWith('/') || /^[a-z]:\//i.test(clean)) return clean
+  const norm = baseDir.replace(/\\/g, '/')
+  const drive = /^[a-z]:\//i.exec(norm)?.[0] ?? ''
+  const root = norm.startsWith('/') ? '/' : drive
+  const base = norm.replace(/\/+$/, '')
+  const body = drive !== '' && root === drive ? base.slice(drive.length) : base
+  const parts = (body + '/' + clean).split('/')
   const out: string[] = []
   for (const part of parts) {
     if (part === '' || part === '.') continue
     if (part === '..') out.pop()
     else out.push(part)
   }
-  return out.join('/')
+  return root + out.join('/')
 }
 
 /** Image MIME type for a browser-renderable extension, else null. */

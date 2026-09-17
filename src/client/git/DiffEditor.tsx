@@ -25,12 +25,16 @@ export interface DiffEditorProps {
   path: string
   /** Display basename for the tab title. */
   name: string
+  /** Commit mode: show one file INSIDE a specific commit (source control
+   *  graph → commit details). Both sides come from the git host; the working
+   *  tree is never consulted. */
+  commit?: { sha: string; path: string; oldPath?: string }
   /** Return to the normal editor (clears the diff overlay). */
   onClose?: () => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
-type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'image'
+type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'image' | 'binary'
 
 let monacoLoaded = false
 
@@ -91,14 +95,23 @@ function applyUnifiedDiff(original: string, patch: string): string {
   return out.join('\n')
 }
 
-export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, name, onClose, t }: DiffEditorProps) {
+export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, name, commit, onClose, t }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [imageSrc, setImageSrc] = useState<string>('')
+  /** The host's one-line binary marker (commit mode) shown in the overlay. */
+  const [binaryLabel, setBinaryLabel] = useState<string | null>(null)
   /** Line counts of the two sides; shown in the header (also a build marker). */
   const [stats, setStats] = useState<{ old: number; new: number; source: string } | null>(null)
+
+  // Destructure `commit` to primitives for the deps array: IdeView creates a
+  // fresh object per render, and an object dep would remount the editor on
+  // every parent render (aborting the in-flight load mid-swap).
+  const commitSha = commit?.sha
+  const commitPath = commit?.path
+  const commitOldPath = commit?.oldPath
 
   // Load the diff and mount the diff editor when the path changes.
   useEffect(() => {
@@ -114,7 +127,34 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       setState('loading')
       setError(null)
       setImageSrc('')
+      setBinaryLabel(null)
       setStats(null)
+
+      // Commit mode (source control graph → commit details → file): BOTH
+      // sides come from the commit's blobs via the git host — the working
+      // tree is never consulted, so the diff shows the commit's change.
+      if (commitSha !== undefined && commitPath !== undefined) {
+        const res = await ideTools.gitCommitFileDiff(sessionId, commitSha, commitPath, commitOldPath, ctrl.signal)
+        if (cancelled) return
+        if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
+        const diff: GitDiffResult = res.value
+        if (diff.empty) { setState('empty'); return }
+        // Binary blobs cannot cross the text subprocess seam: the host flags
+        // them and puts a one-line marker in newContent — show that instead
+        // of mounting a diff editor over garbage bytes.
+        if (diff.contentType === 'binary') {
+          setBinaryLabel(diff.newContent)
+          setStats({ old: 1, new: 1, source: 'binary' })
+          setState('binary')
+          return
+        }
+        // A missing blob side or an empty patch pair still yields identical
+        // content here — surface it rather than an empty highlighted pane.
+        if (diff.oldContent === diff.newContent) { setState('empty'); return }
+        await mountDiffEditor(diff.oldContent, diff.newContent, diff.language, 'commit')
+        return
+      }
+
       // 'head' makes the host's `diff` text a HEAD→worktree patch, which the
       // fallback below can apply to the left side.
       const res = await ideTools.gitDiff(sessionId, path, 'head', ctrl.signal)
@@ -158,6 +198,12 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
         setError('left and right are identical (source: ' + source + ', read: ' + (fileRes.ok ? 'ok' : fileRes.error.code) + ')')
         return
       }
+      await mountDiffEditor(diff.oldContent, newText, diff.language, source)
+    }
+
+    /** Mount the Monaco diff editor over the two prepared contents (shared by
+     *  both the working-tree and the commit diff paths). */
+    async function mountDiffEditor(oldText: string, newText: string, language: string, source: string): Promise<void> {
       // Import Monaco (bundled with the client chunk).
       const Monaco = await import('monaco-editor')
       if (cancelled) return
@@ -170,12 +216,15 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       // Both URIs are stable per path (only the path keys the diff identity), and
       // a leaked model with the same URI makes createModel throw. Clear both
       // first so re-opening the same file after a remount still works.
-      const oldUri = Monaco.Uri.parse('dsh-git-diff-old:' + path)
-      const newUri = Monaco.Uri.parse('dsh-git-diff-new:' + path)
+      // In commit mode the URI is keyed by sha too, so two commits' versions of
+      // one file never collide.
+      const uriKey = commitSha !== undefined ? commitSha + ':' + commitPath : path
+      const oldUri = Monaco.Uri.parse('dsh-git-diff-old:' + uriKey)
+      const newUri = Monaco.Uri.parse('dsh-git-diff-new:' + uriKey)
       Monaco.editor.getModel(oldUri)?.dispose()
       Monaco.editor.getModel(newUri)?.dispose()
-      const oldModel = Monaco.editor.createModel(diff.oldContent, diff.language, oldUri)
-      const newModel = Monaco.editor.createModel(newText, diff.language, newUri)
+      const oldModel = Monaco.editor.createModel(oldText, language, oldUri)
+      const newModel = Monaco.editor.createModel(newText, language, newUri)
       models = [oldModel, newModel]
       editor = Monaco.editor.createDiffEditor(container, {
         theme: 'dsh-dark-modern',
@@ -216,13 +265,13 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
       for (const model of models) model.dispose()
       models = []
     }
-  }, [sessionId, cwd, ideTools, workspaceFiles, path])
+  }, [sessionId, cwd, ideTools, workspaceFiles, path, commitSha, commitPath, commitOldPath])
 
   return (
     <div className="ide-diff-root">
       <div className="ide-diff-header">
         <span className="ide-diff-title">{name}</span>
-        <span className="ide-diff-path">{path}</span>
+        <span className="ide-diff-path">{commit !== undefined ? commit.sha.slice(0, 8) + ' · ' + path : path}</span>
         {stats && (
           <span className="ide-diff-stats" title={'right side: ' + stats.source}>
             {stats.old} &rarr; {stats.new} · {stats.source}
@@ -253,6 +302,12 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, path, nam
               <div className="ide-diff-empty">
                 {Icons.diff}
                 <span>{t('git.emptyDiff')}</span>
+              </div>
+            )}
+            {state === 'binary' && (
+              <div className="ide-diff-empty">
+                {Icons.diff}
+                <span>{binaryLabel ?? t('git.binaryFile')}</span>
               </div>
             )}
             {state === 'error' && (

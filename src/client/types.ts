@@ -148,7 +148,90 @@ export interface GitBranch {
 export interface GitBranchesResult {
   readonly notARepo: boolean
   readonly branches: readonly GitBranch[]
+  /** Remote-tracking branches (origin/main, …), when requested. */
+  readonly remoteBranches?: readonly GitRemoteBranch[]
+  /** Configured remote names (git remote), when requested. */
+  readonly remotes?: readonly string[]
   readonly current: string | undefined
+}
+
+/** One remote-tracking branch (refs/remotes, without the remote's HEAD). */
+export interface GitRemoteBranch {
+  /** Short name including the remote, e.g. 'origin/main'. */
+  readonly name: string
+  readonly lastCommit?: string
+  readonly lastCommitDate?: string
+}
+
+/** One decorated reference pointing at a commit (graph pill). */
+export interface GitLogRef {
+  /** Short display name ('main', 'origin/main', 'v1.0'). */
+  readonly name: string
+  /** Reference class: local branch / remote-tracking branch / tag. */
+  readonly type: 'head' | 'remote' | 'tag'
+  /** True for the checked-out branch (or the HEAD itself). */
+  readonly current: boolean
+}
+
+/** One commit in the source-control graph history. */
+export interface GitLogEntry {
+  /** Full 40-char commit hash (swimlane node id). */
+  readonly hash: string
+  /** Abbreviated hash for display. */
+  readonly displayId: string
+  /** Parent hashes (first parent first). */
+  readonly parents: readonly string[]
+  readonly author: string
+  readonly authorEmail: string
+  /** Author date, unix seconds. */
+  readonly authorDate: number
+  /** Subject line (single line). */
+  readonly subject: string
+  /** Decorated refs at this commit (branches, remotes, tags). */
+  readonly refs: readonly GitLogRef[]
+}
+
+/** Result of one gitLog page (VS Code SCM Graph history provider). */
+export interface GitLogResult {
+  readonly notARepo: boolean
+  /** Page of commits, newest first (topo-order). */
+  readonly commits: readonly GitLogEntry[]
+  /** True when more commits exist beyond this page (Load More). */
+  readonly hasMore: boolean
+  /** HEAD commit hash (undefined when the repo has no commits). */
+  readonly head: string | undefined
+  /** Current branch short name (undefined when detached). */
+  readonly currentBranch: string | undefined
+  /** Upstream tracking ref of the current branch, when set. */
+  readonly upstream: string | undefined
+  readonly detached: boolean
+}
+
+/** One file changed by a commit (gitCommitDetails). */
+export interface GitCommitFile {
+  readonly path: string
+  /** Previous path for renames/copies. */
+  readonly oldPath?: string
+  readonly kind: 'modified' | 'added' | 'deleted' | 'renamed' | 'binary'
+  /** Line insertions (undefined for binary files). */
+  readonly additions?: number
+  /** Line deletions (undefined for binary files). */
+  readonly deletions?: number
+}
+
+/** Metadata + changed files of one commit (VS Code commit details view). */
+export interface GitCommitDetailsResult {
+  readonly hash: string
+  readonly displayId: string
+  readonly author: string
+  readonly authorEmail: string
+  readonly authorDate: number
+  readonly subject: string
+  /** Full commit message (subject + body, trimmed). */
+  readonly message: string
+  readonly parents: readonly string[]
+  readonly refs: readonly GitLogRef[]
+  readonly files: readonly GitCommitFile[]
 }
 
 /** A unified diff for one file path. */
@@ -167,8 +250,9 @@ export interface GitDiffResult {
   readonly newPath: string
   /** Detected language id for Monaco. */
   readonly language: string
-  /** Content type hint. 'text' for plain text (default), 'image' for binary image files. */
-  readonly contentType?: 'text' | 'image'
+  /** Content type hint. 'text' for plain text (default), 'image' for binary image files,
+   *  'binary' for non-image binaries (no content — the client shows a placeholder). */
+  readonly contentType?: 'text' | 'image' | 'binary'
   /** For image files, the new content as a base64 data URI (e.g. data:image/png;base64,...). */
   readonly imageBase64?: string
 }
@@ -194,6 +278,22 @@ export interface IdeToolsRemote {
   gitStatus(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<GitStatusResult>>
   /** List local branches with ahead/behind and last-commit metadata. */
   gitBranches(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<GitBranchesResult>>
+  /** One page of the SCM graph history (VS Code Source Control Graph).
+   *  scope 'current' walks HEAD, 'all' every ref, 'branch' one named ref. */
+  gitLog(sessionId: SessionId, options: { limit?: number; skip?: number; scope?: 'current' | 'all' | 'branch'; ref?: string }, signal?: AbortSignal): Promise<RemoteResult<GitLogResult>>
+  /** One commit's metadata + changed files (graph commit details). */
+  gitCommitDetails(sessionId: SessionId, sha: string, signal?: AbortSignal): Promise<RemoteResult<GitCommitDetailsResult>>
+  /** Old/new content + patch of ONE file inside one commit. */
+  gitCommitFileDiff(sessionId: SessionId, sha: string, path: string, oldPath?: string, signal?: AbortSignal): Promise<RemoteResult<GitDiffResult>>
+  /** Check out a branch, a remote branch (creating the local tracking branch
+   *  via localName), or a detached commit (detach: true). */
+  gitCheckout(sessionId: SessionId, spec: { ref: string; localName?: string; detach?: boolean }, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Create a branch at HEAD (or an explicit revision), optionally checking it out. */
+  gitCreateBranch(sessionId: SessionId, name: string, revision?: string, checkout?: boolean, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Delete a LOCAL branch (-d, or -D when force). */
+  gitDeleteBranch(sessionId: SessionId, name: string, force?: boolean, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Fetch remotes with prune (prefers 'origin', falls back to --all). */
+  gitFetch(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Fetch a unified diff (and old/new content) for one path. */
   gitDiff(sessionId: SessionId, path: string, kind: 'unstaged' | 'staged' | 'head', signal?: AbortSignal): Promise<RemoteResult<GitDiffResult>>
   /** Stage all changes (git add -A) and commit with a message. Options map
