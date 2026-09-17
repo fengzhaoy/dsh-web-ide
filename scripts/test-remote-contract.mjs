@@ -76,5 +76,35 @@ svc.ctx = makeCtx()
   check("fileCreate duplicate throws RemoteError(ide-tools/exists)", threw instanceof RemoteError && threw.code === "ide-tools/exists", String(threw))
 }
 
+// 5. An adapter failure arriving as an error-kind finish chunk must surface the REAL cause
+//    (ide-tools/llm-failed), never the misleading ide-tools/llm-empty.
+{
+  const failing = makeCtx()
+  failing.llm = { async *stream() {
+    yield { type: "finish", reason: { kind: "error", failure: { code: "MISSING_CREDENTIAL", message: "no credential for provider route wb" } } }
+  } }
+  const s2 = Object.create(IdeTools.prototype)
+  s2.ctx = failing
+  let threw = null
+  try { await s2.gitGenerateCommitMessage({ sessionId: "t", workspaceRoot: REPO }, undefined) } catch (err) { threw = err }
+  check("error finish surfaces real cause (llm-failed, not llm-empty)", threw instanceof RemoteError && threw.code === "ide-tools/llm-failed" && threw.message.includes("no credential"), String(threw))
+}
+
+// 6. Reasoning-only output under the budget reports the reasoning-specific hint.
+{
+  const reasoning = makeCtx()
+  reasoning.llm = { async *stream() {
+    yield { type: "block-start", index: 0, blockType: "reasoning" }
+    yield { type: "reasoning-delta", index: 0, text: "thinking..." }
+    yield { type: "block-end", index: 0, block: { type: "reasoning", text: "thinking..." } }
+    yield { type: "finish", reason: { kind: "max-tokens" } }
+  } }
+  const s3 = Object.create(IdeTools.prototype)
+  s3.ctx = reasoning
+  let threw = null
+  try { await s3.gitGenerateCommitMessage({ sessionId: "t", workspaceRoot: REPO }, undefined) } catch (err) { threw = err }
+  check("reasoning-only output reports budget hint", threw instanceof RemoteError && threw.code === "ide-tools/llm-empty" && threw.message.includes("reasoning"), String(threw))
+}
+
 if (failures > 0) { console.error(failures + " contract check(s) failed"); process.exit(1) }
 console.log("remote wire contract: all checks passed")

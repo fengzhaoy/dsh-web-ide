@@ -625,8 +625,10 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot: cwd } = workspaceFileScope
     const EMPTY: GitBranchesResult = { notARepo: true, branches: [], current: undefined }
     try {
-      // %00 delim: refname, upstream, ahead, behind, objectname, authordate:short, HEAD
-      const fmt = '%(refname:short)%00%(upstream:short)%00%(upstream:track,normalspace)%00%(objectname:short)%00%(committerdate:short)%00%(HEAD)%00'
+      // %00 delim: refname, upstream, ahead, behind, objectname, committerdate, HEAD
+      // %(upstream:track,nobracket) → "ahead N, behind M" (no brackets) or empty;
+      // plain 'track' + 'normalspace' is not a valid atom on any git release.
+      const fmt = '%(refname:short)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(objectname:short)%00%(committerdate:short)%00%(HEAD)%00'
       if (!cwd) return EMPTY
       const raw = await this.runGit(cwd, ['for-each-ref', '--format=' + fmt, 'refs/heads'], signal)
       const branches: GitBranch[] = []
@@ -660,14 +662,16 @@ export class IdeTools extends TypertRemoteService {
       let remoteBranches: GitRemoteBranch[] | undefined
       let remotes: string[] | undefined
       try {
-        const remoteFmt = '%(refname:short)%00%(objectname:short)%00%(committerdate:short)%00'
+        // %(refname:short) collapses refs/remotes/<remote>/HEAD to just "<remote>",
+        // so the HEAD symref is filtered on the FULL refname, not the short form.
+        const remoteFmt = '%(refname)%00%(refname:short)%00%(objectname:short)%00%(committerdate:short)%00'
         const remoteRaw = await this.runGit(cwd, ['for-each-ref', '--format=' + remoteFmt, 'refs/remotes'], signal)
         remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
         remoteBranches = []
         for (const line of remoteRaw.split('\n')) {
           if (line.length === 0) continue
-          const [name, sha, date] = line.split('\u0000')
-          if (name.endsWith('/HEAD')) continue
+          const [full, name, sha, date] = line.split('\u0000')
+          if (full.endsWith('/HEAD')) continue
           remoteBranches.push({ name, lastCommit: sha, lastCommitDate: date })
         }
       } catch { /* no remotes configured */ }
@@ -1592,19 +1596,30 @@ export class IdeTools extends TypertRemoteService {
         reasoningEffort: selection.reasoningEffort as never,
         system: systemPrompt,
         messages,
-        maxTokens: 512,
+        maxTokens: 2048,
         signal,
       } as never)
 
-      // Use BlockAssembler to robustly collect all text from the stream.
+      // Use BlockAssembler to robustly collect all text from the stream, and keep the terminal
+      // finish chunk: adapter failures arrive as an error-kind finish (not a thrown exception), so
+      // ignoring it would mask the real cause behind a misleading "empty message".
       const assembler = new BlockAssembler()
+      let finish: { kind?: string; failure?: { code?: string; message?: string } } | undefined
       for await (const chunk of ctx.llm.stream(options)) {
         if (signal?.aborted) break
+        if ((chunk as { type?: string }).type === 'finish') {
+          finish = (chunk as { reason?: { kind?: string; failure?: { code?: string; message?: string } } }).reason
+          continue
+        }
         assembler.push(chunk as never)
       }
 
-      if (signal?.aborted) {
+      if (signal?.aborted || finish?.kind === 'aborted') {
         throw new RemoteError('ide-tools/aborted', 'commit message generation was cancelled', {})
+      }
+      if (finish?.kind === 'error') {
+        const cause = finish.failure?.message ?? finish.failure?.code ?? 'unknown adapter failure'
+        throw new RemoteError('ide-tools/llm-failed', cause, {})
       }
 
       const blocks = assembler.blocks()
@@ -1616,7 +1631,16 @@ export class IdeTools extends TypertRemoteService {
       )
 
       if (message.length === 0) {
-        throw new RemoteError('ide-tools/llm-empty', 'the model returned an empty message', {})
+        // Distinguish "the model only reasoned" (budget spent before any text) from a truly empty
+        // response — reasoning models under a small token budget hit exactly this.
+        const reasoned = blocks.some((b) => b.type === 'reasoning')
+        throw new RemoteError(
+          'ide-tools/llm-empty',
+          reasoned
+            ? 'the model spent its whole token budget on reasoning and returned no text; retry or lower the reasoning effort'
+            : 'the model returned an empty message',
+          {},
+        )
       }
 
       return { message }
