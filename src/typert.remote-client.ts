@@ -50,6 +50,7 @@ const _ide_tools_ideTools_terminalOutput_parameter_1$schema = z.string()
 const _ide_tools_ideTools_terminalOutput_result$schema = z.object({
   'data': z.string().readonly(),
   'exit': z.boolean().readonly(),
+  'exitCode': z.number().nullable().optional(),
 }).readonly()
 
 const _ide_tools_ideTools_gitStatus_result$schema = z.object({

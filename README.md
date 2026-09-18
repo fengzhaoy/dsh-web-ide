@@ -328,6 +328,7 @@ npm view @zhaoyang10/dsh-web-ide version --registry=https://registry.npmjs.org/
 
 | 版本 | 说明 |
 | --- | --- |
+| 0.1.1 | 源代码管理差异右栏可编辑（Cmd/Ctrl+S 保存）、文件外部变化实时刷新（变化流 + 原地重载）、git 状态局部静默更新不闪烁 |
 | 0.1.0 | 首次发布：文件树、Monaco 编辑器、Git 面板、终端、全局搜索，已上架 [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide) |
 
 ## 贡献指南

@@ -134,7 +134,7 @@ Monaco 只读
 ```json
 {
   "name": "@zhaoyang10/dsh-web-ide",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

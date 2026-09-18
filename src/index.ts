@@ -196,6 +196,8 @@ export interface IdeTerminalOpenResult {
 export interface IdeTerminalOutputFrame {
   readonly data: string
   readonly exit: boolean
+  /** The shell's exit code, present only on the terminal's final frame. */
+  readonly exitCode?: number | null
 }
 export interface GitStatusEntry {
   readonly path: string
@@ -467,27 +469,35 @@ export class IdeTools extends TypertRemoteService {
 
   /** Pump the PTY output Readable into the replay log and live subscribers. */
   private pump(entry: TerminalEntry): void {
-    const emit = (data: string, exit: boolean): void => {
+    const emit = (data: string, exit: boolean, exitCode?: number | null): void => {
       entry.log.push(data)
       entry.logBytes += data.length * 0.75
       while (entry.logBytes > MAX_LOG_BYTES && entry.log.length > 1) {
         entry.logBytes -= entry.log[0].length * 0.75
         entry.log.shift()
       }
-      for (const subscriber of entry.subscribers) subscriber({ data, exit })
+      for (const subscriber of entry.subscribers) subscriber({ data, exit, ...(exit ? { exitCode } : {}) })
     }
     entry.handle.output.on('data', (chunk: Buffer | string) => {
       const text = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
       emit(text.toString('base64'), false)
     })
-    const finish = (): void => {
+    let finished = false
+    const finish = (exitCode?: number | null): void => {
+      if (finished) return
+      finished = true
       entry.exited = true
-      for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
+      for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true, exitCode })
       entry.subscribers.clear()
     }
-    entry.handle.output.on('end', finish)
-    entry.handle.output.on('error', finish)
-    void entry.handle.done.catch(() => undefined)
+    // The seam resolves `done` with the exit outcome { exitCode, ... } when the
+    // shell terminates — prefer that (it carries the code) over the bare
+    // output-stream end/error events, which only say the PTY went away.
+    void entry.handle.done
+      .then((outcome: unknown) => { finish((outcome as { exitCode?: number | null } | undefined)?.exitCode ?? null) })
+      .catch(() => finish(null))
+    entry.handle.output.on('end', () => finish(null))
+    entry.handle.output.on('error', () => finish(null))
   }
 
   /** Deliver one input chunk to the terminal. */

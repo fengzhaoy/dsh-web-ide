@@ -169,11 +169,13 @@ type SidebarView = 'explorer' | 'search' | 'git'
 
 /**
  * Last activity-bar selection, module-level so the view ring's remounts (and a
- * session switch) reopen the IDE on the panel the user picked last instead of
- * snapping back to Explorer. Same lifetime as workspaceTabs: it survives
- * remounts within the page and resets with a full page reload.
+ * session switch) reopen the IDE on the panel the user picked last. First open
+ * of the IDE tab defaults to 源代码管理 (git) — the SCM workbench is the
+ * primary surface, matching how the user enters the IDE. Same lifetime as
+ * workspaceTabs: it survives remounts within the page and resets with a full
+ * page reload.
  */
-let lastSidebarView: SidebarView = 'explorer'
+let lastSidebarView: SidebarView = 'git'
 
 // ── Sidebar width (drag the right-edge grip to resize) ──────────────────
 /** Bounds mirror the CSS min/max-width on .ide-sidebar. */

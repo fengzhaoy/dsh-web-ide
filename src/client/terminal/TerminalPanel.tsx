@@ -100,6 +100,8 @@ export function TerminalPanel({
   const [statuses, setStatuses] = useState<Record<string, TermStatus>>({})
   // Per-terminal error message.
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Per-terminal shell exit code (when the terminal reached the exited state).
+  const [exitCodes, setExitCodes] = useState<Record<string, number | null>>({})
   const [panelState, setPanelState] = useState<PanelState>('normal')
   // Track which terminal IDs we've already attached an xterm to, so the effect
   // below only runs once per terminal.
@@ -220,6 +222,7 @@ export function TerminalPanel({
               if (frame.data.length > 0) termsRef.current.get(id)?.term.write(decodeBase64(frame.data))
               if (frame.exit) {
                 setStatuses((prev) => ({ ...prev, [id]: 'exited' }))
+                setExitCodes((prev) => ({ ...prev, [id]: frame.exitCode ?? null }))
                 break
               }
             }
@@ -309,6 +312,26 @@ export function TerminalPanel({
     void ideTools.terminalTerminate(sessionId, id).catch(() => undefined)
   }, [sessionId, ideTools, terminalIds, onTerminalClosed])
 
+  /** VS Code's 终端 restart: replace one dead terminal with a fresh shell.
+   *  The new tab is appended and the dead one removed afterwards — appending
+   *  FIRST keeps the panel alive even when the dead tab was the last one. */
+  const restartTerminal = useCallback((deadId: string) => {
+    const idx = terminalIds.indexOf(deadId)
+    if (idx < 0) return
+    void ideTools.terminalTerminate(sessionId, deadId).catch(() => undefined)
+    // Detach the dead xterm now so its slot is free for the new stream.
+    termsRef.current.get(deadId)?.dispose()
+    attachedRef.current.delete(deadId)
+    abortsRef.current.get(deadId)?.abort()
+    abortsRef.current.delete(deadId)
+    setStatuses((prev) => ({ ...prev, [deadId]: 'connecting' }))
+    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
+      if (!res.ok) return
+      onTerminalOpened(res.value.terminalId)
+      onTerminalClosed(idx)
+    })
+  }, [sessionId, ideTools, terminalIds, onTerminalOpened, onTerminalClosed])
+
   const activeStatus = activeId !== undefined ? (statuses[activeId] ?? 'connecting') : 'connecting'
   const activeError = activeId !== undefined ? errors[activeId] : undefined
 
@@ -322,6 +345,7 @@ export function TerminalPanel({
               key={id}
               className="ide-terminal-tab"
               data-active={idx === activeIdx || undefined}
+              data-exited={statuses[id] === 'exited' || statuses[id] === 'failed' || undefined}
               onClick={() => onActiveChange(idx)}
               title={`Terminal ${idx + 1}`}
             >
@@ -370,6 +394,13 @@ export function TerminalPanel({
           {activeId !== undefined && activeStatus === 'failed' && activeError !== undefined && (
             <div className="ide-terminal-error" data-testid="ide-terminal-error">
               {t('terminal.failed', { message: activeError })}
+            </div>
+          )}
+          {activeId !== undefined && activeStatus === 'exited' && (
+            <div className="ide-terminal-error" data-testid="ide-terminal-exited">
+              <span>{t('terminal.exited', { code: exitCodes[activeId] === null || exitCodes[activeId] === undefined ? '—' : String(exitCodes[activeId]) })}</span>
+              <button className="ide-dialog-button" onClick={() => restartTerminal(activeId)}>{t('terminal.restart')}</button>
+              <button className="ide-dialog-button ide-dialog-button-quiet" onClick={() => { const idx = terminalIds.indexOf(activeId); if (idx >= 0) onTerminalClosed(idx) }}>{t('terminal.closeTab')}</button>
             </div>
           )}
           {activeId === undefined && (

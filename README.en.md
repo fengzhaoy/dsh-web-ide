@@ -8,7 +8,7 @@ DSH Web IDE Plugin — A modern web IDE integration solution built upon Monaco E
 
 ## Install
 
-Current version: [`0.1.0`](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide/v/0.1.0)
+Current version: [`0.1.1`](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide/v/0.1.1)
 
 ```bash
 # Install into a DSH web profile (recommended)
@@ -217,6 +217,7 @@ See [CHANGELOG.md](./CHANGELOG.md).
 
 | Version | Notes |
 | --- | --- |
+| 0.1.1 | Editable SCM diff pane (Cmd/Ctrl+S saves the working-tree side), real-time external file-change refresh (change stream + in-place reload), flicker-free local git status updates. |
 | 0.1.0 | First release: file tree, Monaco editor, Git panel, terminal, global search. Published on [npm](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide). |
 
 ## Contribution Guidelines

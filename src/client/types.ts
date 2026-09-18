@@ -98,6 +98,8 @@ export interface IdeTerminalOpenResult {
 export interface IdeTerminalOutputFrame {
   readonly data: string
   readonly exit: boolean
+  /** The shell's exit code, present only on the terminal's final frame. */
+  readonly exitCode?: number | null
 }
 export type IdeTerminalSignalName = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'
 

@@ -393,6 +393,7 @@ export const IDE_STYLES = `
 .ide-terminal-tabs::-webkit-scrollbar{height:3px}
 .ide-terminal-tabs::-webkit-scrollbar-thumb{background:#424242;border-radius:2px}
 .ide-terminal-tab{display:flex;align-items:center;gap:6px;padding:0 8px 0 12px;cursor:pointer;white-space:nowrap;color:var(--ide-fg-dim,#9d9d9d);border-right:1px solid var(--ide-border,#2b2b2b);font-size:12px;min-width:0;transition:background-color .1s}
+.ide-terminal-tab[data-exited]{opacity:.55;text-decoration:line-through}
 .ide-terminal-tab:hover{background:var(--ide-tree-hover,#2a2d2e)}
 .ide-terminal-tab[data-active='true']{background:var(--ide-bg,#1f1f1f);color:var(--ide-fg,#cccccc)}
 .ide-terminal-tab[data-active='true']::before{content:'';position:absolute}
@@ -408,6 +409,8 @@ export const IDE_STYLES = `
 .ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
 .ide-terminal-error{padding:10px;font-size:12px;color:#f48771;overflow:auto}
+.ide-terminal-error[data-testid=ide-terminal-exited]{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ide-fg-dim,#cccccc)}
+.ide-terminal-error[data-testid=ide-terminal-exited] .ide-dialog-button{flex:none;height:22px;padding:0 10px;font-size:11px}
 .ide-terminal-empty{padding:20px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);text-align:center}
 .ide-activitybar-spacer{flex:1}
 .ide-context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;background:#252526;border:1px solid #454545;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.36);padding:4px 0;font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);color:var(--ide-fg);overflow-y:auto;overflow-x:hidden}
