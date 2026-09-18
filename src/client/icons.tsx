@@ -12,9 +12,9 @@ import type { ReactNode } from 'react'
 
 interface IconDef { viewBox: string; paths: string[] }
 
-function render(def: IconDef): ReactNode {
+function render(def: IconDef, color?: string): ReactNode {
   return (
-    <svg viewBox={def.viewBox} fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg viewBox={def.viewBox} fill={color ?? 'currentColor'} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       {def.paths.map((d, i) => <path key={i} d={d} />)}
     </svg>
   )
@@ -263,12 +263,77 @@ function iconForExt(ext: string): keyof typeof ICONS {
   return map[ext] ?? 'symbolFile'
 }
 
+/**
+ * Per-extension icon color, following VS Code's Seti icon theme (the default
+ * file-icon theme) — colors extracted from
+ * extensions/theme-seti/icons/vs-seti-icon-theme.json (fontColor of the
+ * definition each languageId/extension resolves to).
+ */
+const SETI_COLORS: Record<string, string> = {
+  // Blue #519aba — the Seti workhorse
+  ts: '#519aba', tsx: '#519aba', mts: '#519aba', cts: '#519aba',
+  jsx: '#519aba', mjs: '#519aba',
+  py: '#519aba', go: '#519aba', c: '#519aba', h: '#519aba',
+  cpp: '#519aba', cc: '#519aba', cxx: '#519aba', hpp: '#519aba',
+  cs: '#519aba', swift: '#e37933', kt: '#e37933', kts: '#e37933',
+  dart: '#519aba', lua: '#519aba', perl: '#519aba', pl: '#519aba',
+  ps1: '#519aba', bat: '#519aba', cmd: '#519aba',
+  css: '#519aba', less: '#519aba', md: '#519aba', markdown: '#519aba',
+  dockerfile: '#519aba', r: '#519aba',
+  // Yellow #cbcb41
+  js: '#cbcb41', json: '#cbcb41', jsonc: '#cbcb41', json5: '#cbcb41',
+  ico: '#cbcb41', coffee: '#cbcb41', m: '#cbcb41',
+  // Red #cc3e44
+  java: '#cc3e44', rb: '#cc3e44', gemspec: '#cc3e44',
+  // Orange #e37933
+  html: '#e37933', htm: '#e37933', xml: '#e37933', xsl: '#e37933',
+  makefile: '#e37933', mk: '#e37933',
+  // Green #8dc149
+  sh: '#8dc149', bash: '#8dc149', zsh: '#8dc149', fish: '#8dc149',
+  csv: '#8dc149', tsv: '#8dc149', vue: '#8dc149', clojure: '#8dc149',
+  clj: '#8dc149', scala: '#8dc149', gradle: '#8dc149',
+  // Purple #a074c4
+  yaml: '#a074c4', yml: '#a074c4', php: '#a074c4', sql: '#a074c4',
+  png: '#a074c4', jpg: '#a074c4', jpeg: '#a074c4', gif: '#a074c4',
+  webp: '#a074c4', svg: '#a074c4', bmp: '#a074c4',
+  // Pink #f55385
+  scss: '#f55385', sass: '#f55385',
+  // Slate #6d8086
+  rs: '#6d8086', toml: '#6d8086', zip: '#6d8086', gz: '#6d8086',
+  tar: '#6d8086', config: '#6d8086', conf: '#6d8086',
+  // Dark slate #41535b — git internals / ignored files
+  gitignore: '#41535b', gitattributes: '#41535b', gitmodules: '#41535b',
+  npmignore: '#41535b',
+  // Silver #d4d7d6 — Seti's default file color
+  txt: '#d4d7d6', log: '#d4d7d6', text: '#d4d7d6',
+  // Font-ish / misc (Seti assigns the light-red #b8383d family; use #cc3e44)
+  woff: '#cc3e44', woff2: '#cc3e44', ttf: '#cc3e44', otf: '#cc3e44', eot: '#cc3e44',
+}
+
+/** The Seti default file color — VS Code renders unclassified files with it. */
+const SETI_DEFAULT = '#d4d7d6'
+
+/** The Seti color for one file name (extension-based, with a few whole-name
+ *  special cases), or the Seti default when unclassified. */
+function colorForFile(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower === '.gitignore' || lower === '.gitmodules' || lower === '.gitattributes' || lower === '.npmignore') return '#41535b'
+  if (lower === 'dockerfile' || lower.startsWith('dockerfile.')) return '#519aba'
+  if (lower === 'makefile' || lower === 'gnumakefile') return '#e37933'
+  if (lower.startsWith('readme.')) return '#519aba'
+  if (lower === 'license' || lower.startsWith('license.') || lower === 'licence') return '#cc3e44'
+  const dot = lower.lastIndexOf('.')
+  const ext = dot >= 0 ? lower.slice(dot + 1) : ''
+  return SETI_COLORS[ext] ?? SETI_DEFAULT
+}
+
 /** Render a file icon based on its name and whether it is a directory. */
 export function fileIcon(name: string, isDir: boolean, isOpen?: boolean): ReactNode {
   if (isDir) return isOpen ? render(ICONS.folderOpen) : render(ICONS.folder)
   const dot = name.lastIndexOf('.')
   const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-  return render(ICONS[iconForExt(ext)])
+  // VS Code Seti parity: every file-type icon carries its own theme color.
+  return render(ICONS[iconForExt(ext)], colorForFile(name))
 }
 
 /** Render a codicon by export name (verbatim @vscode/codicons path data). */
