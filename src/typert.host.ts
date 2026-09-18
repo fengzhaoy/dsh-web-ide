@@ -1,7 +1,8 @@
 /* Hand-written in the @deepseek-ai/dsh-typert-generator host-face format (see
  * dsh-api-workspace-files/lib/typert.host.js). The typert loader validates every
- * field: strict zod v4 codecs, lookup parameter reusing the read API's
- * workspaceFileScope, cancellation on the trailing signal. */
+ * field: strict zod v4 codecs exposed via a create() factory (create: () => schema,
+ * matching the current dsh-typert-generator output), lookup parameter reusing the
+ * read API's workspaceFileScope, cancellation on the trailing signal. */
 import { z } from 'zod'
 
 const _ide_tools_ideTools_search_parameter_0$schema = z.intersection(z.string(), z.unknown())
@@ -259,7 +260,7 @@ const _scope_parameter = (method: string, index: number, typeSymbol: string) => 
   codec: {
     mode: 'strict',
     typeSymbol,
-    schema: _ide_tools_ideTools_search_parameter_0$schema,
+    create: () => _ide_tools_ideTools_search_parameter_0$schema,
   },
 })
 
@@ -284,7 +285,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/search:query',
-            schema: _ide_tools_ideTools_search_parameter_1$schema,
+            create: () => _ide_tools_ideTools_search_parameter_1$schema,
           },
         },
       ],
@@ -292,7 +293,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeSearchResult',
-        schema: _ide_tools_ideTools_search_result$schema,
+        create: () => _ide_tools_ideTools_search_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 119, column: 3 },
     },
@@ -311,7 +312,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalOpen:spec',
-            schema: _ide_tools_ideTools_terminalOpen_parameter_1$schema,
+            create: () => _ide_tools_ideTools_terminalOpen_parameter_1$schema,
           },
         },
       ],
@@ -319,7 +320,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeTerminalOpenResult',
-        schema: _ide_tools_ideTools_terminalOpen_result$schema,
+        create: () => _ide_tools_ideTools_terminalOpen_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 150, column: 3 },
     },
@@ -338,7 +339,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:terminalId',
-            schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
+            create: () => _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
         {
@@ -348,7 +349,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:data',
-            schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
+            create: () => _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
       ],
@@ -356,7 +357,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalWrite:result',
-        schema: _ide_tools_ideTools_terminalWrite_result$schema,
+        create: () => _ide_tools_ideTools_terminalWrite_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 199, column: 3 },
     },
@@ -375,7 +376,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:terminalId',
-            schema: _ide_tools_ideTools_terminalWrite_parameter_2$schema,
+            create: () => _ide_tools_ideTools_terminalWrite_parameter_2$schema,
           },
         },
         {
@@ -385,7 +386,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:signalName',
-            schema: _ide_tools_ideTools_terminalSignal_parameter_2$schema,
+            create: () => _ide_tools_ideTools_terminalSignal_parameter_2$schema,
           },
         },
       ],
@@ -393,7 +394,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalSignal:result',
-        schema: _ide_tools_ideTools_terminalSignal_result$schema,
+        create: () => _ide_tools_ideTools_terminalSignal_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 219, column: 3 },
     },
@@ -412,7 +413,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalTerminate:terminalId',
-            schema: _ide_tools_ideTools_terminalTerminate_parameter_1$schema,
+            create: () => _ide_tools_ideTools_terminalTerminate_parameter_1$schema,
           },
         },
       ],
@@ -420,7 +421,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalTerminate:result',
-        schema: _ide_tools_ideTools_terminalTerminate_result$schema,
+        create: () => _ide_tools_ideTools_terminalTerminate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 233, column: 3 },
     },
@@ -440,7 +441,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalOutput:terminalId',
-            schema: _ide_tools_ideTools_terminalOutput_parameter_1$schema,
+            create: () => _ide_tools_ideTools_terminalOutput_parameter_1$schema,
           },
         },
       ],
@@ -448,7 +449,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeTerminalOutputFrame',
-        schema: _ide_tools_ideTools_terminalOutput_result$schema,
+        create: () => _ide_tools_ideTools_terminalOutput_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 247, column: 3 },
     },
@@ -465,7 +466,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStatusResult',
-        schema: _ide_tools_ideTools_gitStatus_result$schema,
+        create: () => _ide_tools_ideTools_gitStatus_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 430, column: 3 },
     },
@@ -482,7 +483,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitBranchesResult',
-        schema: _ide_tools_ideTools_gitBranches_result$schema,
+        create: () => _ide_tools_ideTools_gitBranches_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 480, column: 3 },
     },
@@ -501,7 +502,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitLog:options',
-            schema: _ide_tools_ideTools_gitLog_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitLog_parameter_1$schema,
           },
         },
       ],
@@ -509,7 +510,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitLogResult',
-        schema: _ide_tools_ideTools_gitLog_result$schema,
+        create: () => _ide_tools_ideTools_gitLog_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 734, column: 3 },
     },
@@ -528,7 +529,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitDetails:sha',
-            schema: _ide_tools_ideTools_gitCommitDetails_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitCommitDetails_parameter_1$schema,
           },
         },
       ],
@@ -536,7 +537,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCommitDetailsResult',
-        schema: _ide_tools_ideTools_gitCommitDetails_result$schema,
+        create: () => _ide_tools_ideTools_gitCommitDetails_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 800, column: 3 },
     },
@@ -555,7 +556,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:sha',
-            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitCommitFileDiff_parameter_1$schema,
           },
         },
         {
@@ -565,7 +566,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:path',
-            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_2$schema,
+            create: () => _ide_tools_ideTools_gitCommitFileDiff_parameter_2$schema,
           },
         },
         {
@@ -576,7 +577,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitFileDiff:oldPath',
-            schema: _ide_tools_ideTools_gitCommitFileDiff_parameter_3$schema,
+            create: () => _ide_tools_ideTools_gitCommitFileDiff_parameter_3$schema,
           },
         },
       ],
@@ -584,7 +585,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiffResult',
-        schema: _ide_tools_ideTools_gitCommitFileDiff_result$schema,
+        create: () => _ide_tools_ideTools_gitCommitFileDiff_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 906, column: 3 },
     },
@@ -603,7 +604,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCheckout:spec',
-            schema: _ide_tools_ideTools_gitCheckout_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitCheckout_parameter_1$schema,
           },
         },
       ],
@@ -611,7 +612,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCheckoutResult',
-        schema: _ide_tools_ideTools_gitCheckout_result$schema,
+        create: () => _ide_tools_ideTools_gitCheckout_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 940, column: 3 },
     },
@@ -630,7 +631,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:name',
-            schema: _ide_tools_ideTools_gitCreateBranch_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitCreateBranch_parameter_1$schema,
           },
         },
         {
@@ -641,7 +642,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:revision',
-            schema: _ide_tools_ideTools_gitCreateBranch_parameter_2$schema,
+            create: () => _ide_tools_ideTools_gitCreateBranch_parameter_2$schema,
           },
         },
         {
@@ -652,7 +653,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCreateBranch:checkout',
-            schema: _ide_tools_ideTools_gitCreateBranch_parameter_3$schema,
+            create: () => _ide_tools_ideTools_gitCreateBranch_parameter_3$schema,
           },
         },
       ],
@@ -660,7 +661,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCreateBranchResult',
-        schema: _ide_tools_ideTools_gitCreateBranch_result$schema,
+        create: () => _ide_tools_ideTools_gitCreateBranch_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 967, column: 3 },
     },
@@ -679,7 +680,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDeleteBranch:name',
-            schema: _ide_tools_ideTools_gitDeleteBranch_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitDeleteBranch_parameter_1$schema,
           },
         },
         {
@@ -690,7 +691,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDeleteBranch:force',
-            schema: _ide_tools_ideTools_gitDeleteBranch_parameter_2$schema,
+            create: () => _ide_tools_ideTools_gitDeleteBranch_parameter_2$schema,
           },
         },
       ],
@@ -698,7 +699,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDeleteBranchResult',
-        schema: _ide_tools_ideTools_gitDeleteBranch_result$schema,
+        create: () => _ide_tools_ideTools_gitDeleteBranch_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 990, column: 3 },
     },
@@ -716,7 +717,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitFetchResult',
-        schema: _ide_tools_ideTools_gitFetch_result$schema,
+        create: () => _ide_tools_ideTools_gitFetch_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 1010, column: 3 },
     },
@@ -735,7 +736,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff:path',
-            schema: _ide_tools_ideTools_gitDiff_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitDiff_parameter_1$schema,
           },
         },
         {
@@ -745,7 +746,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiff:kind',
-            schema: _ide_tools_ideTools_gitDiff_parameter_2$schema,
+            create: () => _ide_tools_ideTools_gitDiff_parameter_2$schema,
           },
         },
       ],
@@ -753,7 +754,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiffResult',
-        schema: _ide_tools_ideTools_gitDiff_result$schema,
+        create: () => _ide_tools_ideTools_gitDiff_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 510, column: 3 },
     },
@@ -772,7 +773,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommit:message',
-            schema: _ide_tools_ideTools_gitCommit_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitCommit_parameter_1$schema,
           },
         },
         {
@@ -782,7 +783,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitCommit:options',
-            schema: _ide_tools_ideTools_gitCommit_parameter_2$schema,
+            create: () => _ide_tools_ideTools_gitCommit_parameter_2$schema,
           },
         },
       ],
@@ -790,7 +791,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitCommitResult',
-        schema: _ide_tools_ideTools_gitCommit_result$schema,
+        create: () => _ide_tools_ideTools_gitCommit_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
     },
@@ -807,7 +808,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStageAllResult',
-        schema: _ide_tools_ideTools_gitStageAll_result$schema,
+        create: () => _ide_tools_ideTools_gitStageAll_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
     },
@@ -826,7 +827,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitStage:path',
-            schema: _ide_tools_ideTools_gitStage_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitStage_parameter_1$schema,
           },
         },
       ],
@@ -834,7 +835,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStageResult',
-        schema: _ide_tools_ideTools_gitStage_result$schema,
+        create: () => _ide_tools_ideTools_gitStage_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 700, column: 3 },
     },
@@ -853,7 +854,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitDiscard:entry',
-            schema: _ide_tools_ideTools_gitDiscard_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitDiscard_parameter_1$schema,
           },
         },
       ],
@@ -861,7 +862,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiscardResult',
-        schema: _ide_tools_ideTools_gitDiscard_result$schema,
+        create: () => _ide_tools_ideTools_gitDiscard_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 723, column: 3 },
     },
@@ -880,7 +881,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileRename:path',
-            schema: _ide_tools_ideTools_fileRename_parameter_1$schema,
+            create: () => _ide_tools_ideTools_fileRename_parameter_1$schema,
           },
         },
         {
@@ -890,7 +891,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileRename:newName',
-            schema: _ide_tools_ideTools_fileRename_parameter_2$schema,
+            create: () => _ide_tools_ideTools_fileRename_parameter_2$schema,
           },
         },
       ],
@@ -898,7 +899,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileRenameResult',
-        schema: _ide_tools_ideTools_fileRename_result$schema,
+        create: () => _ide_tools_ideTools_fileRename_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 746, column: 3 },
     },
@@ -917,7 +918,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileDelete:path',
-            schema: _ide_tools_ideTools_fileDelete_parameter_1$schema,
+            create: () => _ide_tools_ideTools_fileDelete_parameter_1$schema,
           },
         },
         {
@@ -927,7 +928,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileDelete:kind',
-            schema: _ide_tools_ideTools_fileDelete_parameter_2$schema,
+            create: () => _ide_tools_ideTools_fileDelete_parameter_2$schema,
           },
         },
       ],
@@ -935,7 +936,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileDeleteResult',
-        schema: _ide_tools_ideTools_fileDelete_result$schema,
+        create: () => _ide_tools_ideTools_fileDelete_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 792, column: 3 },
     },
@@ -954,7 +955,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCreate:path',
-            schema: _ide_tools_ideTools_fileCreate_parameter_1$schema,
+            create: () => _ide_tools_ideTools_fileCreate_parameter_1$schema,
           },
         },
         {
@@ -964,7 +965,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCreate:kind',
-            schema: _ide_tools_ideTools_fileCreate_parameter_2$schema,
+            create: () => _ide_tools_ideTools_fileCreate_parameter_2$schema,
           },
         },
       ],
@@ -972,7 +973,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileCreateResult',
-        schema: _ide_tools_ideTools_fileCreate_result$schema,
+        create: () => _ide_tools_ideTools_fileCreate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
     },
@@ -991,7 +992,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:path',
-            schema: _ide_tools_ideTools_writeFile_parameter_1$schema,
+            create: () => _ide_tools_ideTools_writeFile_parameter_1$schema,
           },
         },
         {
@@ -1001,7 +1002,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:content',
-            schema: _ide_tools_ideTools_writeFile_parameter_2$schema,
+            create: () => _ide_tools_ideTools_writeFile_parameter_2$schema,
           },
         },
         {
@@ -1011,7 +1012,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/writeFile:intent',
-            schema: _ide_tools_ideTools_writeFile_parameter_3$schema,
+            create: () => _ide_tools_ideTools_writeFile_parameter_3$schema,
           },
         },
       ],
@@ -1019,7 +1020,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#WorkspaceFileWriteResult',
-        schema: _ide_tools_ideTools_writeFile_result$schema,
+        create: () => _ide_tools_ideTools_writeFile_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 1401, column: 3 },
     },
@@ -1038,7 +1039,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileReveal:path',
-            schema: _ide_tools_ideTools_fileReveal_parameter_1$schema,
+            create: () => _ide_tools_ideTools_fileReveal_parameter_1$schema,
           },
         },
       ],
@@ -1046,7 +1047,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileRevealResult',
-        schema: _ide_tools_ideTools_fileReveal_result$schema,
+        create: () => _ide_tools_ideTools_fileReveal_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 902, column: 3 },
     },
@@ -1063,7 +1064,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#HostPlatformResult',
-        schema: _ide_tools_ideTools_hostPlatform_result$schema,
+        create: () => _ide_tools_ideTools_hostPlatform_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 950, column: 3 },
     },
@@ -1082,7 +1083,7 @@ export const TYPERT = {
           codec: {
             mode: 'strict',
             typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitSync:action',
-            schema: _ide_tools_ideTools_gitSync_parameter_1$schema,
+            create: () => _ide_tools_ideTools_gitSync_parameter_1$schema,
           },
         },
       ],
@@ -1090,7 +1091,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitSyncResult',
-        schema: _ide_tools_ideTools_gitSync_result$schema,
+        create: () => _ide_tools_ideTools_gitSync_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 986, column: 3 },
     },
@@ -1107,7 +1108,7 @@ export const TYPERT = {
       result: {
         mode: 'strict',
         typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitGenerateCommitMessageResult',
-        schema: _ide_tools_ideTools_gitGenerateCommitMessage_result$schema,
+        create: () => _ide_tools_ideTools_gitGenerateCommitMessage_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 636, column: 3 },
     },
