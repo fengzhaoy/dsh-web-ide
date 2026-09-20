@@ -431,16 +431,23 @@ export class IdeTools extends TypertRemoteService {
   ): Promise<IdeTerminalOpenResult> {
     const { workspaceRoot } = workspaceFileScope
     const shell = spec.command !== undefined && spec.command.length > 0 ? spec.command : (process.env.SHELL ?? '/bin/zsh')
-    const argv = [shell, '-l']
+    // `-l` (login: sources .zprofile/.zlogin) + `-i` (interactive: sources .zshrc) so the
+    // IDE terminal inherits the user's real zsh environment — prompt theme (p10k/starship/
+    // oh-my-zsh), aliases, PATH, nvm, etc. — exactly like VS Code's integrated terminal.
+    const argv = [shell, '-l', '-i']
     const cols = Math.max(2, Math.min(500, Math.round(spec.cols)))
     const rows = Math.max(2, Math.min(300, Math.round(spec.rows)))
     const handle = await this.ctx.subprocess.spawnTerminal({
       argv,
       cwd: workspaceRoot,
+      // terminalType is what the subprocess seam forwards to node-pty as the PTY
+      // `name` AND writes into the child env as TERM. Omitting it left TERM unset,
+      // which made zsh drop into dumb-terminal mode (no colors, broken prompt).
+      terminalType: 'xterm-256color',
       // Inherit the parent environment so zsh picks up PATH, HOME, LANG,
       // ZDOTDIR, and any ZSH_* / LS_COLORS / PROMPT settings the user has
-      // configured. Then force TERM/COLORTERM so xterm.js renders the full
-      // ANSI palette the shell emits.
+      // configured. Then force COLORTERM so xterm.js renders the full ANSI
+      // palette the shell emits (TERM is set via terminalType above).
       env: {
         ...process.env,
         TERM: 'xterm-256color',
