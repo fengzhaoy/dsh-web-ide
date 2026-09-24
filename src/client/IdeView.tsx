@@ -147,8 +147,17 @@ const workspaceTabs = new Map<string, {
  * enough to restore the dock exactly as the user left it. Keyed by session
  * (terminal IDs are session-scoped on the host), unlike the workspace-keyed
  * editor tabs.
+ *
+ * Parked on window (not a module-level const) so the state survives a plugin
+ * hot-reload: pnpm run bundle / npm publish's prepublishOnly rebuilds lib/,
+ * DSH detects the change and re-evaluates the client module, and a module-level
+ * Map would reset to empty, closing the terminal dock mid-command (e.g. while
+ * npm publish waits for ENTER). The window slot outlives the module
+ * re-evaluation, so the dock reopens with the same still-running terminals.
  */
-const sessionTerminals = new Map<string, { open: boolean; ids: string[]; activeIdx: number }>()
+const __win = window as unknown as { __dshIdeSessionTerminals?: Map<string, { open: boolean; ids: string[]; activeIdx: number }> }
+const sessionTerminals: Map<string, { open: boolean; ids: string[]; activeIdx: number }> =
+  __win.__dshIdeSessionTerminals ??= new Map()
 
 /** Whether two git status entry lists render identically. Used to skip state
  *  writes when a background refresh found nothing new — no write means no
