@@ -221,13 +221,17 @@ function createOrReuseModel(m: MonacoNS, path: string, text: string, language: s
   return m.editor.createModel(text, language, uri)
 }
 
-/** Decode base64 to a UTF-8 string. */
-function decodeBase64(data: string): string {
-  const bin = atob(data)
-  const len = bin.length
-  const bytes = new Uint8Array(len)
-  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i)
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+/** Decode a UTF-8 byte view to a string. readBytes returns native bytes now. */
+function decodeText(data: Uint8Array): string {
+  return new TextDecoder('utf-8', { fatal: false }).decode(data)
+}
+
+/** Encode native bytes to a base64 string (for image data URIs). */
+function bytesToBase64(data: Uint8Array): string {
+  let bin = ''
+  const len = data.byteLength
+  for (let i = 0; i < len; i++) bin += String.fromCharCode(data[i])
+  return btoa(bin)
 }
 
 /** Extract an error message from a RemoteResult failure. */
@@ -273,15 +277,15 @@ async function loadFileContent(
   const statRes: RemoteResult<WorkspaceFileStat> = await wf.stat(sessionId, path, signal)
   if (!statRes.ok) return { text: '', version: '', truncated: false, lines: 0, error: resultError(statRes) }
   const stat = statRes.value
-  // Images render as <img>, not Monaco text. readAll returns raw bytes as
-  // base64 with no text/binary rejection, so it doubles as the image reader.
+  // Images render as <img>, not Monaco text. readBytes returns raw bytes
+  // (Uint8Array) with no text/binary rejection, so it doubles as the image reader.
   const mime = imageMimeOf(path)
   if (mime) {
-    const imgRes: RemoteResult<WorkspaceFileBytes> = await wf.readAll(sessionId, path, signal)
+    const imgRes: RemoteResult<WorkspaceFileBytes> = await wf.readBytes(sessionId, path, {}, signal)
     if (!imgRes.ok) return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(imgRes) }
     return {
       text: '', version: imgRes.value.version, truncated: false, lines: 0, error: null,
-      imageSrc: `data:${mime};base64,${imgRes.value.data}`,
+      imageSrc: `data:${mime};base64,${bytesToBase64(imgRes.value.data)}`,
     }
   }
   if (stat.bytes !== undefined && stat.bytes > LARGE_FILE_BYTES) {
@@ -291,7 +295,7 @@ async function loadFileContent(
     const tail = page.eof ? '' : `\n\n[... ${TRUNCATED_LINES} lines shown, file truncated ...]`
     return { text: page.text + tail, version: stat.version, truncated: true, lines: page.lines, error: null }
   }
-  const allRes: RemoteResult<WorkspaceFileBytes> = await wf.readAll(sessionId, path, signal)
+  const allRes: RemoteResult<WorkspaceFileBytes> = await wf.readBytes(sessionId, path, {}, signal)
   if (!allRes.ok) {
     // not-text or too-large: fall back to a line page if possible.
     if (allRes.error.code === 'workspace-file/not-text') {
@@ -299,7 +303,7 @@ async function loadFileContent(
     }
     return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(allRes) }
   }
-  const text = decodeBase64(allRes.value.data)
+  const text = decodeText(allRes.value.data)
   const lines = text === '' ? 0 : text.split('\n').length
   return { text, version: stat.version, truncated: false, lines, error: null }
 }
@@ -732,7 +736,7 @@ export function IdeView(props: IdeViewInjected & {
     }
     ;(async () => {
       try {
-        for await (const frame of workspaceFiles.changes(sessionId, ctrl.signal)) {
+        for await (const frame of workspaceFiles.changes(sessionId, cwd ?? '', ctrl.signal)) {
           if (cancelled || frame.kind !== 'change') continue
           const absPath = frame.change.absolutePath
           // Match by absolute path or relative path against open tabs.

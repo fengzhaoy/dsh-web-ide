@@ -14,13 +14,22 @@ export type RemoteResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
-/** The workspace-files Remote face bound under `ctx.remote.workspaceFiles`. */
+/** The workspace-files Remote face bound under `ctx.remote.workspaceFiles`.
+ *
+ *  DSH 0.1.7 renamed the binary reader `readAll` → `readBytes` and changed
+ *  its result `data` from a base64 string to a native `Uint8Array`; the
+ *  `changes` stream now takes an explicit `path` (a workspace-relative path,
+ *  empty for the workspace root) instead of subscribing to the whole session. */
+export interface WorkspaceByteReadOptions {
+  readonly range?: { readonly offset?: number; readonly length?: number }
+  readonly baseFile?: string
+}
 export interface WorkspaceFilesRemote {
   stat(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<WorkspaceFileStat>>
   read(sessionId: SessionId, path: string, range: { offset?: number; limit?: number }, signal?: AbortSignal): Promise<RemoteResult<WorkspaceFileText>>
-  readAll(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<WorkspaceFileBytes>>
+  readBytes(sessionId: SessionId, path: string, options: WorkspaceByteReadOptions, signal?: AbortSignal): Promise<RemoteResult<WorkspaceFileBytes>>
   list(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<WorkspaceDirectoryListing>>
-  changes(sessionId: SessionId, signal?: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>
+  changes(sessionId: SessionId, path: string, signal?: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>
 }
 
 export interface WorkspaceFileStat {
@@ -36,7 +45,7 @@ export interface WorkspaceFileText extends WorkspaceFileStat {
 }
 export interface WorkspaceFileBytes extends WorkspaceFileStat {
   readonly offset: number
-  readonly data: string
+  readonly data: Uint8Array
   readonly eof: boolean
 }
 export interface WorkspaceDirectoryEntry {
@@ -275,6 +284,7 @@ export interface IdeToolsRemote {
   terminalWrite(sessionId: SessionId, terminalId: string, data: string, signal?: AbortSignal): Promise<RemoteResult<void>>
   terminalSignal(sessionId: SessionId, terminalId: string, signalName: IdeTerminalSignalName, signal?: AbortSignal): Promise<RemoteResult<void>>
   terminalTerminate(sessionId: SessionId, terminalId: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  terminalResize(sessionId: SessionId, terminalId: string, cols: number, rows: number, signal?: AbortSignal): Promise<RemoteResult<void>>
   terminalOutput(sessionId: SessionId, terminalId: string, signal?: AbortSignal): AsyncIterable<IdeTerminalOutputFrame>
   /** Snapshot the workspace's git status (branch, ahead/behind, changed files). */
   gitStatus(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<GitStatusResult>>

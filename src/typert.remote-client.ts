@@ -46,6 +46,11 @@ const _ide_tools_ideTools_terminalSignal_result$schema = z.void()
 const _ide_tools_ideTools_terminalTerminate_parameter_1$schema = z.string()
 const _ide_tools_ideTools_terminalTerminate_result$schema = z.void()
 
+const _ide_tools_ideTools_terminalResize_parameter_1$schema = z.string()
+const _ide_tools_ideTools_terminalResize_parameter_2$schema = z.number()
+const _ide_tools_ideTools_terminalResize_parameter_3$schema = z.number()
+const _ide_tools_ideTools_terminalResize_result$schema = z.void()
+
 const _ide_tools_ideTools_terminalOutput_parameter_1$schema = z.string()
 const _ide_tools_ideTools_terminalOutput_result$schema = z.object({
   'data': z.string().readonly(),
@@ -420,6 +425,53 @@ export const TYPERT_REMOTE = {
         create: () => _ide_tools_ideTools_terminalTerminate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 233, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/terminalResize',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'terminalResize',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'terminalId',
+          wire: 'terminalId',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalResize:terminalId',
+            create: () => _ide_tools_ideTools_terminalResize_parameter_1$schema,
+          },
+        },
+        {
+          name: 'cols',
+          wire: 'cols',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalResize:cols',
+            create: () => _ide_tools_ideTools_terminalResize_parameter_2$schema,
+          },
+        },
+        {
+          name: 'rows',
+          wire: 'rows',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalResize:rows',
+            create: () => _ide_tools_ideTools_terminalResize_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/terminalResize:result',
+        create: () => _ide_tools_ideTools_terminalResize_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 560, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/terminalOutput',

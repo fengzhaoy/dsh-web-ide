@@ -332,6 +332,7 @@ interface TerminalEntry {
     readonly output: NodeJS.ReadableStream
     readonly done: Promise<unknown>
     write(data: string): Promise<void>
+    resize(cols: number, rows: number): Promise<void>
     signalForeground(signal: string): Promise<number>
     terminate(): Promise<void>
   }
@@ -371,6 +372,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'terminalWrite', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalSignal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'terminalResize', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalOutput', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitStatus', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -550,6 +552,25 @@ export class IdeTools extends TypertRemoteService {
     // second click. The registry entry is already dropped, so the kill is
     // allowed to finish in the background.
     void entry.handle.terminate().catch(() => undefined)
+  }
+
+  /** Resize one terminal's PTY so the shell's COLUMNS/LINES and cursor
+   *  positioning match the xterm.js viewport after a fit. Without this the
+   *  shell keeps rendering at the PTY's creation size (80×24) while xterm
+   *  shows a different viewport, so prompt wrapping, line editing, and
+   *  full-screen apps (vim, less) all misbehave. */
+  async terminalResize(
+    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    terminalId: string,
+    cols: number,
+    rows: number,
+    _signal: AbortSignal,
+  ): Promise<void> {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    const c = Math.max(2, Math.min(500, Math.round(cols)))
+    const r = Math.max(2, Math.min(300, Math.round(rows)))
+    await entry.handle.resize(c, r)
   }
 
   /** Stream one terminal's output: replay log first, then live frames. */

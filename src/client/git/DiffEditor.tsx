@@ -59,12 +59,9 @@ function ensureMonaco(m: typeof Monaco): void {
   monacoLoaded = true
 }
 
-/** Decode a workspace-files base64 payload to a UTF-8 string. */
-function decodeBase64Utf8(data: string): string {
-  const bin = atob(data)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+/** Decode a workspace-files byte payload (Uint8Array) to a UTF-8 string. */
+function decodeBytesUtf8(data: Uint8Array): string {
+  return new TextDecoder('utf-8', { fatal: false }).decode(data)
 }
 
 /**
@@ -248,10 +245,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       // missing file means the change is a deletion, so the right side is empty.
       let newText = diff.newContent
       let source = 'host'
-      const fileRes = await workspaceFiles.readAll(sessionId, path, ctrl.signal)
+      const fileRes = await workspaceFiles.readBytes(sessionId, path, {}, ctrl.signal)
       if (cancelled) return
       if (fileRes.ok) {
-        newText = decodeBase64Utf8(fileRes.value.data)
+        newText = decodeBytesUtf8(fileRes.value.data)
         source = 'disk'
         // Editability guard: only a COMPLETE right side may be saved back —
         // a truncated page would lose the tail on write.
@@ -375,10 +372,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         let newText = diff.newContent
         let oldText = diff.oldContent
         if (diff.contentType === 'image' || diff.contentType === 'binary') return
-        const fileRes = await workspaceFiles.readAll(sessionId, path, ctrl.signal)
+        const fileRes = await workspaceFiles.readBytes(sessionId, path, {}, ctrl.signal)
         if (cancelled || dirtyRef.current) return
         if (fileRes.ok) {
-          newText = decodeBase64Utf8(fileRes.value.data)
+          newText = decodeBytesUtf8(fileRes.value.data)
           versionRef.current = fileRes.value.version
           completeRef.current = fileRes.value.eof === true
         } else if (fileRes.error.code === 'workspace-file/not-found') {

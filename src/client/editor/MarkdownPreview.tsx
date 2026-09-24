@@ -12,6 +12,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IdeViewInjected, RemoteResult, WorkspaceFileBytes } from '../types.js'
 import { imageMimeOf, joinRelativePath, renderMarkdown } from './markdown.js'
 
+/** Encode native bytes to a base64 string (for image data URIs). readBytes
+ *  returns a Uint8Array payload in DSH 0.1.7+. */
+function bytesToBase64(data: Uint8Array): string {
+  let bin = ''
+  for (let i = 0; i < data.byteLength; i++) bin += String.fromCharCode(data[i])
+  return btoa(bin)
+}
+
 export interface MarkdownPreviewProps {
   sessionId: string | undefined
   workspaceFiles: IdeViewInjected['workspaceFiles']
@@ -64,9 +72,9 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
         const mime = imageMimeOf(abs)
         if (mime === null) { resolvedRef.current.set(rel, ''); continue }
         try {
-          const res: RemoteResult<WorkspaceFileBytes> = await workspaceFiles.readAll(sessionId, abs, ctrl.signal)
+          const res: RemoteResult<WorkspaceFileBytes> = await workspaceFiles.readBytes(sessionId, abs, {}, ctrl.signal)
           if (cancelled) return
-          resolvedRef.current.set(rel, res.ok ? 'data:' + mime + ';base64,' + res.value.data : '')
+          resolvedRef.current.set(rel, res.ok ? 'data:' + mime + ';base64,' + bytesToBase64(res.value.data) : '')
         } catch {
           if (!cancelled) resolvedRef.current.set(rel, '')
         }

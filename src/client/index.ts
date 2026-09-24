@@ -1,6 +1,6 @@
 /**
  * Client entry for the IDE plugin: register the `ide` view tab into the
- * conversation view ring, after chat (order 0) and trajectory (order 10).
+ * conversation view ring, after chat (order 0) and before trajectory (order 10).
  * The registration rides the slot service's effect wrapper, so plugin unload
  * removes the tab.
  */
@@ -38,6 +38,7 @@ const stubIdeTools = {
   terminalWrite: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalSignal: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalTerminate: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  terminalResize: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalOutput: async function* () {},
   gitStatus: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitBranches: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
@@ -115,7 +116,7 @@ export async function apply(ctx: IdeClientContext) {
       {
         name: 'conversation.view',
         id: 'ide',
-        order: 20,
+        order: 5,
         locale: NS,
         label: () => t('view.ide'),
         inject: (sessionId: string): IdeViewInjected => {

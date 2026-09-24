@@ -16,6 +16,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
+// xterm.js core styles: hides the helper textarea (the IME/keyboard capture
+// element that otherwise shows as a stray input box), sizes the viewport/
+// screen/rows layers, and sets the canvas/DOM renderer stacking. Without this
+// the terminal's auxiliary <textarea> renders as a visible 14×21 input box.
+import '@xterm/xterm/css/xterm.css'
 
 export interface TerminalPanelProps {
   sessionId: SessionId
@@ -206,6 +211,19 @@ export function TerminalPanel({
           dispose: () => { term.dispose(); termsRef.current.delete(id) },
         })
 
+        // Sync the PTY size now, then keep it in step with the viewport via
+        // ResizeObserver (panel resize, maximize/restore, sidebar drag, window
+        // resize). Debounced so a drag fires one resize, not one per frame.
+        fitAndResize(id)
+        let resizeTimer: ReturnType<typeof setTimeout> | undefined
+        const ro = new ResizeObserver(() => {
+          if (resizeTimer !== undefined) clearTimeout(resizeTimer)
+          resizeTimer = setTimeout(() => { resizeTimer = undefined; fitAndResize(id) }, 100)
+        })
+        ro.observe(host)
+        const origDispose = termsRef.current.get(id)!.dispose
+        termsRef.current.get(id)!.dispose = () => { ro.disconnect(); if (resizeTimer !== undefined) clearTimeout(resizeTimer); origDispose() }
+
         // Keystrokes → host write.
         term.onData((data) => {
           void ideTools.terminalWrite(sessionId, id, btoa(unescape(encodeURIComponent(data))))
@@ -259,10 +277,32 @@ export function TerminalPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, ideTools, terminalIds.join(',')])
 
+  /** Fit the xterm viewport to its host div and forward the new cols/rows
+   *  to the host PTY so the shell's COLUMNS/LINES match what the user sees.
+   *  Without the PTY resize the shell keeps rendering at the creation size
+   *  (80×24) and prompt wrapping, line editing, and full-screen apps break. */
+  const fitAndResize = useCallback((id: string) => {
+    const entry = termsRef.current.get(id)
+    if (entry === undefined) return
+    try { entry.fit.fit() } catch { /* zero-size host during layout */ }
+    const { cols, rows } = entry.term
+    void ideTools.terminalResize(sessionId, id, cols, rows).catch(() => undefined)
+  }, [sessionId, ideTools])
+
   // --- Ref callback: register each terminal's host div ---
   const setHostRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
     if (el !== null) hostsRef.current.set(id, el)
   }, [])
+
+  // Re-fit the active terminal when it becomes visible (tab switch unhides
+  // its host) or when the panel height changes (maximize/restore/minimize).
+  // A hidden host fits to zero; this runs after the display flip so the fit
+  // sees the real size. Slight delay to let the browser lay out first.
+  useEffect(() => {
+    if (activeId === undefined || isMinimized) return
+    const t = setTimeout(() => fitAndResize(activeId), 50)
+    return () => clearTimeout(t)
+  }, [activeId, isMinimized, isMaximized, panelState, fitAndResize])
 
   // --- Actions ---
   const newTerminal = useCallback(() => {
