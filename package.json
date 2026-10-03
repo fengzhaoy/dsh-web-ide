@@ -37,13 +37,14 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-llm": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-util-values": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-tool-fs-search": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.7-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-util-values": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tool-fs-search": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0"
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.2"
   },
   "dependencies": {
     "zod": "^4.6.5"
@@ -56,14 +57,16 @@
     "react-dom": "^18.2.0",
     "tsdown": "^0.11.0",
     "typescript": "^5.6.0",
-    "@deepseek-ai/dsh-llm": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-util-values": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-tool-fs-search": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "^0.1.7-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-util-values": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tool-fs-search": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "@xterm/xterm": "^5.5.0",
     "@xterm/addon-fit": "^0.10.0",
-    "monaco-editor": "^0.52.0"
+    "monaco-editor": "^0.52.0",
+    "@types/node": "^22.0.0",
+    "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.2"
   },
   "files": [
     "lib",
@@ -95,6 +98,9 @@
       "optional": true
     },
     "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subprocess": {
       "optional": true
     }
   },

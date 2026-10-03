@@ -16,6 +16,12 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
+// The plugin's ide-tools/* and workspace-file-write/* failure codes are
+// declaration-merged into the typert protocol's extensible
+// RemoteErrorDetailsMap by src/remote-errors.d.ts (DSH 0.2.0 narrowed
+// RemoteError's code argument to keyof RemoteErrorDetailsMap). That .d.ts is
+// picked up by tsconfig's include:["src"], so no runtime import is needed.
 import z from '@deepseek-ai/schemastery'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
@@ -413,8 +419,12 @@ export class IdeTools extends TypertRemoteService {
     if (query.path !== undefined && query.path.length > 0) input.path = query.path
     let argv = buildGrepCommand(input)
     if (!query.caseSensitive) argv = ['-i', ...argv]
+    // runRipgrep reads only exec.signal and exec.agent.session.header.cwd at runtime
+    // (see @deepseek-ai/dsh-tool-fs-search search-core). Its TS type widened to a full
+    // ToolExecution in 0.2.0 — whose registry-owned token this host service cannot mint
+    // — so the structurally-compatible exec is cast through never, exactly as this.ctx is.
     const exec = { signal, agent: { session: { header: { cwd: workspaceRoot } } } }
-    const run = await runRipgrep(this.ctx as never, exec, 'grep', argv, RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_STDERR_MAX_BYTES)
+    const run = await runRipgrep(this.ctx as never, exec as never, 'grep', argv, RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_STDERR_MAX_BYTES)
     const parsed = run.noMatches ? [] : parseGrepMatches(run.stdout)
     const total = parsed.length
     const kept = parsed.slice(0, MAX_RESULTS)
@@ -1554,7 +1564,7 @@ export class IdeTools extends TypertRemoteService {
       const code = typeof rawCode === 'string'
         ? FS_WRITE_ERROR_CODES[rawCode] ?? 'workspace-file-write/failed'
         : 'workspace-file-write/failed'
-      throw new RemoteError(code, message, { path })
+      throw new RemoteError(code as keyof RemoteErrorDetailsMap, message, { path })
     }
   }
 
@@ -1818,9 +1828,13 @@ export class IdeTools extends TypertRemoteService {
 
       // Build a properly identified + frozen user message using the dsh-llm
       // helper (hand-built messages missing the id field crash the adapter).
+      // DSH 0.2.0 removed the 'plugin' message source kind: MessageSource is now a
+      // merge-extensible sum type with no shared catch-all 'plugin' kind, and user
+      // messages may carry any producer's kind. This plugin-initiated prompt is a
+      // user-authored request, so 'user' is the faithful attribution.
       const messages = [createUserMessage({
         content: [{ type: 'text', text: userText }],
-        source: { kind: 'plugin', plugin: 'dsh-web-ide' },
+        source: { kind: 'user' },
       })]
 
       const options = deepFreeze({

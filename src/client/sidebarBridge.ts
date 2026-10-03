@@ -78,7 +78,7 @@ export function syncSidebarHighlight(): void {
 }
 
 /** Divert a sidebar file click into the IDE view. */
-function onSidebarClick(event: Event): void {
+function onSidebarClick(event: MouseEvent): void {
   if (!(event.target instanceof Element)) return
   if (event.button !== 0) return
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
@@ -107,7 +107,7 @@ export function requestIdeOpen(path: string): void {
     return
   }
   pendingOpenPath = path
-  const tab = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'IDE')
+  const tab = [...document.querySelectorAll('button')].find((b) => (b.textContent ?? '').trim() === 'IDE')
   tab?.click()
 }
 
