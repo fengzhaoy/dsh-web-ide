@@ -43,6 +43,13 @@ export interface TerminalPanelProps {
 type PanelState = 'normal' | 'maximized' | 'minimized'
 type TermStatus = 'connecting' | 'ready' | 'exited' | 'failed'
 
+/** Pixel height bounds for the draggable sizer. The panel lives at the bottom
+ *  of the IDE column; dragging the top edge grows/shrinks it within these
+ *  limits. Maximize/minimize buttons bypass these and use fixed sizes. */
+const PANEL_HEIGHT_DEFAULT = 220
+const PANEL_HEIGHT_MIN = 120
+const PANEL_HEIGHT_MAX = 800
+
 type TerminalModule = typeof import('@xterm/xterm')
 type FitModule = typeof import('@xterm/addon-fit')
 
@@ -101,6 +108,10 @@ export function TerminalPanel({
   const termsRef = useRef<Map<string, TermEntry>>(new Map())
   // DOM host divs per terminal ID (created via ref callbacks).
   const hostsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  // The panel root element; read during a sizer drag to get the current
+  // pixel height as the drag baseline (so dragging starts from the real
+  // rendered size, not a possibly-stale state value).
+  const panelRef = useRef<HTMLDivElement>(null)
   // Per-terminal status, keyed by terminal ID.
   const [statuses, setStatuses] = useState<Record<string, TermStatus>>({})
   // Per-terminal error message.
@@ -108,6 +119,13 @@ export function TerminalPanel({
   // Per-terminal shell exit code (when the terminal reached the exited state).
   const [exitCodes, setExitCodes] = useState<Record<string, number | null>>({})
   const [panelState, setPanelState] = useState<PanelState>('normal')
+  // User-dragged pixel height for the 'normal' state. null means "use the CSS
+  // default" (PANEL_HEIGHT_DEFAULT) so the panel still sizes correctly before
+  // the user ever drags. Maximize/minimize ignore this and apply fixed sizes.
+  const [panelHeight, setPanelHeight] = useState<number | null>(null)
+  // True only while a sizer drag is in progress; disables the height CSS
+  // transition so the panel tracks the cursor 1:1 instead of animating.
+  const [resizing, setResizing] = useState(false)
   // Track which terminal IDs we've already attached an xterm to, so the effect
   // below only runs once per terminal.
   const attachedRef = useRef<Set<string>>(new Set())
@@ -295,14 +313,24 @@ export function TerminalPanel({
   }, [])
 
   // Re-fit the active terminal when it becomes visible (tab switch unhides
-  // its host) or when the panel height changes (maximize/restore/minimize).
-  // A hidden host fits to zero; this runs after the display flip so the fit
-  // sees the real size. Slight delay to let the browser lay out first.
+  // its host) or when the panel height changes (maximize/restore/minimize,
+  // sizer drag). A hidden host fits to zero; this runs after the display flip
+  // so the fit sees the real size. Slight delay to let the browser lay out.
+  //
+  // Restoring from minimized is the critical case for the cursor bug: while
+  // minimized the hosts container is hidden via CSS (NOT unmounted), so the
+  // xterm canvas keeps its DOM binding but stops rendering. Once visible again
+  // we refit AND call term.focus() — focus re-arms the blinking cursor and
+  // re-paints the viewport, which is what was missing (cursor stayed hidden).
   useEffect(() => {
     if (activeId === undefined || isMinimized) return
-    const t = setTimeout(() => fitAndResize(activeId), 50)
+    const t = setTimeout(() => {
+      fitAndResize(activeId)
+      // Refocus so the cursor (and keyboard input) come back after restore.
+      try { termsRef.current.get(activeId)?.term.focus() } catch { /* disposed */ }
+    }, 50)
     return () => clearTimeout(t)
-  }, [activeId, isMinimized, isMaximized, panelState, fitAndResize])
+  }, [activeId, isMinimized, isMaximized, panelState, panelHeight, fitAndResize])
 
   // --- Actions ---
   const newTerminal = useCallback(() => {
@@ -372,11 +400,82 @@ export function TerminalPanel({
     })
   }, [sessionId, ideTools, terminalIds, onTerminalOpened, onTerminalClosed])
 
+  // --- Draggable height sizer (top edge of the panel) ---
+  // The sizer lives above the toolbar. mousedown captures the starting cursor
+  // Y and the panel's current pixel height; while dragging, global mousemove
+  // updates panelHeight (drag up = taller) clamped to [MIN, MAX]; mouseup ends
+  // the drag. Resizing is a React state flag that (a) disables the height
+  // transition so the panel tracks the cursor 1:1, and (b) attaches the
+  // window-level listeners — attaching them only while dragging avoids a
+  // permanent global mousemove handler.
+  const dragStartRef = useRef<{ startY: number; startHeight: number } | null>(null)
+
+  const onSizerMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only react to the primary button; ignore right-click/middle-click so
+    // they keep their browser defaults (context menu, autoscroll).
+    if (e.button !== 0) return
+    e.preventDefault()
+    const panelEl = panelRef.current
+    const startHeight = panelEl ? panelEl.getBoundingClientRect().height : PANEL_HEIGHT_DEFAULT
+    dragStartRef.current = { startY: e.clientY, startHeight }
+    setResizing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!resizing) return
+    const onMove = (e: MouseEvent) => {
+      const start = dragStartRef.current
+      if (start === null) return
+      // Drag the top edge up → panel grows. deltaY > 0 means cursor moved up.
+      const deltaY = start.startY - e.clientY
+      const next = Math.min(PANEL_HEIGHT_MAX, Math.max(PANEL_HEIGHT_MIN, start.startHeight + deltaY))
+      setPanelHeight(next)
+    }
+    const onUp = () => {
+      dragStartRef.current = null
+      setResizing(false)
+    }
+    // capture so we keep getting moves even if the cursor leaves the sizer
+    // (e.g. dragged over the editor area).
+    window.addEventListener('mousemove', onMove, { capture: true })
+    window.addEventListener('mouseup', onUp, { capture: true })
+    return () => {
+      window.removeEventListener('mousemove', onMove, { capture: true })
+      window.removeEventListener('mouseup', onUp, { capture: true })
+    }
+  }, [resizing])
+
   const activeStatus = activeId !== undefined ? (statuses[activeId] ?? 'connecting') : 'connecting'
   const activeError = activeId !== undefined ? errors[activeId] : undefined
 
+  // Inline height only applies in the 'normal' state: maximize/minimize use
+  // their own CSS rules (data-state selectors) and must override this inline
+  // value, so we pass undefined there. null panelHeight falls back to the CSS
+  // default (no inline style at all).
+  const normalHeightStyle = panelState === 'normal' && panelHeight !== null
+    ? { height: panelHeight + 'px' }
+    : undefined
+
   return (
-    <div className="ide-terminal-panel" data-testid="ide-terminal-panel" data-state={panelState}>
+    <div
+      ref={panelRef}
+      className="ide-terminal-panel"
+      data-testid="ide-terminal-panel"
+      data-state={panelState}
+      data-resizing={resizing || undefined}
+      style={normalHeightStyle}
+    >
+      {/* Draggable sizer: the top edge of the panel. Hidden while minimized so
+          it can't be grabbed when only the toolbar is showing. Double-click
+          resets a user-dragged height back to the CSS default. */}
+      {!isMinimized && (
+        <div
+          className="ide-terminal-resizer"
+          title={t('terminal.resize')}
+          onMouseDown={onSizerMouseDown}
+          onDoubleClick={() => setPanelHeight(null)}
+        />
+      )}
       <div className="ide-terminal-toolbar">
         {/* Tab list: one entry per terminal */}
         <div className="ide-terminal-tabs">
@@ -420,8 +519,13 @@ export function TerminalPanel({
         </div>
       </div>
 
-      {!isMinimized && (
-        <div className="ide-terminal-hosts">
+      {/* The hosts container is ALWAYS mounted: while minimized it is
+          hidden via CSS (data-hidden) instead of unmounted, so each xterm
+          keeps its canvas bound to a live DOM node. Unmounting it (the old
+          `{!isMinimized && ...}` form) detached xterm from the document, and
+          on restore the attach effect never re-ran (attachedRef was set), so
+          the terminal stayed blank with the cursor hidden. */}
+      <div className="ide-terminal-hosts" data-hidden={isMinimized || undefined}>
           {terminalIds.map((id, idx) => (
             <div
               key={id}
@@ -447,7 +551,6 @@ export function TerminalPanel({
             <div className="ide-terminal-empty">{t('terminal.noTerminals')}</div>
           )}
         </div>
-      )}
     </div>
   )
 }

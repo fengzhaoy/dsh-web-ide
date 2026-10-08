@@ -405,7 +405,7 @@ export const IDE_STYLES = `
 .ide-terminal-action{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:flex;align-items:center;justify-content:center}
 .ide-terminal-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
 .ide-terminal-action svg{width:16px;height:16px}
-.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}
+.ide-terminal-resizer{flex:none;height:4px;cursor:row-resize;background:transparent;position:relative;z-index:2}.ide-terminal-resizer:hover{background:var(--ide-border,#3b3b3b)}.ide-terminal-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;border-radius:1px;background:#424242}.ide-terminal-panel[data-resizing]{transition:none;user-select:none}.ide-terminal-panel[data-resizing] *{user-select:none}.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}.ide-terminal-hosts[data-hidden]{display:none}
 .ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
 .ide-terminal-error{padding:10px;font-size:12px;color:#f48771;overflow:auto}
