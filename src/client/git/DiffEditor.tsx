@@ -488,6 +488,15 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     <div className="ide-diff-root">
       <div className="ide-diff-header">
         <span className="ide-diff-title">{name}</span>
+        {onClose && (
+          <button
+            className="ide-diff-close"
+            type="button"
+            title={t('tab.close')}
+            aria-label={t('tab.close')}
+            onClick={onClose}
+          >{Icons.close}</button>
+        )}
         <span className="ide-diff-path">{commit !== undefined ? commit.sha.slice(0, 8) + ' · ' + path : path}</span>
         {dirty && <span className="ide-diff-dirty" title={t('diff.unsaved')} />}
         {saveError !== null && (
@@ -502,15 +511,6 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
           <span className="ide-diff-stats" title={'right side: ' + stats.source}>
             {stats.old} &rarr; {stats.new} · {stats.source}
           </span>
-        )}
-        {onClose && (
-          <button
-            className="ide-diff-close"
-            type="button"
-            title={t('tab.close')}
-            aria-label={t('tab.close')}
-            onClick={onClose}
-          >{Icons.close}</button>
         )}
       </div>
       {state === 'image' ? (

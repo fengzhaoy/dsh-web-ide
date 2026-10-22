@@ -9,6 +9,81 @@ import { IdeView } from './IdeView.js'
 import { installSidebarBridge, uninstallSidebarBridge } from './sidebarBridge.js'
 import { TYPERT_REMOTE } from '../typert.remote-client.js'
 import { NS, zh, en } from './locales.js'
+import React, { useEffect, useRef } from 'react'
+
+/** Auto-fullscreen the DSH right-sidebar panel that hosts this tab's body.
+ *  Mirrors dsh-code-server-app's requestFullscreenPanel: find the enclosing
+ *  [data-sidebar-right-panel] and click its [data-sidebar-right-mode="fullscreen"]
+ *  chrome button (the same path as a user clicking fullscreen). Already-fullscreen
+ *  panels have no such button → returns 'no-control' silently. */
+function requestFullscreenPanel(rootEl: HTMLElement | null): string {
+  if (rootEl == null || typeof rootEl.closest !== 'function') return 'no-root'
+  let panel: Element | null
+  let control: HTMLElement | null
+  try {
+    panel = rootEl.closest('[data-sidebar-right-panel]')
+    if (panel == null || typeof panel.querySelector !== 'function') return 'no-panel'
+    control = panel.querySelector('[data-sidebar-right-mode="fullscreen"]') as HTMLElement | null
+  } catch { return 'lookup-failed' }
+  if (control == null || typeof control.click !== 'function') return 'no-control'
+  try { control.click() } catch { return 'click-failed' }
+  return 'clicked'
+}
+
+/** Minimal shape of DSH's SidebarRightTabInfo consumed here. The full type
+ *  lives in @deepseek-ai/dsh-client-ui-sidebar-right's contract/slots.ts; we
+ *  redeclare only what the auto-fullscreen logic reads, so this bundle keeps no
+ *  runtime dependency on that package's type tree. */
+interface IdeTabInfo {
+  sidebar: { fullscreen: boolean }
+  tab: { visible: boolean }
+}
+
+/** Stable, module-level wrapper around IdeView that drives the sidebar tab's
+ *  auto-fullscreen. MUST live at module scope (not re-created inside the
+ *  register callback): a function component defined inline in the callback is
+ *  a fresh function reference on every render, which makes React treat it as a
+ *  different element type and unmount/remount the whole subtree on each store
+ *  commit — wiping the refs, so the false→true "visible" transition would
+ *  never be observed and the panel would never auto-fullscreen.
+ *
+ *  Selection signal: the body props do NOT carry per-tab "active"/"fullscreen"
+ *  directly — TabSlot passes those inside hookContext, which only feeds the
+ *  slot-declared hook factories. The readable per-tab signal is the
+ *  slot-injected useTabInfo prop (standardHookPropName of the slot's declared
+ *  hooks.tabInfo): useTabInfo().tab.visible is TRUE only while this tab is the
+ *  active tab of a visible pane (pane.activeTabId === tabId && expanded), so a
+ *  false→true transition is exactly "the user switched to the IDE tab". */
+const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
+  useTabInfo: () => IdeTabInfo
+  viewProps: IdeViewInjected
+}) {
+  const { useTabInfo, viewProps } = props
+  const info = useTabInfo()
+  const visible = info.tab.visible === true
+  const fullscreen = info.sidebar.fullscreen === true
+  const ref = useRef<HTMLDivElement>(null)
+  // One-shot latch per visible episode: set when this body has already put the
+  // panel into fullscreen for the CURRENT visibility stretch, cleared when the
+  // tab leaves visibility — so the next entry (re-click, sidebar reopen) can
+  // trigger again. Without it, "mount already fullscreen → user exits
+  // fullscreen" would immediately re-trigger (fullscreen prop flips false while
+  // visible stays true) and yank the user back.
+  const forcedRef = useRef(false)
+  React.useLayoutEffect(() => {
+    if (!visible) { forcedRef.current = false; return }
+    // Already fullscreen, or this visibility episode already forced it once.
+    if (fullscreen || forcedRef.current) return
+    forcedRef.current = true
+    requestFullscreenPanel(ref.current)
+  }, [visible, fullscreen])
+  return React.createElement('div', {
+    ref,
+    'data-ide-sidebar-tab': '',
+    style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' as const },
+  }, IdeView(viewProps))
+})
+IdeSidebarTab.displayName = 'IdeSidebarTab'
 
 /** Required browser services: slots, sessions, locale, and the workspaceFiles
  * Remote namespace. Listing the namespace services here makes the boot kernel
@@ -25,6 +100,8 @@ const inject = [
   'locale',
   'remote',
   'remote.workspaceFiles',
+  'sidebarRightTabs',
+  'sidebarRight',
 ] as const
 
 export { inject }
@@ -142,6 +219,78 @@ export async function apply(ctx: IdeClientContext) {
       },
     ),
   )
+
+  // ---------- DSH right-sidebar IDE tab ----------
+  // Register the IDE as a right-sidebar tab (like dsh-code-server-app): click
+  // the sidebar icon to open the IDE in the right pane, auto-fullscreen on
+  // open. Two-phase: tab TYPE into sidebarRightTabs, BODY into the keyed slot
+  // sidebar.right.pane.tab.
+  const IDE_TAB_ID = 'dsh-web-ide'
+  const IDE_KIND = 'ide'
+  if (ctx.sidebarRightTabs) {
+    ctx.effect(() => {
+      return ctx.sidebarRightTabs!.register({
+        id: IDE_TAB_ID,
+        kind: IDE_KIND,
+        priority: 'extension',
+        patterns: [],
+        keepMounted: true,
+        title: () => t('view.ide'),
+        guide: [{
+          order: 20,
+          title: () => t('view.ide'),
+          description: () => t('view.ideGuide'),
+        }],
+      })
+    }, 'ui-ide: sidebar tab type')
+
+    ctx.effect(() => {
+      return ctx.slots.inject('sidebar.right.pane.tab', () =>
+        ctx.slots.register(
+          { name: 'sidebar.right.pane.tab', key: IDE_TAB_ID },
+          (props: unknown) => {
+            // The slot runtime composes body props as {...kit, ...injected,
+            // ...slotInjected.props, ...contextual, ...ownerProps}. For this
+            // slot the contextual share carries useTabInfo — the slot-declared
+            // hooks.tabInfo factory bound to this tab's hookContext. It is the
+            // ONLY per-tab selection signal a body receives: hookContext itself
+            // (active/fullscreen) stays inside the runtime and never reaches
+            // these props. useTabInfo().tab.visible is true exactly while this
+            // tab is the active tab of a visible pane.
+            const tabProps = (props ?? {}) as {
+              sessionId?: string
+              useTabInfo?: () => IdeTabInfo
+            }
+            const sessionId = tabProps.sessionId ?? ctx.sessions.list.getSnapshot().current ?? ''
+            const sessions = ctx.sessions.list.getSnapshot()
+            const cwd = sessions.byId[sessionId]?.cwd
+            const viewProps: IdeViewInjected = {
+              sessionId,
+              cwd,
+              workspaceFiles: ctx.remote.workspaceFiles,
+              workspaceFilesWrite,
+              ideTools: ideToolsFace,
+              t,
+            }
+            const useTabInfo = tabProps.useTabInfo
+            if (typeof useTabInfo !== 'function') {
+              // DSH version without the hook (or it failed to bind): render
+              // without auto-fullscreen rather than crash the pane.
+              return React.createElement('div', {
+                'data-ide-sidebar-tab': '',
+                style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' as const },
+              }, IdeView(viewProps))
+            }
+            // Render the stable module-level IdeSidebarTab (NOT an inline
+            // function component — see the note on IdeSidebarTab above) so the
+            // subtree is reused across renders and the false→true "visible"
+            // transition is observed instead of being wiped by remounts.
+            return React.createElement(IdeSidebarTab, { useTabInfo, viewProps })
+          },
+        ),
+      )
+    }, 'ui-ide: sidebar tab body')
+  }
 
   // Resolve the background mount when it settles and return a disposer that
   // unmounts the namespace on plugin unload.

@@ -3,6 +3,7 @@ export const NS = 'ide'
 
 export const zh = {
   'view.ide': 'IDE',
+  'view.ideGuide': '在 DSH 右侧栏运行 Web IDE,跟随当前会话工作区;打开即全屏。',
   'sidebar.resize': '拖动调整侧边栏宽度（双击恢复默认）',
   'explorer.title': '资源管理器',
   'search.title': '搜索',
@@ -214,6 +215,7 @@ export const zh = {
 
 export const en = {
   'view.ide': 'IDE',
+  'view.ideGuide': 'Run the Web IDE in the DSH right sidebar, following the current session workspace; opens fullscreen.',
   'sidebar.resize': 'Drag to resize the sidebar (double-click to reset)',
   'explorer.title': 'Explorer',
   'search.title': 'Search',

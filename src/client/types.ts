@@ -405,4 +405,22 @@ export interface IdeClientContext {
     workspaceFiles: WorkspaceFilesRemote
     $mount(artifact: unknown): Promise<() => void>
   }
+  /** DSH right-sidebar tab type registry (from @deepseek-ai/dsh-client-ui-sidebar-right). */
+  sidebarRightTabs?: {
+    register(options: {
+      id: string
+      kind: string
+      priority?: string
+      patterns?: string[]
+      canOpen?: (address: string) => boolean
+      keepMounted?: boolean
+      title?: (address?: string) => string
+      guide?: { order: number; title: () => string; description: () => string; icon?: (props: { size?: number; className?: string }) => ReactNode }[]
+    }): () => void
+  }
+  /** DSH right-sidebar controller (expand/collapse). */
+  sidebarRight?: {
+    isExpanded?: () => boolean
+    toggleExpanded?: () => void
+  }
 }
