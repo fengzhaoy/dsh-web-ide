@@ -1669,8 +1669,16 @@ export class IdeTools extends TypertRemoteService {
       // raw git stderr (e.g. a missing upstream), keeping the cause visible.
       let pushed: boolean | undefined
       if (opts.sync) {
-        await this.runGit(cwd, ['pull'], signal)
-        await this.runGit(cwd, ['push'], signal)
+        // VS Code parity: Commit and Sync pulls+pushes when an upstream is
+        // configured, but PUBLISHES (push -u) a branch with no upstream instead
+        // of failing on a bare pull (no tracking information).
+        const hasUpstream = await this.hasUpstream(cwd, signal)
+        if (hasUpstream) {
+          await this.runGit(cwd, ['pull'], signal)
+          await this.runGit(cwd, ['push'], signal)
+        } else {
+          await this.publishBranch(cwd, signal)
+        }
         pushed = true
       } else if (opts.push) {
         await this.runGit(cwd, ['push'], signal)
@@ -1687,6 +1695,35 @@ export class IdeTools extends TypertRemoteService {
     }
   }
 
+  /** True when the current branch has an upstream tracking ref configured
+   *  (git rev-parse --abbrev-ref @{u} succeeds). Used by sync flows to decide
+   *  pull+push (has upstream) vs publish (push -u, no upstream). */
+  private async hasUpstream(cwd: string, signal: AbortSignal | undefined): Promise<boolean> {
+    try {
+      const out = await this.runGit(cwd, ['rev-parse', '--abbrev-ref', '@{u}'], signal)
+      return out.trim().length > 0
+    } catch {
+      // No upstream configured → rev-parse fails with "no upstream configured".
+      return false
+    }
+  }
+
+  /** Publish the current branch: git push -u <remote> <branch>. Prefers origin,
+   *  falls back to the first listed remote. Throws a clear RemoteError when
+   *  there are no remotes or HEAD is detached. */
+  private async publishBranch(cwd: string, signal: AbortSignal | undefined): Promise<void> {
+    const branch = (await this.runGit(cwd, ['branch', '--show-current'], signal)).trim()
+    if (branch.length === 0) {
+      throw new RemoteError('ide-tools/git-sync-failed', 'cannot determine the current branch (detached HEAD?)', {})
+    }
+    const remotes = (await this.runGit(cwd, ['remote'], signal)).split('\n').map((r) => r.trim()).filter((r) => r.length > 0)
+    if (remotes.length === 0) {
+      throw new RemoteError('ide-tools/git-sync-failed', 'your repository has no remotes configured to publish to', {})
+    }
+    const remote = remotes.includes('origin') ? 'origin' : remotes[0]
+    await this.runGit(cwd, ['push', '-u', remote, branch], signal)
+  }
+
   /** VS Code SCM action button: synchronize or publish the branch.
    *  sync = git pull then git push (the clean-tree "Synchronize Changes"
    *  button); publish = git push -u origin <branch> for a local branch with
@@ -1700,8 +1737,16 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot: cwd } = workspaceFileScope
     try {
       if (action === 'sync') {
-        await this.runGit(cwd, ['pull'], signal)
-        await this.runGit(cwd, ['push'], signal)
+        // VS Code parity: Synchronize pulls+pushes when an upstream is
+        // configured, but PUBLISHES (push -u) a branch with no upstream instead
+        // of failing on a bare pull (no tracking information).
+        const hasUpstream = await this.hasUpstream(cwd, signal)
+        if (hasUpstream) {
+          await this.runGit(cwd, ['pull'], signal)
+          await this.runGit(cwd, ['push'], signal)
+        } else {
+          await this.publishBranch(cwd, signal)
+        }
       } else {
         const branch = (await this.runGit(cwd, ['branch', '--show-current'], signal)).trim()
         if (branch.length === 0) {

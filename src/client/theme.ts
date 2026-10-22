@@ -44,7 +44,18 @@ export const IDE_STYLES = `
 [data-conversation-scroll]:has([data-ide-view]) ~ [data-width-handle]{display:none !important}
 [data-slot='conversation.session']:has([data-ide-view]) ~ [data-composer-seat]{display:none}
 .ide-root{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;background:var(--ide-bg);color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans, -apple-system, 'Segoe UI', sans-serif);overflow:hidden}
-.ide-body{display:flex;flex:1;min-height:0}
+.ide-body{display:flex;flex-direction:column;flex:1;min-height:0}
+.ide-body-main{display:flex;flex:1;min-height:0}
+/* Right sidebar (secondary side bar) — toggled open from the top-right
+   toolbar button. Sits to the right of the editor area, inside ide-body-main. */
+.ide-sidebar-right{width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--ide-sidebar-bg);border-left:1px solid var(--ide-border)}
+.ide-sidebar-right-header{height:35px;flex:none;display:flex;align-items:center;padding:0 8px 0 16px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted);border-bottom:1px solid var(--ide-border)}
+.ide-sidebar-right-title{flex:1}
+.ide-sidebar-right-close{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
+.ide-sidebar-right-close:hover{color:var(--ide-fg);background:var(--ide-tree-hover)}
+.ide-sidebar-right-close svg{width:14px;height:14px}
+.ide-sidebar-right-body{flex:1;min-height:0;overflow:auto;padding:12px}
+.ide-sidebar-right-placeholder{color:var(--ide-fg-muted);font-size:12px;margin:0}
 .ide-activitybar{width:48px;flex:none;background:var(--ide-activitybar-bg);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:1px}
 .ide-activitybar-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ide-activitybar-fg);cursor:pointer;position:relative;transition:background-color .1s}
 .ide-activitybar-icon:hover{background-color:rgba(255,255,255,.06)}
@@ -75,6 +86,9 @@ export const IDE_STYLES = `
 .ide-sidebar-body::-webkit-scrollbar-thumb{background:#424242;border-radius:5px}
 .ide-sidebar-body::-webkit-scrollbar-track{background:transparent}
 .ide-editor-area{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--ide-bg);position:relative}
+/* Persistent editor toolbar: panel-layout action buttons that are always
+   visible (unlike TabBar actions which hide when there are no open tabs). */
+.ide-editor-toolbar{flex:none;display:flex;align-items:center;gap:2px;justify-content:flex-end;padding:2px 8px;border-bottom:1px solid var(--ide-border,#2b2b2b);background:var(--ide-bg);min-height:30px}
 .ide-editor-stack{flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-editor-overlay{position:absolute;inset:0;pointer-events:none;display:flex}
 .ide-editor-overlay:empty{display:none}
@@ -139,6 +153,13 @@ export const IDE_STYLES = `
 .ide-statusbar-left,.ide-statusbar-right{display:flex;align-items:center;gap:12px}
 .ide-statusbar-right{margin-left:auto}
 .ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding-left:6px;border-left:2px solid var(--ide-accent,#007acc);display:flex;align-items:center;gap:4px}
+.ide-statusbar-branch-icon{display:flex;align-items:center;flex:none}
+.ide-statusbar-branch-icon svg{width:13px;height:13px}
+.ide-statusbar-terminal{background:transparent;border:none;color:var(--ide-statusbar-fg);cursor:pointer;padding:0 6px}
+.ide-statusbar-terminal:hover{background:rgba(255,255,255,.12)}
+.ide-statusbar-terminal[data-active='true']{background:var(--ide-accent,#007acc)}
+.ide-statusbar-terminal svg{width:14px;height:14px}
 .ide-tree-row{display:flex;align-items:center;gap:4px;height:22px;padding:0 8px;cursor:pointer;user-select:none;color:var(--ide-fg);font-size:13px;white-space:nowrap}
 .ide-tree-row:hover{background:var(--ide-tree-hover)}
 .ide-tree-row[data-active='true']{background:var(--ide-tree-active)}
@@ -233,6 +254,9 @@ export const IDE_STYLES = `
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 /* ── SCM 可折叠子 panel(源代码管理/图表/分支纵向堆叠,替代头部下拉) ── */
 .ide-git-panels{display:flex;flex-direction:column;gap:0;padding:0}
+/* 变更 panel 占据上部可滚动区域;图表/分支固定在面板底部(不随变更滚动浮动)。 */
+.ide-git-subpanel-top{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+.ide-git-subpanel-bottom{flex:none;border-top:1px solid var(--ide-border,#2b2b2b)}
 .ide-git-subpanel{margin-top:0;border-bottom:1px solid var(--ide-tree-border,#333)}
 .ide-git-subpanel:last-child{border-bottom:none}
 .ide-git-subpanel-header{padding:0 4px 0 0;cursor:default}

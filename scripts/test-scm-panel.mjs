@@ -55,10 +55,11 @@ await test('SCM:三个视图改为可折叠子 panel(各自独立展开/收起)'
   assert.match(src, /chevronDown|chevronRight/, 'chevron 要随展开态切换')
 })
 
-await test('SCM:三个视图本体(变更/GraphView/BranchesView)仍渲染,但由各自 panel 的展开态控制', () => {
-  assert.match(src, /<GraphView/, '图表视图本体仍在')
-  assert.match(src, /<BranchesView/, '分支视图本体仍在')
-  // The changes view body (commit input + changes list) still renders, now gated by the changes panel open state.
+await test('SCM:三个视图本体(变更/GraphView/BranchesView)都在 SCM panel,图表/分支在面板底部', () => {
+  // All three views render inside SourceControlPanel; graph/branches sit at
+  // the bottom (after the changes subpanel).
+  assert.match(src, /<GraphView/, '图表视图本体在 SourceControlPanel')
+  assert.match(src, /<BranchesView/, '分支视图本体在 SourceControlPanel')
   assert.match(src, /ide-git-input/, '变更视图的提交输入仍在')
   assert.match(src, /ide-git-entries/, '变更视图的变更列表仍在')
 })

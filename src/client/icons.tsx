@@ -164,6 +164,10 @@ const ICONS: Record<string, IconDef> = {
   splitEditor: { viewBox: "0 0 16 16", paths: [
     "M12.5 1H3.5C2.122 1 1 2.122 1 3.5V12.5C1 13.878 2.122 15 3.5 15H12.5C13.878 15 15 13.878 15 12.5V3.5C15 2.122 13.878 1 12.5 1ZM2 12.5V3.5C2 2.673 2.673 2 3.5 2H7.5V14H3.5C2.673 14 2 13.327 2 12.5ZM14 12.5C14 13.327 13.327 14 12.5 14H8.5V2H12.5C13.327 2 14 2.673 14 3.5V12.5Z",
   ] },
+  panelBottom: { viewBox: "0 0 16 16", paths: [
+    "M2 1H14C14.5523 1 15 1.44772 15 2V14C15 14.5523 14.5523 15 14 15H2C1.44772 15 1 14.5523 1 14V2C1 1.44772 1.44772 1 2 1ZM2 2V14H14V2H2Z",
+    "M1 10H15V11H1Z",
+  ] },
   symbolArray: { viewBox: "0 0 16 16", paths: [
     "M5 14H4.5C3.673 14 3 13.327 3 12.5V3.5C3 2.673 3.673 2 4.5 2H5C5.276 2 5.5 2.224 5.5 2.5C5.5 2.776 5.276 3 5 3H4.5C4.225 3 4 3.224 4 3.5V12.5C4 12.776 4.225 13 4.5 13H5C5.276 13 5.5 13.224 5.5 13.5C5.5 13.776 5.276 14 5 14ZM13 12.5V3.5C13 2.673 12.327 2 11.5 2H11C10.724 2 10.5 2.224 10.5 2.5C10.5 2.776 10.724 3 11 3H11.5C11.775 3 12 3.224 12 3.5V12.5C12 12.776 11.775 13 11.5 13H11C10.724 13 10.5 13.224 10.5 13.5C10.5 13.776 10.724 14 11 14H11.5C12.327 14 13 13.327 13 12.5Z",
   ] },
@@ -354,6 +358,7 @@ export const Icons = {
   newFolder: render(ICONS.newFolder),
   close: render(ICONS.close),
   splitEditor: render(ICONS.splitEditor),
+  panelBottom: render(ICONS.panelBottom),
   loading: render(ICONS.loading),
   emptyEditor: (<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M13.5 2.5h-11a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5V3a.5.5 0 0 0-.5-.5zM2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm3 3h6v1H5V6zm0 3h6v1H5V9z"/></svg>),
   trash: render(ICONS.trash),

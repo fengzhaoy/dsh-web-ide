@@ -1,4 +1,5 @@
 import { languageLabel } from '../language.js'
+import { Icons } from '../icons.js'
 import type { OpenTab } from './TabBar.js'
 
 interface StatusBarProps {
@@ -11,12 +12,34 @@ interface StatusBarProps {
   onSave: () => void
   /** Current AI model identifier, shown in the status bar (right side). */
   model?: string
+  /** Current git branch name (HEAD short name), shown on the left side. */
+  branch?: string
+  /** Toggle the bottom terminal panel open/closed. */
+  onToggleTerminal?: () => void
+  /** Whether the terminal panel is currently open (drives the button active state). */
+  terminalOpen?: boolean
 }
 
-export function StatusBar({ activeTab, cursor, t, saveState, onSave, model }: StatusBarProps) {
+export function StatusBar({ activeTab, cursor, t, saveState, onSave, model, branch, onToggleTerminal, terminalOpen }: StatusBarProps) {
   return (
     <div className="ide-statusbar">
       <div className="ide-statusbar-left">
+        {branch && (
+          <span className="ide-statusbar-item ide-statusbar-branch">
+            <span className="ide-statusbar-branch-icon">{Icons.branch}</span>
+            {branch}
+          </span>
+        )}
+        {onToggleTerminal && (
+          <button
+            type="button"
+            className="ide-statusbar-item ide-statusbar-terminal"
+            data-active={terminalOpen || undefined}
+            title={t('panel.toggleBottom')}
+            aria-label={t('panel.toggleBottom')}
+            onClick={onToggleTerminal}
+          >{Icons.terminal}</button>
+        )}
         {saveState === 'saving' ? (
           <span className="ide-statusbar-item">{t('status.saving')}</span>
         ) : saveState === 'conflict' ? (

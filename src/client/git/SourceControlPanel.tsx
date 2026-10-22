@@ -365,6 +365,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   return (
     <div className="ide-git-panel">
       <div className="ide-git-body ide-git-panels">
+        {/* 变更 panel 占据上部可滚动区域;图表/分支固定在面板底部。 */}
+        <div className="ide-git-subpanel-top">
         {/* ── 源代码管理(变更)子 panel —— AI生成/刷新 按钮在本 panel header 里 ── */}
         <div className="ide-git-subpanel" data-open={openViews.changes || undefined}>
           <div className="ide-git-section-header ide-git-subpanel-header">
@@ -543,7 +545,10 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
         )}
           </>)}
         </div>
+        </div>
 
+        {/* ── 图表/分支 panel 固定在面板底部 ── */}
+        <div className="ide-git-subpanel-bottom">
         {/* ── 图表子 panel ── */}
         <div className="ide-git-subpanel" data-open={openViews.graph || undefined}>
           <div className="ide-git-section-header ide-git-subpanel-header">
@@ -594,9 +599,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
             />
           )}
         </div>
+        </div>
       </div>
-
-      {/* Discard confirmation (VS Code-style destructive-action dialog). */}
       {confirmDiscard !== null && (
         <div
           className="ide-dialog-backdrop"

@@ -419,6 +419,8 @@ export function IdeView(props: IdeViewInjected & {
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   const gitEntriesRef = useRef<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
+  /** Current git branch name (HEAD short name) — shown in the status bar. */
+  const [gitBranch, setGitBranch] = useState<string | undefined>(undefined)
   /** Deduped write path for git status: identical lists leave state untouched
    *  so background refreshes never re-render the view. */
   const applyGitEntries = useCallback((entries: readonly import('./types.js').GitStatusEntry[] | undefined) => {
@@ -450,6 +452,9 @@ export function IdeView(props: IdeViewInjected & {
   // switching the sidebar to the explorer and back — which unmounts/remounts
   // <SourceControlPanel> — does not wipe a typed or AI-generated message.
   const [scmCommitMessage, setScmCommitMessage] = useState('')
+  /** Sidebar position: left (default) or right. Toggled from the top-right
+   *  panel-layout buttons (VS Code "Toggle Side Bar Position"). */
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false)
 
   // Inject the stylesheet + CSS vars once.
   useEffect(() => {
@@ -800,8 +805,11 @@ export function IdeView(props: IdeViewInjected & {
       void ideTools.gitStatus(sessionId, ctrl.signal).then((res) => {
         if (cancelled) return
         if (res.ok) {
-          if (res.value.notARepo) applyGitEntries(undefined)
-          else if (res.value.entries) applyGitEntries(res.value.entries)
+          if (res.value.notARepo) { applyGitEntries(undefined); setGitBranch(undefined) }
+          else {
+            if (res.value.entries) applyGitEntries(res.value.entries)
+            setGitBranch(res.value.branch)
+          }
         }
       }).catch(() => {
         // Swallow git status fetch errors (namespace not mounted, not a repo,
@@ -1037,6 +1045,7 @@ export function IdeView(props: IdeViewInjected & {
     <div className="ide-root" data-ide-view="">
       <ContextMenuHost />
       <div className="ide-body">
+        <div className="ide-body-main">
         <div className="ide-activitybar">
           <div
             className="ide-activitybar-icon"
@@ -1192,6 +1201,22 @@ export function IdeView(props: IdeViewInjected & {
           </div>
         </div>
         <div className="ide-editor-area">
+          <div className="ide-editor-toolbar">
+            <button
+              className="ide-tabbar-action"
+              data-active={terminalOpen || undefined}
+              title={t('panel.toggleBottom')}
+              aria-label={t('panel.toggleBottom')}
+              onClick={() => setTerminalOpen((v) => !v)}
+            >{Icons.panelBottom}</button>
+            <button
+              className="ide-tabbar-action"
+              data-active={rightSidebarOpen || undefined}
+              title={t('panel.toggleRightSidebar')}
+              aria-label={t('panel.toggleRightSidebar')}
+              onClick={() => setRightSidebarOpen((v) => !v)}
+            >{Icons.splitEditor}</button>
+          </div>
           <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t}
             actions={!diffPath && activeIsMd ? (
               <button
@@ -1321,21 +1346,37 @@ export function IdeView(props: IdeViewInjected & {
             />
           )}
           </div>
-          {terminalOpen && sessionId && (
-            <TerminalPanel
-              sessionId={sessionId}
-              ideTools={ideTools}
-              terminalIds={terminalIds}
-              activeIdx={activeTerminalIdx}
-              onTerminalOpened={handleTerminalOpened}
-              onActiveChange={setActiveTerminalIdx}
-              onTerminalClosed={handleTerminalClosed}
-              onClose={handleTerminalClose}
-              t={t}
-            />
-          )}
-          <StatusBar activeTab={activeTab} cursor={cursor} t={t} saveState={saveState} onSave={() => { if (activePath !== undefined) void saveFile(activePath) }} model={model} />
         </div>
+        {rightSidebarOpen && (
+          <div className="ide-sidebar-right" data-testid="ide-sidebar-right">
+            <div className="ide-sidebar-right-header">
+              <span className="ide-sidebar-right-title">{t('panel.rightSidebar')}</span>
+              <button
+                className="ide-sidebar-right-close"
+                title={t('terminal.close')}
+                onClick={() => setRightSidebarOpen(false)}
+              >{Icons.close}</button>
+            </div>
+            <div className="ide-sidebar-right-body">
+              <p className="ide-sidebar-right-placeholder">{t('panel.rightSidebarPlaceholder')}</p>
+            </div>
+          </div>
+        )}
+        </div>
+        {terminalOpen && sessionId && (
+          <TerminalPanel
+            sessionId={sessionId}
+            ideTools={ideTools}
+            terminalIds={terminalIds}
+            activeIdx={activeTerminalIdx}
+            onTerminalOpened={handleTerminalOpened}
+            onActiveChange={setActiveTerminalIdx}
+            onTerminalClosed={handleTerminalClosed}
+            onClose={handleTerminalClose}
+            t={t}
+          />
+        )}
+        <StatusBar activeTab={activeTab} cursor={cursor} t={t} saveState={saveState} onSave={() => { if (activePath !== undefined) void saveFile(activePath) }} model={model} branch={gitBranch} onToggleTerminal={() => setTerminalOpen((v) => !v)} terminalOpen={terminalOpen} />
       </div>
     </div>
   )
