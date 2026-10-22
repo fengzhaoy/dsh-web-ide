@@ -446,6 +446,10 @@ export function IdeView(props: IdeViewInjected & {
   const explorerRef = useRef<ExplorerHandle | null>(null)
   /** Bumped by the explorer's refresh button to force an immediate git status refetch. */
   const [gitRefreshKey, setGitRefreshKey] = useState(0)
+  // Lifted SCM commit-message state: held by the view (not the panel) so that
+  // switching the sidebar to the explorer and back — which unmounts/remounts
+  // <SourceControlPanel> — does not wipe a typed or AI-generated message.
+  const [scmCommitMessage, setScmCommitMessage] = useState('')
 
   // Inject the stylesheet + CSS vars once.
   useEffect(() => {
@@ -1086,6 +1090,8 @@ export function IdeView(props: IdeViewInjected & {
                   setDiffPath({ path, oldPath, sha })
                 }}
                 onChangesDiscarded={handleChangesDiscarded}
+                commitMessage={scmCommitMessage}
+                onCommitMessageChange={setScmCommitMessage}
                 refreshKey={gitRefreshKey}
                 onStatusChanged={(entries) => {
                   // The panel just fetched fresh status: mirror it into the

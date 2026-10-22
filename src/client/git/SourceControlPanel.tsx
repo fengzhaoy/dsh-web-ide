@@ -31,14 +31,21 @@ export interface SourceControlPanelProps {
   /** Paths whose changes were discarded (the view closes a matching diff and
    *  reloads an open editor buffer so it cannot be saved back over HEAD). */
   onChangesDiscarded?: (paths: readonly string[]) => void
+  /** Lifted commit-message state. When provided, the owner (IdeView) holds the
+   *  text across sidebar view switches so switching to the explorer and back
+   *  does not wipe a typed/AI-generated commit message. */
+  commitMessage?: string
+  onCommitMessageChange?: (value: string) => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
 type Status = 'loading' | 'ready' | 'error' | 'notrepo'
 
-/** The SCM sidebar's sub-views, mirroring VS Code's view switcher
- *  (Source Control / Source Control Graph) plus a branches list. */
-type ScmView = 'changes' | 'graph' | 'branches'
+/** The SCM sidebar's sub-views, now rendered as a stack of independently
+ *  collapsible sub-panels (源代码管理 / 图表 / 分支) instead of a header
+ *  dropdown. Each entry is its own open/close state — multi-expand, not
+ *  single-active (modelled on the reference project's csCard accordion). */
+type ScmOpenViews = { changes: boolean; graph: boolean; branches: boolean }
 
 /** The commit split-button modes (VS Code SCM dropdown parity). */
 type CommitMode = 'commit' | 'amend' | 'signoff' | 'push' | 'sync'
@@ -83,10 +90,17 @@ function sameStatus(a: GitStatusResult | null, b: GitStatusResult): boolean {
   return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind && a.detached === b.detached
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, t }: SourceControlPanelProps) {
-  const [view, setView] = useState<ScmView>('changes')
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, t }: SourceControlPanelProps) {
+  const [openViews, setOpenViews] = useState<ScmOpenViews>({ changes: true, graph: false, branches: false })
   const [status, setStatus] = useState<Status>('loading')
-  const [commitMessage, setCommitMessage] = useState('')
+  // Commit message: controlled by the owner when lift props are supplied (so
+  // it survives sidebar view switches); otherwise a local state fallback.
+  const [commitMessageLocal, setCommitMessageLocal] = useState('')
+  const commitMessage = commitMessageProp ?? commitMessageLocal
+  const setCommitMessage = (value: string) => {
+    if (onCommitMessageChange) onCommitMessageChange(value)
+    else setCommitMessageLocal(value)
+  }
   const [committing, setCommitting] = useState(false)
   /** Sync/Publish action button in flight (pull+push / push -u). */
   const [syncing, setSyncing] = useState(false)
@@ -110,8 +124,6 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   const inputRef = useRef<HTMLTextAreaElement>(null)
   /** The caret half of the commit split button — dropdown anchor. */
   const caretRef = useRef<HTMLButtonElement>(null)
-  /** The header view-switcher — dropdown anchor. */
-  const switcherRef = useRef<HTMLButtonElement>(null)
   /** Latest onStatusChanged — read through a ref so `refresh` stays stable
    *  even when the owner passes an inline callback. */
   const statusChangedRef = useRef(onStatusChanged)
@@ -341,49 +353,34 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     genAbort.current?.abort()
   }, [])
 
-  /** The header view switcher (VS Code's SCM view picker): lists the
-   *  Source Control / Graph / Branches views, checking the active one. */
-  const openViewMenu = useCallback(() => {
-    const el = switcherRef.current
-    const rect = el?.getBoundingClientRect()
-    const x = rect ? rect.left : 16
-    const y = rect ? rect.bottom + 2 : 40
-    const entries: readonly { view: ScmView; label: string; icon: typeof Icons.git }[] = [
-      { view: 'changes', label: t('git.title'), icon: Icons.git },
-      { view: 'graph', label: t('git.graphTitle'), icon: Icons.gitGraph },
-      { view: 'branches', label: t('git.branchesTitle'), icon: Icons.branch },
-    ]
-    showContextMenu(x, y, entries.map((entry) => ({
-      id: entry.view,
-      label: entry.label,
-      icon: view === entry.view ? Icons.check : entry.icon,
-      onClick: () => setView(entry.view),
-    })))
-  }, [view, t])
+  /** Toggle one sub-panel open/closed (multi-expand: each is independent). */
+  const toggleView = useCallback((key: keyof ScmOpenViews) => {
+    setOpenViews((current) => ({ ...current, [key]: !current[key] }))
+  }, [])
 
   /** Any history-mutating action from the graph/branches views resyncs the
    *  status-driven parts (branch row, changes list, activity bar badge). */
   const handleMutated = useCallback(() => { void refresh() }, [refresh])
 
-  /** The active view's title for the switcher button. */
-  const viewTitle = view === 'graph' ? t('git.graphTitle')
-    : view === 'branches' ? t('git.branchesTitle')
-    : t('git.title')
-
   return (
     <div className="ide-git-panel">
-      <div className="ide-git-header" data-view={view}>
-        <button
-          ref={switcherRef}
-          className="ide-git-header-switch"
-          title={t('git.graphSwitchView')}
-          onClick={openViewMenu}
-        >
-          <span className="ide-git-header-title">{viewTitle}</span>
-          <span className="ide-git-header-caret">{Icons.chevronDown}</span>
-        </button>
-        {view === 'changes' && (
-          <>
+      <div className="ide-git-body ide-git-panels">
+        {/* ── 源代码管理(变更)子 panel —— AI生成/刷新 按钮在本 panel header 里 ── */}
+        <div className="ide-git-subpanel" data-open={openViews.changes || undefined}>
+          <div className="ide-git-section-header ide-git-subpanel-header">
+            <button
+              type="button"
+              className="ide-git-subpanel-toggle"
+              aria-expanded={openViews.changes}
+              title={openViews.changes ? t('git.collapse') : t('git.expand')}
+              onClick={() => toggleView('changes')}
+            >
+              <span className="ide-git-section-chevron">{openViews.changes ? Icons.chevronDown : Icons.chevronRight}</span>
+              <span className="ide-git-section-title">{t('git.title')}</span>
+              {result && result.entries.length > 0 && (
+                <span className="ide-git-section-count">{result.entries.length}</span>
+              )}
+            </button>
             <button
               className={generating ? 'ide-git-action ide-git-action-busy' : 'ide-git-action'}
               title={
@@ -401,29 +398,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               onClick={() => { void refresh() }}
               disabled={status === 'loading'}
             >{status === 'loading' ? Icons.loading : Icons.refresh}</button>
-          </>
-        )}
-      </div>
+          </div>
 
-      <div className="ide-git-body">
-        {view === 'graph' ? (
-          <GraphView
-            sessionId={sessionId}
-            cwd={cwd}
-            ideTools={ideTools}
-            onOpenCommitDiff={onOpenCommitDiff}
-            onMutated={handleMutated}
-            t={t}
-          />
-        ) : view === 'branches' ? (
-          <BranchesView
-            sessionId={sessionId}
-            cwd={cwd}
-            ideTools={ideTools}
-            onMutated={handleMutated}
-            t={t}
-          />
-        ) : (<>
+          {openViews.changes && (<>
         {status === 'loading' && (
           <div className="ide-git-state">{Icons.loading}<span>{t('git.loading')}</span></div>
         )}
@@ -517,15 +494,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               <div className="ide-git-input-error">{stageError}</div>
             )}
 
-            <div className="ide-git-section">
-              <div className="ide-git-section-header">
-                <span className="ide-git-section-chevron">{Icons.chevronDown}</span>
-                <span className="ide-git-section-title">{t('git.changes')}</span>
-                {result.entries.length > 0 && (
-                  <span className="ide-git-section-count">{result.entries.length}</span>
-                )}
-              </div>
-
+            <div className="ide-git-entries-wrap">
               {result.entries.length === 0 ? (
                 <div className="ide-git-empty">{t('git.noChanges')}</div>
               ) : (
@@ -554,6 +523,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                             { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
                             { id: 'sep2', label: '', separator: true },
                             { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(entry.path) } },
+                            { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(cwd ? entry.path.replace(cwd.replace(/[/\\]+$/, '') + '/', '') : entry.path) } },
                           ])
                         }}
                       >
@@ -572,6 +542,58 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
           </>
         )}
           </>)}
+        </div>
+
+        {/* ── 图表子 panel ── */}
+        <div className="ide-git-subpanel" data-open={openViews.graph || undefined}>
+          <div className="ide-git-section-header ide-git-subpanel-header">
+            <button
+              type="button"
+              className="ide-git-subpanel-toggle"
+              aria-expanded={openViews.graph}
+              title={openViews.graph ? t('git.collapse') : t('git.expand')}
+              onClick={() => toggleView('graph')}
+            >
+              <span className="ide-git-section-chevron">{openViews.graph ? Icons.chevronDown : Icons.chevronRight}</span>
+              <span className="ide-git-section-title">{t('git.graphTitle')}</span>
+            </button>
+          </div>
+          {openViews.graph && (
+            <GraphView
+              sessionId={sessionId}
+              cwd={cwd}
+              ideTools={ideTools}
+              onOpenCommitDiff={onOpenCommitDiff}
+              onMutated={handleMutated}
+              t={t}
+            />
+          )}
+        </div>
+
+        {/* ── 分支子 panel ── */}
+        <div className="ide-git-subpanel" data-open={openViews.branches || undefined}>
+          <div className="ide-git-section-header ide-git-subpanel-header">
+            <button
+              type="button"
+              className="ide-git-subpanel-toggle"
+              aria-expanded={openViews.branches}
+              title={openViews.branches ? t('git.collapse') : t('git.expand')}
+              onClick={() => toggleView('branches')}
+            >
+              <span className="ide-git-section-chevron">{openViews.branches ? Icons.chevronDown : Icons.chevronRight}</span>
+              <span className="ide-git-section-title">{t('git.branchesTitle')}</span>
+            </button>
+          </div>
+          {openViews.branches && (
+            <BranchesView
+              sessionId={sessionId}
+              cwd={cwd}
+              ideTools={ideTools}
+              onMutated={handleMutated}
+              t={t}
+            />
+          )}
+        </div>
       </div>
 
       {/* Discard confirmation (VS Code-style destructive-action dialog). */}

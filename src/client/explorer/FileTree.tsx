@@ -810,8 +810,8 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'sep-reveal', label: '', separator: true },
       revealItem,
       { id: 'sep2', label: '', separator: true },
-      { id: 'rename', label: t('context.rename'), icon: Icons.edit, disabled: depth === 0, onClick: () => onRenameStart?.(childPath, entry.name) },
-      { id: 'delete', label: t('context.delete'), icon: Icons.trash, disabled: depth === 0, onClick: () => onRequestDelete?.(childPath, entry.name, true) },
+      { id: 'rename', label: t('context.rename'), icon: Icons.edit, disabled: childPath === rootDir, onClick: () => onRenameStart?.(childPath, entry.name) },
+      { id: 'delete', label: t('context.delete'), icon: Icons.trash, disabled: childPath === rootDir, onClick: () => onRequestDelete?.(childPath, entry.name, true) },
     ] : [
       { id: 'open', label: t('context.open'), icon: Icons.goToFile, onClick: () => onOpenFile(childPath) },
       { id: 'new-file', label: t('context.newFile'), icon: Icons.newFile, onClick: () => onCreateStart?.('file', dirPath) },

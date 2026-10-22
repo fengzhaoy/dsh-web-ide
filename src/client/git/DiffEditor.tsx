@@ -104,6 +104,11 @@ function applyUnifiedDiff(original: string, patch: string): string {
 export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, onClose, onSaved, onExternalChange, t }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
+  /** Whether the one-time auto-jump to the first diff hunk has run for the
+   *  current mount. The external-change watch reloads models in place and
+   *  re-runs the diff; jumping on every update would fight the user's scroll,
+   *  so the jump fires once per mount (reset when the editor is rebuilt). */
+  const jumpedRef = useRef(false)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [imageSrc, setImageSrc] = useState<string>('')
@@ -335,6 +340,31 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         minimap: { enabled: false },
       } as Monaco.editor.IDiffEditorConstructionOptions)
       editor.setModel({ original: oldModel, modified: newModel })
+      // VS Code parity: once the diff is computed, auto-scroll the modified
+      // (working-tree) side to the FIRST changed region so the user lands on
+      // the first edit instead of the top of the file. Fires once per mount —
+      // the external-change watch re-runs the diff in place and must not yank
+      // the scroll back to the top while the user is reading a later hunk.
+      jumpedRef.current = false
+      const diffEditor = editor
+      diffEditor.onDidUpdateDiff(() => {
+        if (jumpedRef.current) return
+        const changes = diffEditor.getLineChanges()
+        if (!changes || changes.length === 0) return
+        const first = changes[0]
+        // modifiedStartLineNumber is the first changed line on the working-tree
+        // side; fall back to originalStartLineNumber (pure deletion has no
+        // modified lines), else line 1.
+        const line = first.modifiedStartLineNumber > 0
+          ? first.modifiedStartLineNumber
+          : (first.originalStartLineNumber > 0 ? first.originalStartLineNumber : 1)
+        jumpedRef.current = true
+        const modified = diffEditor.getModifiedEditor()
+        // Reveal in the next frame so the editor has finished its own diff
+        // layout pass; otherwise the reveal can be overwritten by the initial
+        // scroll-to-top that follows model assignment.
+        requestAnimationFrame(() => { modified.revealLineInCenter(line) })
+      })
       // Cmd/Ctrl+S inside the diff pane saves the working-tree side — the same
       // shortcut the normal editor tabs use (explorer parity).
       if (canEdit) {

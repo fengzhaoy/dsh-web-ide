@@ -231,6 +231,29 @@ export const IDE_STYLES = `
 .ide-git-section-title{flex:1}
 .ide-git-section-count{background:#4d4d4d;color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
+/* ── SCM 可折叠子 panel(源代码管理/图表/分支纵向堆叠,替代头部下拉) ── */
+.ide-git-panels{display:flex;flex-direction:column;gap:0;padding:0}
+.ide-git-subpanel{margin-top:0;border-bottom:1px solid var(--ide-tree-border,#333)}
+.ide-git-subpanel:last-child{border-bottom:none}
+.ide-git-subpanel-header{padding:0 4px 0 0;cursor:default}
+.ide-git-subpanel-toggle{flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;cursor:pointer;text-align:left;border-radius:4px}
+.ide-git-subpanel-toggle:hover{color:var(--ide-fg);background:var(--ide-tree-hover)}
+.ide-git-subpanel-toggle:focus-visible{outline:2px solid var(--ide-accent);outline-offset:-2px}
+.ide-git-subpanel-toggle .ide-git-section-title{flex:1}
+.ide-git-subpanel-toggle svg{width:12px;height:12px;flex:none}
+.ide-git-subpanel[data-open='true'] .ide-git-subpanel-toggle{color:var(--ide-fg)}
+.ide-git-subpanel .ide-git-action{flex:none}
+/* 第一个子 panel 顶部对齐 body,不与边界打架 */
+.ide-git-panels .ide-git-subpanel:first-child{margin-top:0}
+/* 图表/分支视图自带 toolbar(为旧的全屏 body 设计),嵌进子 panel 后去掉它的顶部
+   间距,让它紧贴 panel header;左右 padding 与 header 对齐。 */
+.ide-git-subpanel .ide-git-graph-toolbar,
+.ide-git-subpanel .ide-git-branches-toolbar{padding:2px 8px 6px 8px}
+/* 视图内容行与 panel header 的左缩进对齐(旧值 12px/16px/24px 是全屏 body 时代的)。 */
+.ide-git-subpanel .ide-git-graph-item{padding:3px 8px}
+.ide-git-subpanel .ide-git-branch-row{padding:3px 8px 3px 16px}
+.ide-git-subpanel .ide-git-branch-row[data-remote='true']{padding-left:20px}
+.ide-git-subpanel .ide-git-entries .ide-git-entry{padding:0 8px 0 12px}
 .ide-git-entries{display:flex;flex-direction:column}
 .ide-git-entry{display:flex;align-items:center;gap:4px;padding:0 12px 0 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px;line-height:22px;white-space:nowrap}
 .ide-git-entry:hover{background:var(--ide-tree-hover)}
@@ -263,12 +286,6 @@ export const IDE_STYLES = `
 .ide-git-entry-status[data-kind='renamed']{color:#61afef}
 .ide-git-entry-status[data-kind='conflicted']{color:#e2c08d}
 /* ── SCM graph + branches views (VS Code Source Control Graph parity) ── */
-/* Header view switcher (VS Code's SCM view picker button). */
-.ide-git-header-switch{flex:1;min-width:0;display:flex;align-items:center;gap:4px;background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:2px 0;cursor:pointer;text-align:left}
-.ide-git-header-switch:hover{color:var(--ide-fg)}
-.ide-git-header-switch .ide-git-header-title{flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ide-git-header-switch .ide-git-header-caret{display:flex;align-items:center}
-.ide-git-header-switch .ide-git-header-caret svg{width:12px;height:12px}
 /* Graph toolbar: branch filter segmented control + fetch/refresh actions. */
 .ide-git-graph-toolbar{display:flex;align-items:center;gap:2px;padding:4px 12px 6px 16px}
 .ide-git-graph-filter{flex:1;display:flex;background:#313131;border-radius:4px;padding:1px;gap:1px;max-width:200px}
@@ -413,7 +430,7 @@ export const IDE_STYLES = `
 .ide-terminal-error[data-testid=ide-terminal-exited] .ide-dialog-button{flex:none;height:22px;padding:0 10px;font-size:11px}
 .ide-terminal-empty{padding:20px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);text-align:center}
 .ide-activitybar-spacer{flex:1}
-.ide-context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;background:#252526;border:1px solid #454545;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.36);padding:4px 0;font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);color:var(--ide-fg);overflow-y:auto;overflow-x:hidden}
+.ide-context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;max-height:calc(100vh - 16px);background:#252526;border:1px solid #454545;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.36);padding:4px 0;font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);color:var(--ide-fg);overflow-y:auto;overflow-x:hidden}
 .ide-context-menu-separator{height:1px;background:#454545;margin:4px 0}
 .ide-context-menu-item{display:flex;align-items:center;gap:8px;padding:0 12px 0 28px;height:26px;cursor:default;user-select:none;white-space:nowrap;position:relative}
 .ide-context-menu-item:hover:not([data-disabled='true']){background:var(--ide-accent);color:#fff}
