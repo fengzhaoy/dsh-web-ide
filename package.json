@@ -57,12 +57,12 @@
     "@deepseek-ai/dsh-util-values": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-tool-fs-search": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "@xterm/xterm": "^5.5.0",
     "@xterm/addon-fit": "^0.10.0",
     "monaco-editor": "^0.52.0",
-    "@types/node": "^22.0.0",
-    "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.2"
+    "@types/node": "^22.0.0"
   },
   "files": [
     "lib",
