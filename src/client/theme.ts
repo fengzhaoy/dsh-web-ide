@@ -426,7 +426,7 @@ export const IDE_STYLES = `
 .ide-search-hit-line{color:var(--ide-fg-dim,#6a9955);min-width:30px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
 .ide-search-hit-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-alias-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
 /* ── Terminal panel ───────────────────────────────────────────────────── */
-.ide-terminal-panel{display:flex;flex-direction:column;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f;position:relative;transition:height .2s ease}
+.ide-terminal-panel{display:flex;flex-direction:column;flex:none;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f;position:relative;transition:height .2s ease}
 .ide-terminal-panel[data-state='minimized']{height:35px !important;min-height:35px !important}
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
 .ide-terminal-toolbar{display:flex;align-items:center;gap:4px;padding:0 4px 0 0;border-bottom:1px solid var(--ide-border,#2b2b2b);flex:none;background:#1e1e1e;height:35px}
