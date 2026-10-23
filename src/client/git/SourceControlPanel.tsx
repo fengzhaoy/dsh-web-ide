@@ -18,16 +18,24 @@ export interface SourceControlPanelProps {
   sessionId: SessionId
   cwd: string | undefined
   ideTools: IdeToolsRemote
-  /** Open one path's diff in the editor area. */
-  onOpenDiff: (path: string, kind: GitStatusEntry['kind']) => void
+  /** Open one path's diff in the editor area. diffKind='staged' opens the
+   *  index-vs-HEAD diff (a Staged Changes group entry). */
+  onOpenDiff: (path: string, kind: GitStatusEntry['kind'], diffKind?: 'staged') => void
+  /** Open the working-tree file itself in the editor (context menu → Open
+   *  File, VS Code parity). The path is workspace-relative. */
+  onOpenFile?: (path: string) => void
   /** Open one file of one commit as a diff in the editor area (graph view). */
   onOpenCommitDiff: (sha: string, path: string, oldPath: string | undefined) => void
   /** Bumped by the owner whenever external activity may have changed git
    *  state (file watcher hits, diff saves): retriggers a status fetch. */
   refreshKey?: number
   /** Mirrors each successful status fetch to the owner so the activity-bar
-   *  badge shows exactly what the panel sees (no lag, no duplicate fetch). */
-  onStatusChanged?: (entries: readonly GitStatusEntry[] | undefined) => void
+   *  badge shows exactly what the panel sees (no lag, no duplicate fetch).
+   *  Carries the FULL result (branch/ahead/behind too): while the SCM panel
+   *  is mounted it is the single poller — the owner pauses its own interval
+   *  and feeds every consumer (badge, file tree, status bar) from this
+   *  callback, so gitStatus is requested exactly once per cycle. */
+  onStatusChanged?: (result: GitStatusResult | undefined) => void
   /** Paths whose changes were discarded (the view closes a matching diff and
    *  reloads an open editor buffer so it cannot be saved back over HEAD). */
   onChangesDiscarded?: (paths: readonly string[]) => void
@@ -90,7 +98,7 @@ function sameStatus(a: GitStatusResult | null, b: GitStatusResult): boolean {
   return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind && a.detached === b.detached
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, t }: SourceControlPanelProps) {
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenFile, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, t }: SourceControlPanelProps) {
   const [openViews, setOpenViews] = useState<ScmOpenViews>({ changes: true, graph: false, branches: false })
   const [status, setStatus] = useState<Status>('loading')
   // Commit message: controlled by the owner when lift props are supplied (so
@@ -112,6 +120,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   const [genError, setGenError] = useState<string | null>(null)
   /** Entry awaiting the discard confirmation dialog. */
   const [confirmDiscard, setConfirmDiscard] = useState<GitStatusEntry | null>(null)
+  /** Discard-ALL awaiting its (separate) confirmation dialog. */
+  const [confirmDiscardAll, setConfirmDiscardAll] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   /** Error shown inside the discard dialog (and cleared on close/retry). */
   const [discardError, setDiscardError] = useState<string | null>(null)
@@ -124,6 +134,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   const inputRef = useRef<HTMLTextAreaElement>(null)
   /** The caret half of the commit split button — dropdown anchor. */
   const caretRef = useRef<HTMLButtonElement>(null)
+  /** The changes panel's "..." (more actions) button — menu anchor. */
+  const moreRef = useRef<HTMLButtonElement>(null)
   /** Latest onStatusChanged — read through a ref so `refresh` stays stable
    *  even when the owner passes an inline callback. */
   const statusChangedRef = useRef(onStatusChanged)
@@ -145,13 +157,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
         if (res.value.notARepo) {
           setStatus((current) => (current === 'notrepo' ? current : 'notrepo'))
           setResult((current) => (current === null ? current : null))
-          statusChangedRef.current?.(undefined)
+          statusChangedRef.current?.(res.value)
         } else {
           setStatus((current) => (current === 'ready' ? current : 'ready'))
           // Write the result only when something actually changed: identical
           // entries leave the component untouched (zero re-render, zero flicker).
           setResult((current) => (sameStatus(current, res.value) ? current : res.value))
-          statusChangedRef.current?.(res.value.entries)
+          statusChangedRef.current?.(res.value)
         }
       } else {
         setStatus('error'); setError(res.error.message ?? res.error.code)
@@ -181,9 +193,17 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     firstRefreshKey.current = refreshKey
   }, [refreshKey, refresh])
 
-  const handleClick = useCallback((entry: GitStatusEntry) => {
+  /** VS Code SCM grouping: a staged entry (X letter set, or an unmerged
+   *  conflict) lives in the "Staged Changes" / "Merge Changes" group. */
+  const isStagedEntry = useCallback((entry: GitStatusEntry): boolean => {
+    if (entry.kind === 'conflicted') return true
+    const x = entry.statusCode[0] ?? ' '
+    return x !== ' ' && x !== '?'
+  }, [])
+
+  const handleClick = useCallback((entry: GitStatusEntry, staged: boolean) => {
     setSelectedPath(entry.path)
-    onOpenDiff(entry.path, entry.kind)
+    onOpenDiff(entry.path, entry.kind, staged ? 'staged' : undefined)
   }, [onOpenDiff])
 
   /** Stage one path (context menu → 暂存更改). */
@@ -249,11 +269,16 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     if (committing) return
     setCommitting(true)
     setCommitError(null)
+    // VS Code smart-commit: when the index already holds staged entries the
+    // commit takes EXACTLY those (autoStage:false); a fully unstaged tree
+    // still stages everything (autoStage default), matching git's own UX.
+    const hasStaged = result?.entries.some((entry) => isStagedEntry(entry)) ?? false
     const options = {
       amend: mode === 'amend',
       signoff: mode === 'signoff',
       push: mode === 'push',
       sync: mode === 'sync',
+      ...(hasStaged ? { autoStage: false as const } : {}),
     }
     try {
       const res = await ideTools.gitCommit(sessionId, message, options)
@@ -276,9 +301,45 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     }
   }, [sessionId, commitMessage, committing, ideTools, refresh])
 
+  /** Unstage one path (hover button / context menu). */
+  const handleUnstage = useCallback(async (entry: GitStatusEntry) => {
+    setStageError(null)
+    try {
+      const res = await ideTools.gitUnstage(sessionId, entry.path)
+      if (res.ok) await refresh()
+      else setStageError(t('git.unstageFailed', { message: res.error.message ?? res.error.code }))
+    } catch (err) {
+      setStageError(t('git.unstageFailed', { message: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [sessionId, ideTools, refresh, t])
+
+  /** Unstage everything (the staged group's "−" header action). */
+  const handleUnstageAll = useCallback(async () => {
+    setStageError(null)
+    try {
+      const res = await ideTools.gitUnstageAll(sessionId)
+      if (res.ok) await refresh()
+      else setStageError(t('git.unstageFailed', { message: res.error.message ?? res.error.code }))
+    } catch (err) {
+      setStageError(t('git.unstageFailed', { message: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [sessionId, ideTools, refresh, t])
+
+  /** Stage everything (the changes group's "＋" header action). */
+  const handleStageAll = useCallback(async () => {
+    setStageError(null)
+    try {
+      const res = await ideTools.gitStageAll(sessionId)
+      if (res.ok) await refresh()
+      else setStageError(t('git.stageFailed', { message: res.error.message ?? res.error.code }))
+    } catch (err) {
+      setStageError(t('git.stageFailed', { message: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [sessionId, ideTools, refresh, t])
+
   /** VS Code SCM action button: synchronize (pull+push) or publish
    *  (push -u origin <branch>) on a clean tree. */
-  const handleSync = useCallback(async (action: 'sync' | 'publish') => {
+  const handleSync = useCallback(async (action: 'sync' | 'publish' | 'pull' | 'push') => {
     if (syncing) return
     setSyncing(true)
     setCommitError(null)
@@ -295,6 +356,62 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
       setSyncing(false)
     }
   }, [sessionId, syncing, ideTools, refresh])
+
+  /** Discard ALL changes (the changes group's "↩" header action, confirmed
+   *  through the same dialog as a single discard). */
+  const handleDiscardAll = useCallback(async () => {
+    if (discarding) return
+    setDiscarding(true)
+    setDiscardError(null)
+    try {
+      const res = await ideTools.gitDiscardAll(sessionId)
+      if (res.ok) {
+        setConfirmDiscardAll(false)
+        await refresh()
+        onChangesDiscarded?.(result?.entries.map((entry) => entry.path) ?? [])
+      } else {
+        setDiscardError(res.error.message ?? res.error.code)
+      }
+    } catch (err) {
+      setDiscardError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDiscarding(false)
+    }
+  }, [discarding, sessionId, ideTools, refresh, onChangesDiscarded, result])
+
+  /** Fetch from the upstream remote (best effort; failures surface inline). */
+  const handleFetch = useCallback(async () => {
+    if (syncing) return
+    setSyncing(true)
+    setCommitError(null)
+    try {
+      const res = await ideTools.gitFetch(sessionId)
+      if (res.ok) await refresh()
+      else setCommitError(res.error.message ?? res.error.code)
+    } catch (err) {
+      setCommitError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSyncing(false)
+    }
+  }, [sessionId, syncing, ideTools, refresh])
+
+  /** The changes panel's "..." menu (VS Code SCM view menu): pull, push,
+   *  fetch, plus the group-level stage-all / discard-all quick actions. */
+  const openMoreMenu = useCallback(() => {
+    const el = moreRef.current
+    const rect = el?.getBoundingClientRect()
+    const x = rect ? rect.left : 120
+    const y = rect ? rect.bottom + 2 : 120
+    const busy = syncing || committing
+    showContextMenu(x, y, [
+      { id: 'pull', label: t('git.pull'), icon: Icons.arrowDown, disabled: busy, onClick: () => { void handleSync('pull') } },
+      { id: 'push', label: t('git.push'), icon: Icons.arrowUp, disabled: busy, onClick: () => { void handleSync('push') } },
+      { id: 'fetch', label: t('git.fetch'), icon: Icons.cloudDownload, disabled: busy, onClick: () => { void handleFetch() } },
+      { id: 'sep1', label: '', separator: true },
+      { id: 'stage-all', label: t('git.stageAll'), icon: Icons.plus, disabled: busy || noChanges, onClick: () => { void handleStageAll() } },
+      { id: 'discard-all', label: t('git.discardAll'), icon: Icons.discard, disabled: busy || noChanges, onClick: () => { setDiscardError(null); setConfirmDiscardAll(true) } },
+    ])
+  }, [t, syncing, committing, noChanges, handleSync, handleStageAll])
 
   /** Open the commit dropdown (VS Code's commit split button secondary menu),
    *  anchored under the caret half of the split button. */
@@ -362,6 +479,115 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
    *  status-driven parts (branch row, changes list, activity bar badge). */
   const handleMutated = useCallback(() => { void refresh() }, [refresh])
 
+  /** Render one changes group (VS Code SCM resource groups): a header with
+   *  the group label, count, and group-level actions (＋ stage all / −
+   *  unstage all / ↩ discard all), followed by its entries with per-row
+   *  hover actions (open-file / discard / stage-or-unstage). */
+  const renderGroup = (group: 'merge' | 'staged' | 'changes', label: string, entries: readonly GitStatusEntry[]) => (
+    <div className="ide-git-group" data-group={group} data-testid={'ide-git-group-' + group}>
+      <div className="ide-git-group-header">
+        <span className="ide-git-group-label">{label}</span>
+        <span className="ide-git-group-count">{entries.length}</span>
+        <span className="ide-git-group-actions">
+          {group === 'changes' && (
+            <>
+              <button
+                type="button"
+                className="ide-git-group-action"
+                title={t('git.discardAll')}
+                onClick={() => { setDiscardError(null); setConfirmDiscardAll(true) }}
+              >{Icons.discard}</button>
+              <button
+                type="button"
+                className="ide-git-group-action"
+                title={t('git.stageAll')}
+                onClick={() => { void handleStageAll() }}
+              >{Icons.plus}</button>
+            </>
+          )}
+          {group === 'staged' && (
+            <button
+              type="button"
+              className="ide-git-group-action"
+              title={t('git.unstageAll')}
+              onClick={() => { void handleUnstageAll() }}
+            >{Icons.dash}</button>
+          )}
+        </span>
+      </div>
+      {entries.map((entry) => {
+        const segs = entry.path.split('/')
+        const name = segs[segs.length - 1] || entry.path
+        const dir = segs.length > 1 ? segs.slice(0, -1).join('/') : ''
+        const isSelected = entry.path === selectedPath
+        const staged = group !== 'changes'
+        return (
+          <div
+            key={entry.path}
+            className="ide-git-entry"
+            data-selected={isSelected || undefined}
+            data-kind={entry.kind}
+            data-testid={'ide-git-entry-' + entry.path}
+            title={entry.oldPath ? entry.oldPath + ' → ' + entry.path : entry.path}
+            onClick={() => handleClick(entry, staged)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              showContextMenu(e.clientX, e.clientY, [
+                { id: 'open-change', label: t('git.openDiff'), icon: Icons.diff, onClick: () => handleClick(entry, staged) },
+                { id: 'open-file', label: t('git.openFile'), icon: Icons.goToFile, disabled: !onOpenFile, onClick: () => { onOpenFile?.(entry.path) } },
+                { id: 'sep1', label: '', separator: true },
+                ...(staged
+                  ? [{ id: 'unstage', label: t('git.unstage'), icon: Icons.dash, onClick: () => { void handleUnstage(entry) } }]
+                  : [{ id: 'stage', label: t('git.stage'), icon: Icons.plus, onClick: () => { void handleStage(entry) } }]),
+                { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
+                { id: 'sep2', label: '', separator: true },
+                { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(entry.path) } },
+                { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(cwd ? entry.path.replace(cwd.replace(/[\/\\]+$/, '') + '/', '') : entry.path) } },
+              ])
+            }}
+          >
+            <span className="ide-git-entry-icon" data-kind={entry.kind}>{fileIcon(name, false)}</span>
+            <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
+            {dir && <span className="ide-git-entry-dir">{dir}</span>}
+            <span className="ide-git-entry-hover-actions">
+              <button
+                type="button"
+                className="ide-git-group-action"
+                title={t('git.openFile')}
+                onClick={(e) => { e.stopPropagation(); onOpenFile?.(entry.path) }}
+              >{Icons.goToFile}</button>
+              <button
+                type="button"
+                className="ide-git-group-action"
+                title={t('git.discard')}
+                onClick={(e) => { e.stopPropagation(); setDiscardError(null); setConfirmDiscard(entry) }}
+              >{Icons.discard}</button>
+              {staged ? (
+                <button
+                  type="button"
+                  className="ide-git-group-action"
+                  title={t('git.unstage')}
+                  onClick={(e) => { e.stopPropagation(); void handleUnstage(entry) }}
+                >{Icons.dash}</button>
+              ) : (
+                <button
+                  type="button"
+                  className="ide-git-group-action"
+                  title={t('git.stage')}
+                  onClick={(e) => { e.stopPropagation(); void handleStage(entry) }}
+                >{Icons.plus}</button>
+              )}
+            </span>
+            <span className="ide-git-entry-status" data-kind={entry.kind}>
+              {statusLetter(entry.kind)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+
   return (
     <div className="ide-git-panel">
       <div className="ide-git-body ide-git-panels">
@@ -400,6 +626,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               onClick={() => { void refresh() }}
               disabled={status === 'loading'}
             >{status === 'loading' ? Icons.loading : Icons.refresh}</button>
+            <button
+              ref={moreRef}
+              className="ide-git-action"
+              title={t('git.more')}
+              onClick={openMoreMenu}
+              disabled={status !== 'ready'}
+            >{Icons.ellipsis}</button>
           </div>
 
           {openViews.changes && (<>
@@ -500,44 +733,25 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               {result.entries.length === 0 ? (
                 <div className="ide-git-empty">{t('git.noChanges')}</div>
               ) : (
-                <div className="ide-git-entries">
-                  {result.entries.map((entry) => {
-                    const segs = entry.path.split('/')
-                    const name = segs[segs.length - 1] || entry.path
-                    const dir = segs.length > 1 ? segs.slice(0, -1).join('/') : ''
-                    const isSelected = entry.path === selectedPath
-                    return (
-                      <div
-                        key={entry.path}
-                        className="ide-git-entry"
-                        data-selected={isSelected || undefined}
-                        data-kind={entry.kind}
-                        title={entry.oldPath ? entry.oldPath + ' \u2192 ' + entry.path : entry.path}
-                        onClick={() => handleClick(entry)}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          showContextMenu(e.clientX, e.clientY, [
-                            { id: 'open-change', label: t('git.openDiff'), icon: Icons.diff, onClick: () => handleClick(entry) },
-                            { id: 'open-file', label: t('git.openFile'), icon: Icons.goToFile },
-                            { id: 'sep1', label: '', separator: true },
-                            { id: 'stage', label: t('git.stage'), icon: Icons.plus, onClick: () => { void handleStage(entry) } },
-                            { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
-                            { id: 'sep2', label: '', separator: true },
-                            { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(entry.path) } },
-                            { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(cwd ? entry.path.replace(cwd.replace(/[/\\]+$/, '') + '/', '') : entry.path) } },
-                          ])
-                        }}
-                      >
-                        <span className="ide-git-entry-icon" data-kind={entry.kind}>{fileIcon(name, false)}</span>
-                        <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
-                        {dir && <span className="ide-git-entry-dir">{dir}</span>}
-                        <span className="ide-git-entry-status" data-kind={entry.kind}>
-                          {statusLetter(entry.kind)}
-                        </span>
-                      </div>
-                    )
-                  })}
+                <div className="ide-git-entries" data-testid="ide-git-entries">
+                  {/* —— 合并更改 (Merge Changes) 分组：未合并冲突条目 —— */}
+                  {(() => {
+                    const mergeEntries = result.entries.filter((e) => e.kind === 'conflicted')
+                    if (mergeEntries.length === 0) return null
+                    return renderGroup('merge', t('git.mergeChanges'), mergeEntries)
+                  })()}
+                  {/* —— 已暂存的更改 (Staged Changes) 分组 —— */}
+                  {(() => {
+                    const staged = result.entries.filter((e) => e.kind !== 'conflicted' && isStagedEntry(e))
+                    if (staged.length === 0) return null
+                    return renderGroup('staged', t('git.stagedChanges'), staged)
+                  })()}
+                  {/* —— 更改 (Changes) 分组：工作树未暂存条目 —— */}
+                  {(() => {
+                    const changes = result.entries.filter((e) => e.kind !== 'conflicted' && !isStagedEntry(e))
+                    if (changes.length === 0) return null
+                    return renderGroup('changes', t('git.changesGroup'), changes)
+                  })()}
                 </div>
               )}
             </div>
@@ -629,6 +843,37 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                 onClick={() => { void handleDiscard() }}
                 disabled={discarding}
               >{discarding ? Icons.loading : Icons.discard}<span>{t('git.discard')}</span></button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDiscardAll && (
+        <div
+          className="ide-dialog-backdrop"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !discarding) setConfirmDiscardAll(false) }}
+        >
+          <div className="ide-dialog">
+            <div className="ide-dialog-title">{t('git.discardAllConfirmTitle')}</div>
+            <div className="ide-dialog-body">
+              {t('git.discardAllConfirmBody', { count: result?.entries.length ?? 0 })}
+              <br />
+              {t('git.discardConfirmWarning')}
+            </div>
+            {discardError !== null && <div className="ide-git-input-error">{t('git.discardFailed', { message: discardError })}</div>}
+            <div className="ide-dialog-actions">
+              <button
+                className="ide-dialog-button ide-dialog-button-quiet"
+                type="button"
+                onClick={() => setConfirmDiscardAll(false)}
+                disabled={discarding}
+              >{t('git.cancel')}</button>
+              <button
+                className="ide-dialog-button"
+                type="button"
+                onClick={() => { void handleDiscardAll() }}
+                disabled={discarding}
+              >{discarding ? Icons.loading : Icons.discard}<span>{t('git.discardAll')}</span></button>
             </div>
           </div>
         </div>

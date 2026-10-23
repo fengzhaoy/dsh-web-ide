@@ -12,9 +12,9 @@
  * only by the host.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
@@ -388,6 +388,8 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileCreate', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileMove', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'fileCopy', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'writeFile', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileReveal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'hostPlatform', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -399,11 +401,17 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitCreateBranch', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDeleteBranch', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitFetch', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitUnstage', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitUnstageAll', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitDiscardAll', invocation: Object.freeze({ kind: 'direct' }) }),
         ]),
       }),
     })
+
     // Terminate every still-live terminal when the plugin unloads.
-    ctx.effect(() => () => { void this.disposeAll() }, 'ideTools: terminal teardown')
+    ctx.effect(() => () => {
+      void this.disposeAll()
+    }, 'ideTools: terminal teardown')
   }
 
   /** Workspace grep reusing dsh-tool-fs-search's ripgrep machinery verbatim. */
@@ -438,10 +446,20 @@ export class IdeTools extends TypertRemoteService {
   /** Spawn one interactive login shell in the workspace root. */
   async terminalOpen(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
-    spec: { cols: number; rows: number; command?: string },
+    spec: { cols: number; rows: number; command?: string; cwd?: string },
     signal: AbortSignal,
   ): Promise<IdeTerminalOpenResult> {
     const { workspaceRoot } = workspaceFileScope
+    // "Open in Integrated Terminal" spawns the shell already inside the chosen
+    // directory. The path stays inside the workspace (empty string = the root).
+    let spawnCwd = workspaceRoot
+    if (spec.cwd !== undefined && spec.cwd.length > 0) {
+      try {
+        spawnCwd = resolveWorkspacePath(workspaceRoot, spec.cwd)
+      } catch {
+        throw new RemoteError('ide-tools/bad-path', 'the terminal cwd escapes the workspace', { path: spec.cwd })
+      }
+    }
     const shell = spec.command !== undefined && spec.command.length > 0 ? spec.command : (process.env.SHELL ?? '/bin/zsh')
     // `-l` (login: sources .zprofile/.zlogin) + `-i` (interactive: sources .zshrc) so the
     // IDE terminal inherits the user's real zsh environment — prompt theme (p10k/starship/
@@ -451,7 +469,7 @@ export class IdeTools extends TypertRemoteService {
     const rows = Math.max(2, Math.min(300, Math.round(spec.rows)))
     const handle = await this.ctx.subprocess.spawnTerminal({
       argv,
-      cwd: workspaceRoot,
+      cwd: spawnCwd,
       // terminalType is what the subprocess seam forwards to node-pty as the PTY
       // `name` AND writes into the child env as TERM. Omitting it left TERM unset,
       // which made zsh drop into dumb-terminal mode (no colors, broken prompt).
@@ -676,7 +694,12 @@ export class IdeTools extends TypertRemoteService {
       throw new RemoteError('ide-tools/git-failed', 'git was killed by signal ' + (outcome.signal ?? '(unknown)'), {})
     }
     if (outcome.exitCode !== 0) {
-      throw new RemoteError('ide-tools/git-failed', 'git exited with code ' + outcome.exitCode + ': ' + stderrText.trim(), {})
+      // Some git failures ("nothing to commit", "no changes added to commit")
+      // print to STDOUT with an empty stderr — surface the stdout tail then, so
+      // the real cause stays diagnosable and the commit flow's nothing-to-
+      // commit detection can match on it.
+      const detail = stderrText.trim().length > 0 ? stderrText.trim() : stdout.text.trim().slice(-2000)
+      throw new RemoteError('ide-tools/git-failed', 'git exited with code ' + outcome.exitCode + ': ' + detail, {})
     }
     return stdout.text
   }
@@ -1269,6 +1292,29 @@ export class IdeTools extends TypertRemoteService {
     try {
       if (!cwd) return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language }
       const diff = await this.runGit(cwd, diffArgv, signal)
+      if (kind === 'staged') {
+        // Staged diff (VS Code's "Staged Changes" click): index vs HEAD. Both
+        // sides come from git objects — the working tree is never consulted
+        // (unstaged edits on top must not leak into the staged view).
+        let oldContent = ''
+        try {
+          oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
+        } catch { /* not in HEAD (a staged new file) */ }
+        let newContent = ''
+        try {
+          newContent = await this.runGit(cwd, ['show', ':' + path], signal)
+        } catch { /* not in the index (should not happen for a staged path) */ }
+        const isEmpty = diff.trim().length === 0 && oldContent === newContent
+        return {
+          empty: isEmpty,
+          diff,
+          oldContent,
+          newContent,
+          oldPath: path,
+          newPath: path,
+          language,
+        }
+      }
       // Left side: the committed (HEAD) version — empty for a new/untracked file.
       let oldContent = ''
       try {
@@ -1358,6 +1404,61 @@ export class IdeTools extends TypertRemoteService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       throw new RemoteError('ide-tools/git-stage-failed', message, {})
+    }
+  }
+
+  /** Unstage one path (git reset HEAD -- path, VS Code's "Unstage Changes").
+   *  A newly-added (previously untracked) file becomes untracked again; a
+   *  staged modification drops back to the working-tree group. */
+  async gitUnstage(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+    if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
+    try {
+      await this.runGit(cwd, ['reset', 'HEAD', '--', path], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-unstage-failed', message, {})
+    }
+  }
+
+  /** Unstage everything (git reset HEAD, VS Code's staged-group "−" action). */
+  async gitUnstageAll(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    try {
+      await this.runGit(cwd, ['reset', 'HEAD'], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-unstage-failed', message, {})
+    }
+  }
+
+  /** Discard ALL uncommitted changes (VS Code's changes-group "↩ Discard All
+   *  Changes"): reset the index to HEAD, rewrite the working tree from it,
+   *  and remove every untracked file. Destructive — the UI confirms first. */
+  async gitDiscardAll(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+    try {
+      // Staged renames keep a phantom index entry after reset unless the
+      // target path is also cleaned, so clean runs after reset. Untracked
+      // files (including staged adds, which reset turns back into untracked)
+      // are removed by -d.
+      await this.runGit(cwd, ['reset', '--hard', 'HEAD'], signal)
+      await this.runGit(cwd, ['clean', '-fd'], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-discard-failed', message, {})
     }
   }
 
@@ -1496,6 +1597,98 @@ export class IdeTools extends TypertRemoteService {
       if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
       throw new RemoteError('ide-tools/create-failed', message, {})
+    }
+  }
+
+  /**
+   * Move (or rename across directories) one workspace entry into a target
+   * directory (Explorer drag & drop). Paths are workspace-relative; the host
+   * refuses a target escaping the workspace root, a move into itself or its
+   * own subtree, and an existing target — mirroring VS Code's explorer
+   * drag-drop guards. The optional explicit newName resolves name collisions
+   * the caller already knows about (e.g. suffix "- copy"). */
+  async fileMove(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    targetDir: string,
+    opts: { newName?: string } | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0 || targetDir.length === 0) throw new RemoteError('ide-tools/bad-request', 'path and target directory are required', {})
+      const abs = resolveWorkspacePath(workspaceRoot, path)
+      const dirAbs = targetDir === '' ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, targetDir)
+      const root = resolve(workspaceRoot)
+      if (!dirAbs.startsWith(root + sep) && dirAbs !== root) {
+        throw new RemoteError('ide-tools/bad-path', 'target directory escapes the workspace root', {})
+      }
+      // The destination directory must exist and be a directory.
+      const dirInfo = await stat(dirAbs).catch(() => undefined)
+      if (dirInfo === undefined || !dirInfo.isDirectory()) {
+        throw new RemoteError('ide-tools/bad-path', 'the target is not a directory', {})
+      }
+      // Refuse a move into itself or into its own subtree.
+      if (abs === dirAbs || dirAbs.startsWith(abs + sep)) {
+        throw new RemoteError('ide-tools/bad-path', 'cannot move an entry into itself or its own subtree', {})
+      }
+      const finalName = opts?.newName && opts.newName.length > 0 ? opts.newName : basename(abs)
+      const target = resolve(dirAbs, finalName)
+      if (!target.startsWith(root + sep)) {
+        throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
+      }
+      if (existsSync(target)) {
+        throw new RemoteError('ide-tools/exists', 'an entry with that name already exists in the target directory', {})
+      }
+      await rename(abs, target)
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/move-failed', message, {})
+    }
+  }
+
+  /**
+   * Copy one file (not directories — VS Code's explorer paste copies files;
+   * recursive directory copies stay a host-side bulk upload concern) into a
+   * target directory. An existing target is refused unless the caller passes
+   * an explicit newName (the UI derives "- copy" style suffixes). */
+  async fileCopy(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    targetDir: string,
+    opts: { newName?: string } | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0 || targetDir.length === 0) throw new RemoteError('ide-tools/bad-request', 'path and target directory are required', {})
+      const abs = resolveWorkspacePath(workspaceRoot, path)
+      const info = await stat(abs).catch(() => undefined)
+      if (info === undefined) throw new RemoteError('ide-tools/not-found', 'the source entry no longer exists', {})
+      if (info.isDirectory()) {
+        throw new RemoteError('ide-tools/bad-request', 'copying directories is not supported; move it instead', {})
+      }
+      const dirAbs = targetDir === '' ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, targetDir)
+      const root = resolve(workspaceRoot)
+      if (!dirAbs.startsWith(root + sep) && dirAbs !== root) {
+        throw new RemoteError('ide-tools/bad-path', 'target directory escapes the workspace root', {})
+      }
+      const finalName = opts?.newName && opts.newName.length > 0 ? opts.newName : basename(abs)
+      const target = resolve(dirAbs, finalName)
+      if (!target.startsWith(root + sep)) {
+        throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
+      }
+      if (existsSync(target)) {
+        throw new RemoteError('ide-tools/exists', 'an entry with that name already exists in the target directory', {})
+      }
+      await copyFile(abs, target)
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/copy-failed', message, {})
     }
   }
 
@@ -1647,21 +1840,39 @@ export class IdeTools extends TypertRemoteService {
   async gitCommit(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
     message: string,
-    options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean },
+    options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean; autoStage?: boolean },
     signal: AbortSignal | undefined,
   ): Promise<{ committed: boolean; hash?: string; pushed?: boolean }> {
     const { workspaceRoot: cwd } = workspaceFileScope
     const opts = options ?? {}
     try {
-      // Stage all changes first (the panel's commit-all model; staging a clean
-      // tree is a no-op, so amend-with-empty-input still only rewords).
-      await this.runGit(cwd, ['add', '-A'], signal)
+      try { await writeFile('/tmp/gitCommit-debug.log', new Date().toISOString() + ' ENTER gitCommit cwd=' + cwd + ' msg=' + JSON.stringify(message).slice(0, 80) + ' opts=' + JSON.stringify(opts) + '\n', { flag: 'a' }) } catch { /* ignore */ }
+      // VS Code's smart-commit model: stage everything UNLESS the caller says
+      // the index already holds the exact set to commit (autoStage:false).
+      // Staging a clean tree is a no-op, so amend-with-empty-input still only
+      // rewords either way.
+      if (opts.autoStage !== false) {
+        await this.runGit(cwd, ['add', '-A'], signal)
+      }
       // Commit with the message. Use -m to avoid editor launch.
       const argv = opts.amend
         ? (message.trim().length > 0 ? ['commit', '--amend', '-m', message] : ['commit', '--amend', '--no-edit'])
         : ['commit', '-m', message]
       if (opts.signoff) argv.push('-s')
-      const out = await this.runGit(cwd, argv, signal)
+      // VS Code smart-commit self-heal: when the client believed the index
+      // held the staged set (autoStage:false) but git finds nothing staged,
+      // its status snapshot was stale — stage everything and retry once,
+      // exactly VS Code's "stage all changes and commit" path.
+      const commitOnce = (): Promise<string> =>
+        this.runGit(cwd, argv, signal).catch(async (err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (opts.autoStage === false && /no changes added to commit|nothing to commit/.test(msg)) {
+            await this.runGit(cwd, ['add', '-A'], signal)
+            return this.runGit(cwd, argv, signal)
+          }
+          throw err
+        })
+      const out = await commitOnce()
       // Extract the commit hash from the commit output (line like "[main abc1234] ...").
       const hashMatch = out.match(/\[\S+ ([0-9a-f]{7,})\]/)
       // Post-commit commands (VS Code's Commit & Push / Commit & Sync):
@@ -1681,12 +1892,21 @@ export class IdeTools extends TypertRemoteService {
         }
         pushed = true
       } else if (opts.push) {
-        await this.runGit(cwd, ['push'], signal)
+        // VS Code parity: Commit & Push pushes the upstream when set, else
+        // publishes (push -u) so a branch with no upstream does not fail.
+        const hasUpstream = await this.hasUpstream(cwd, signal)
+        if (hasUpstream) {
+          await this.runGit(cwd, ['push'], signal)
+        } else {
+          await this.publishBranch(cwd, signal)
+        }
         pushed = true
       }
       return { committed: true, hash: hashMatch?.[1], pushed }
     } catch (err) {
       const message2 = err instanceof Error ? err.message : String(err)
+      // DIAGNOSTIC: log the full error for debugging git commit failures.
+      try { await writeFile('/tmp/gitCommit-debug.log', new Date().toISOString() + '\n' + message2 + '\n' + (err instanceof Error ? err.stack ?? '' : '') + '\n---\n', { flag: 'a' }) } catch { /* ignore */ }
       // "nothing to commit" is not a hard error — report it as committed:false.
       if (message2.includes('nothing to commit') || message2.includes('no changes')) {
         return { committed: false }
@@ -1731,11 +1951,24 @@ export class IdeTools extends TypertRemoteService {
    *  missing remote/upstream stays diagnosable. */
   async gitSync(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
-    action: 'sync' | 'publish',
+    action: 'sync' | 'publish' | 'pull' | 'push',
     signal: AbortSignal | undefined,
   ): Promise<{ pushed: boolean }> {
     const { workspaceRoot: cwd } = workspaceFileScope
     try {
+      if (action === 'pull') {
+        // VS Code's "Pull" command: plain pull (fails with git's own message
+        // when no upstream is configured — that message is the UI's error).
+        await this.runGit(cwd, ['pull'], signal)
+        return { pushed: false }
+      }
+      if (action === 'push') {
+        // VS Code's "Push": pushes the upstream when set, else publishes.
+        const hasUpstream = await this.hasUpstream(cwd, signal)
+        if (hasUpstream) await this.runGit(cwd, ['push'], signal)
+        else await this.publishBranch(cwd, signal)
+        return { pushed: true }
+      }
       if (action === 'sync') {
         // VS Code parity: Synchronize pulls+pushes when an upstream is
         // configured, but PUBLISHES (push -u) a branch with no upstream instead
@@ -1882,13 +2115,16 @@ export class IdeTools extends TypertRemoteService {
         source: { kind: 'user' },
       })]
 
+      // No explicit maxTokens: a hardcoded 2048 cap starves reasoning models
+      // — they spend the whole budget on reasoning and return no text. With the
+      // cap unset, the dsh-llm adapter applies the bound model's
+      // defaultMaxTokens, leaving room for both reasoning and the message.
       const options = deepFreeze({
         provider: selection.provider,
         model: selection.model,
         reasoningEffort: selection.reasoningEffort as never,
         system: systemPrompt,
         messages,
-        maxTokens: 2048,
         signal,
       } as never)
 
@@ -1997,7 +2233,6 @@ export class IdeTools extends TypertRemoteService {
     text = text.replace(/\n{3,}/g, '\n\n').trim()
     return text
   }
-
   /** Plugin teardown: terminate every still-live terminal. */
   private async disposeAll(): Promise<void> {
     const entries = [...this.terminals.values()]

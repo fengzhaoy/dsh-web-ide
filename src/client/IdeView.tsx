@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Icons } from './icons.js'
-import { IDE_CSS_VARS, IDE_STYLES, defineDarkModernTheme } from './theme.js'
+import { IDE_STYLES, defineIdeThemes, cssVarsForTheme, monacoThemeFor } from './theme.js'
 import { FileTree } from './explorer/FileTree.js'
 import type { ExplorerHandle } from './explorer/FileTree.js'
 import { SearchPanel } from './search/SearchPanel.js'
@@ -12,11 +12,20 @@ import { StatusBar } from './editor/StatusBar.js'
 import { MarkdownPreview } from './editor/MarkdownPreview.js'
 import { isMarkdownPath } from './editor/markdown.js'
 import { ContextMenuHost } from './ContextMenu.js'
+import { showContextMenu } from './ContextMenu.js'
+import { SettingsDialog, AboutDialog, KeybindingsDialog, SnippetsDialog, displayChord } from './SettingsDialogs.js'
+import { CommandPalette } from './CommandPalette.js'
+import { ExtensionsView } from './ExtensionsView.js'
+import { ProblemsPanel, type ProblemItem } from './editor/ProblemsPanel.js'
+import { ideCommands, type IdeCommand } from './commands.js'
+import { ideSettings, ideKeybindings, ideSnippets, applyEditorOptions, chordMatches, eventToChord } from './settingsStore.js'
+import { notifications } from './notifications.js'
 import type { OpenTab } from './editor/TabBar.js'
 import { detectLanguage } from './language.js'
 import type { IdeViewInjected, RemoteResult, WorkspaceFileBytes, WorkspaceFileStat, WorkspaceFileText } from './types.js'
 import { publishActiveFile, registerIdeMount, syncSidebarHighlight, takePendingOpenPath, unregisterIdeMount } from './sidebarBridge.js'
 import { installMonacoWorker } from './monacoWorkerBootstrap.js'
+import { installCodiconFont } from './codiconFontBootstrap.js'
 
 /** Threshold above which a file is loaded as a truncated first page. */
 const LARGE_FILE_BYTES = 2 * 1024 * 1024
@@ -47,12 +56,15 @@ let monacoLoaded = false
  */
 function configureMonacoWorkers(): void {
   installMonacoWorker()
+  // Monaco's internal UI icons (find widget, suggest, folding) draw through
+  // the codicon webfont the bundle neutralizes — re-inject it inlined.
+  installCodiconFont()
 }
 
 function loadMonaco(): Promise<MonacoNS> {
   if (!monacoLoaded) {
     configureMonacoWorkers()
-    defineDarkModernTheme(Monaco)
+    defineIdeThemes(Monaco)
     monacoLoaded = true
   }
   return Promise.resolve(Monaco)
@@ -120,6 +132,8 @@ interface IdeDiffTarget {
   oldPath?: string
   /** Commit hash; undefined = working-tree diff. */
   sha?: string
+  /** 'staged' = index vs HEAD diff (the Staged Changes group's click). */
+  diffKind?: 'staged'
 }
 
 /**
@@ -173,8 +187,11 @@ function sameGitEntries(a: readonly import('./types.js').GitStatusEntry[] | unde
   return true
 }
 
+/** Plugin version for the About dialog (package.json version, inlined at build). */
+const IDE_VERSION = '0.1.3'
+
 /** The activity bar's selectable sidebar panels. */
-type SidebarView = 'explorer' | 'search' | 'git'
+type SidebarView = 'explorer' | 'search' | 'git' | 'extensions'
 
 /**
  * Last activity-bar selection, module-level so the view ring's remounts (and a
@@ -340,7 +357,11 @@ export function IdeView(props: IdeViewInjected & {
   const [activePath, setActivePath] = useState<string | undefined>(undefined)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [monacoReady, setMonacoReady] = useState(false)
+  /** Monaco editor version string (About dialog). */
+  const [monacoVersion, setMonacoVersion] = useState('')
+  useEffect(() => { void loadMonaco().then(() => setMonacoVersion(String((Monaco as unknown as { version?: string }).version ?? '0.52'))) }, [])
   const [error, setError] = useState<string | null>(null)
+
   /** Save flow state for the active tab (idle / saving / conflict). */
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'conflict'>('idle')
   /** Path whose save hit a stale-version conflict; drives the conflict dialog. */
@@ -405,6 +426,11 @@ export function IdeView(props: IdeViewInjected & {
   })
   const diffPathRef = useRef<IdeDiffTarget | undefined>(diffPath)
   useEffect(() => { diffPathRef.current = diffPath }, [diffPath])
+  /** Live diff-editor instance while the SCM diff overlay is open (reported by
+   *  DiffEditor's onEditorReady). Used to drive find-in-file from the toolbar
+   *  and the Ctrl/Cmd+F fallback — actions Monaco only binds while the editor
+   *  itself has DOM focus. */
+  const diffEditorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
   /** Markdown split preview: open flag (parked per workspace), the live
    *  content feed from the Monaco model, and a manual-refresh nonce. */
   const [mdPreviewOpen, setMdPreviewOpen] = useState<boolean>(() => {
@@ -455,6 +481,37 @@ export function IdeView(props: IdeViewInjected & {
   /** Sidebar position: left (default) or right. Toggled from the top-right
    *  panel-layout buttons (VS Code "Toggle Side Bar Position"). */
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false)
+  /** Which modal surface is open (settings suite + command palette). */
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [keybindingsOpen, setKeybindingsOpen] = useState(false)
+  const [snippetsOpen, setSnippetsOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  /** Bottom panel tab: 'terminal' | 'problems'. */
+  const [bottomTab, setBottomTab] = useState<'terminal' | 'problems'>('terminal')
+  /** Monaco marker snapshot for the problems indicator + panel. */
+  const [problems, setProblems] = useState<ProblemItem[]>([])
+  const problemCounts = useMemo(() => {
+    let errors = 0, warnings = 0
+    for (const p of problems) { if (p.severity === 'error') errors++; else if (p.severity === 'warning') warnings++ }
+    return { errors, warnings }
+  }, [problems])
+  const workspaceName = useMemo(() => cwd?.split('/').pop() || undefined, [cwd])
+  /** Live settings snapshot (theme hot-apply etc.). */
+  const settings = useSyncExternalStore(ideSettings.subscribe, ideSettings.getSnapshot)
+  const keybindings = useSyncExternalStore(ideKeybindings.subscribe, ideKeybindings.getSnapshot)
+  /** Active model language / indent / EOL for the status bar pickers. */
+  const [modelLanguage, setModelLanguage] = useState<string | undefined>(undefined)
+  const [modelIndent, setModelIndent] = useState<{ tabSize: number; insertSpaces: boolean } | undefined>(undefined)
+  const [modelEol, setModelEol] = useState<'\n' | '\r\n' | undefined>(undefined)
+  /** git ahead/behind for the status bar sync indicator. */
+  const [gitAhead, setGitAhead] = useState<number | undefined>(undefined)
+  const [gitBehind, setGitBehind] = useState<number | undefined>(undefined)
+  /** Latest terminalIds mirror for task-launch tab indexing. */
+  const terminalIdsRef = useRef(terminalIds)
+  useEffect(() => { terminalIdsRef.current = terminalIds }, [terminalIds])
+  /** Bumped on snippet-store changes so the completion provider re-registers. */
+  const [snippetsVersion, setSnippetsVersion] = useState(0)
 
   // Inject the stylesheet + CSS vars once.
   useEffect(() => {
@@ -463,12 +520,28 @@ export function IdeView(props: IdeViewInjected & {
     document.head.appendChild(style)
     const root = containerRef.current?.closest('.ide-root') as HTMLElement | null
     if (root) {
-      for (const [k, v] of Object.entries(IDE_CSS_VARS)) root.style.setProperty(k, v)
+      for (const [k, v] of Object.entries(cssVarsForTheme(ideSettings.getSnapshot().theme))) root.style.setProperty(k, v)
       // Restore the user's last sidebar width (drag the right-edge grip).
       root.style.setProperty('--ide-sidebar-width', String(sidebarWidth) + 'px')
     }
     return () => { document.head.removeChild(style) }
   }, [])
+
+  // Theme hot-apply: settings.theme changes re-write the CSS vars on the root
+  // and switch the Monaco theme on the singleton editor + the diff editor.
+  useEffect(() => {
+    const root = containerRef.current?.closest('.ide-root') as HTMLElement | null
+    if (root) {
+      for (const [k, v] of Object.entries(cssVarsForTheme(settings.theme))) root.style.setProperty(k, v)
+    }
+    Monaco.editor.setTheme(monacoThemeFor(settings.theme))
+  }, [settings.theme])
+  // Editor-option hot-apply (font size, minimap, word wrap, ...).
+  useEffect(() => {
+    const ed = editorRef.current
+    if (ed) applyEditorOptions(ed, settings)
+  }, [settings])
+  useEffect(() => ideSnippets.subscribe(() => setSnippetsVersion((v) => v + 1)), [])
 
   // Attach the singleton editor to this mount's container. The editor and its
   // models survive view-ring remounts; on unmount we only detach (leave the DOM
@@ -574,7 +647,6 @@ export function IdeView(props: IdeViewInjected & {
 
   const openFile = useCallback(async (path: string, line?: number) => {
     if (!sessionId) return
-    const isImage = imageMimeOf(path) !== null
     // Already open?
     const existing = tabs.find((t) => t.path === path)
     if (existing && existing.status === 'ready') {
@@ -589,6 +661,7 @@ export function IdeView(props: IdeViewInjected & {
       return
     }
     const name = path.split('/').pop() ?? path
+    const isImage = imageMimeOf(path) !== null
     const language = isImage ? 'image' : detectLanguage(path)
     const loadingTab: OpenTab = { path, name, language, version: '', truncated: false, lines: 0, status: 'loading', error: null, dirty: false, kind: isImage ? 'image' : 'text' }
     setTabs((prev) => {
@@ -797,18 +870,27 @@ export function IdeView(props: IdeViewInjected & {
   // Auto-fetch git status for activity bar badge and file tree coloring.
   // Runs regardless of which sidebar view is active, so the badge count stays
   // current even when the user is in explorer or search view.
+  //
+  // SINGLE-POLLER RULE: while the SCM panel (git sidebar view) is mounted it
+  // polls gitStatus itself and mirrors the full result back through
+  // onStatusChanged — this effect then stands down (no fetch, no interval) so
+  // the wire sees exactly one gitStatus request per cycle. Any other view
+  // (explorer/search/extensions) has no other poller, so this one runs.
   useEffect(() => {
     if (!sessionId || !cwd || !ideTools) return
+    if (sidebarView === 'git') return
     const ctrl = new AbortController()
     let cancelled = false
     const fetch = () => {
       void ideTools.gitStatus(sessionId, ctrl.signal).then((res) => {
         if (cancelled) return
         if (res.ok) {
-          if (res.value.notARepo) { applyGitEntries(undefined); setGitBranch(undefined) }
+          if (res.value.notARepo) { applyGitEntries(undefined); setGitBranch(undefined); setGitAhead(undefined); setGitBehind(undefined) }
           else {
             if (res.value.entries) applyGitEntries(res.value.entries)
             setGitBranch(res.value.branch)
+            setGitAhead(res.value.ahead > 0 ? res.value.ahead : undefined)
+            setGitBehind(res.value.behind > 0 ? res.value.behind : undefined)
           }
         }
       }).catch(() => {
@@ -822,7 +904,7 @@ export function IdeView(props: IdeViewInjected & {
     // applyGitEntries, so a no-change result never re-renders anything.
     const id = setInterval(fetch, 15000)
     return () => { cancelled = true; ctrl.abort(); clearInterval(id) }
-  }, [sessionId, cwd, ideTools, gitRefreshKey, applyGitEntries])
+  }, [sessionId, cwd, ideTools, gitRefreshKey, applyGitEntries, sidebarView])
 
   // External-change fallback watch: a slow silent stat pass over the open
   // tabs — covers changes no stream reports (external editors, terminal git
@@ -955,6 +1037,220 @@ export function IdeView(props: IdeViewInjected & {
   const reopenRef = useRef<(path: string) => Promise<void>>(async () => {})
   useEffect(() => { reopenRef.current = reopenFile })
 
+  /** Open the in-file find widget on whatever the editor area is showing —
+   *  the SCM diff overlay when one is open, else the active normal editor.
+   *  Monaco only binds its built-in Ctrl/Cmd+F while the editor has DOM
+   *  focus; this gives the toolbar button and the global keydown fallback a
+   *  reliable entry point (VS Code parity: Find works from any focus). */
+  const triggerFind = useCallback((): void => {
+    const diff = diffEditorRef.current
+    if (diff !== null) {
+      // Focus the modified (working-tree) pane first: the find action targets
+      // the focused inner editor of the diff composite.
+      const target = diff.getModifiedEditor() ?? diff.getOriginalEditor()
+      target?.focus()
+      const action = target?.getAction('actions.find')
+      if (action) void action.run()
+      return
+    }
+    const editor = editorRef.current
+    if (editor === null || editor.getModel() === null) return
+    editor.focus()
+    const action = editor.getAction('actions.find')
+    if (action) void action.run()
+  }, [])
+  // Global Ctrl/Cmd+F fallback while focus is OUTSIDE the editors (sidebar,
+  // toolbar, terminal): let Monaco's own keybinding win when an editor has
+  // focus, so the widget opens exactly once either way.
+  useEffect(() => {
+    const onKeydown = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      const el = document.activeElement
+      // Inside Monaco (editor / its find input) the built-in binding handles it.
+      if (el instanceof HTMLElement && (el.closest('.monaco-editor') !== null || el.closest('.find-widget') !== null)) return
+      const root = containerRef.current
+      // Only while the IDE view is on screen.
+      if (root === null || !root.isConnected) return
+      e.preventDefault()
+      e.stopPropagation()
+      triggerFind()
+    }
+    window.addEventListener('keydown', onKeydown, true)
+    return () => { window.removeEventListener('keydown', onKeydown, true) }
+  }, [triggerFind])
+
+  // Monaco markers → problems snapshot (status bar + Problems panel).
+  useEffect(() => {
+    let disposed = false
+    void loadMonaco().then((m) => {
+      if (disposed) return
+      const refresh = () => {
+        const out: ProblemItem[] = []
+        for (const marker of m.editor.getModelMarkers({})) {
+          const uri = marker.resource.toString()
+          // Model URIs are the workspace-relative path (see createModel call sites).
+          const path = uri.startsWith('file:///') ? decodeURIComponent(uri.slice('file:///'.length)) : uri
+          const sev = marker.severity === 8 ? 'error' : marker.severity === 4 ? 'warning' : 'info'
+          out.push({ path, line: marker.startLineNumber, column: marker.startColumn, severity: sev, message: marker.message })
+        }
+        setProblems(out)
+      }
+      const sub = m.editor.onDidChangeMarkers(() => refresh())
+      refresh()
+      return () => sub.dispose()
+    }).then((un) => { return un })
+    return () => { disposed = true }
+  }, [])
+
+  // Track the ACTIVE model's language / indentation / EOL for the status-bar pickers.
+  const syncModelMeta = useCallback(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!model) { setModelLanguage(undefined); setModelIndent(undefined); setModelEol(undefined); return }
+    setModelLanguage(model.getLanguageId())
+    const opts = model.getOptions()
+    setModelIndent({ tabSize: opts.tabSize, insertSpaces: opts.insertSpaces })
+    setModelEol(model.getEOL() === '\r\n' ? '\r\n' : '\n')
+  }, [])
+  useEffect(() => { syncModelMeta() }, [activePath, syncModelMeta])
+
+  // User snippets → Monaco completion provider (re-registered on snippet saves).
+  useEffect(() => {
+    let dispose: (() => void) | undefined
+    void loadMonaco().then((m) => {
+      const provider = m.languages.registerCompletionItemProvider('*', {
+        provideCompletionItems: (model, position) => {
+          const lang = model.getLanguageId()
+          const snippets = ideSnippets.snippetsFor(lang)
+          if (snippets.length === 0) return { suggestions: [] }
+          const word = model.getWordUntilPosition(position)
+          const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn }
+          const suggestions = snippets.map((sn, i) => ({
+            label: sn.prefix,
+            kind: m.languages.CompletionItemKind.Snippet,
+            documentation: sn.description ?? sn.prefix,
+            insertText: sn.body.join('\n'),
+            insertTextRules: m.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range,
+            sortText: String(i).padStart(4, '0'),
+          }))
+          return { suggestions }
+        },
+      })
+      dispose = () => provider.dispose()
+    })
+    const un = ideSnippets.subscribe(() => { /* re-render picks up new snapshots via closure */ })
+    return () => { un(); dispose?.() }
+  }, [snippetsVersion])
+
+  /** Run a package.json script in a fresh terminal (VS Code Run Task). */
+  const runBuildTask = useCallback((script: string) => {
+    if (!sessionId) return
+    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
+      if (!res.ok) return
+      setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
+      setTerminalOpen(true)
+      setBottomTab('terminal')
+      setActiveTerminalIdx(terminalIdsRef.current.length)
+      setTimeout(() => {
+        void ideTools.terminalWrite(sessionId, res.value.terminalId, 'npm run ' + script + '\r')
+      }, 400)
+    }).catch(() => undefined)
+  }, [sessionId, ideTools])
+
+  /** The Manage gear menu (VS Code Manage menu). */
+  const gearRef = useRef<HTMLDivElement>(null)
+  const openManageMenu = useCallback(() => {
+    const rect = gearRef.current?.getBoundingClientRect()
+    const x = rect ? rect.left : 40
+    const y = rect ? rect.top - 4 : 40
+    showContextMenu(x, y, [
+      { id: 'palette', label: t('manage.commandPalette'), icon: Icons.terminal, onClick: () => setPaletteOpen(true) },
+      { id: 'settings', label: t('manage.settings'), icon: Icons.gear, onClick: () => setSettingsOpen(true) },
+      { id: 'keybindings', label: t('manage.keybindings'), icon: Icons.bell, onClick: () => setKeybindingsOpen(true) },
+      { id: 'snippets', label: t('manage.snippets'), icon: Icons.copy, onClick: () => setSnippetsOpen(true) },
+      { id: 'sep1', label: '', separator: true },
+      { id: 'tasks', label: t('manage.tasks'), icon: Icons.debug, onClick: () => { void openTasksMenu() } },
+      { id: 'extensions', label: t('manage.extensions'), icon: Icons.extensions, onClick: () => setSidebarView('extensions') },
+      { id: 'sep2', label: '', separator: true },
+      { id: 'about', label: t('manage.about'), icon: Icons.eye, onClick: () => setAboutOpen(true) },
+    ])
+  }, [t])
+
+  /** Tasks menu: package.json scripts → run in a fresh terminal. */
+  const openTasksMenu = useCallback(async () => {
+    if (!sessionId) return
+    const res = await workspaceFiles.read(sessionId, 'package.json', { offset: 0, limit: 65536 })
+    let items: Parameters<typeof showContextMenu>[2]
+    if (res.ok) {
+      try {
+        const pkg = JSON.parse(res.value.text) as { scripts?: Record<string, string> }
+        const scripts = Object.keys(pkg.scripts ?? {})
+        items = scripts.length > 0
+          ? scripts.map((sc) => ({ id: sc, label: 'npm run ' + sc, onClick: () => runBuildTask(sc) }))
+          : [{ id: 'empty', label: t('tasks.empty'), disabled: true }]
+      } catch {
+        items = [{ id: 'failed', label: t('tasks.failed'), disabled: true }]
+      }
+    } else {
+      items = [{ id: 'failed', label: t('tasks.failed'), disabled: true }]
+    }
+    const rect = gearRef.current?.getBoundingClientRect()
+    showContextMenu(rect ? rect.left : 40, rect ? rect.top - 4 : 40, items)
+  }, [sessionId, workspaceFiles, t, runBuildTask])
+
+  /** Build the command registry (rebuilt per render: closures stay fresh). */
+  useEffect(() => {
+    const cmds: IdeCommand[] = [
+      { id: 'ide.commandPalette', category: t('category.view'), label: t('command.commandPalette'), run: () => setPaletteOpen(true) },
+      { id: 'ide.settings', category: t('category.preferences'), label: t('command.settings'), run: () => setSettingsOpen(true) },
+      { id: 'ide.keybindings', category: t('category.preferences'), label: t('command.keybindings'), run: () => setKeybindingsOpen(true) },
+      { id: 'ide.snippets', category: t('category.preferences'), label: t('command.snippets'), run: () => setSnippetsOpen(true) },
+      { id: 'ide.about', category: t('category.help'), label: t('command.about'), run: () => setAboutOpen(true) },
+      { id: 'ide.find', category: t('category.editor'), label: t('command.find'), run: triggerFind },
+      { id: 'ide.save', category: t('category.editor'), label: t('command.save'), run: () => { if (activePath !== undefined) void saveRef.current(activePath) } },
+      { id: 'ide.toggleTerminal', category: t('category.view'), label: t('command.toggleTerminal'), run: () => { setTerminalOpen((v) => !v); setBottomTab('terminal') } },
+      { id: 'ide.toggleSidebar', category: t('category.view'), label: t('command.toggleSidebar'), run: () => setSidebarView('explorer') },
+      { id: 'ide.toggleRightSidebar', category: t('category.view'), label: t('command.toggleRightSidebar'), run: () => setRightSidebarOpen((v) => !v) },
+      { id: 'ide.problems', category: t('category.view'), label: t('command.problems'), run: () => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') } },
+      { id: 'ide.viewExplorer', category: t('category.view'), label: t('command.viewExplorer'), run: () => setSidebarView('explorer') },
+      { id: 'ide.viewSearch', category: t('category.view'), label: t('command.viewSearch'), run: () => setSidebarView('search') },
+      { id: 'ide.viewGit', category: t('category.git'), label: t('command.viewGit'), run: () => setSidebarView('git') },
+      { id: 'ide.viewExtensions', category: t('category.view'), label: t('command.viewExtensions'), run: () => setSidebarView('extensions') },
+      { id: 'ide.gitPull', category: t('category.git'), label: t('command.gitPull'), run: () => { void ideTools.gitSync(sessionId, 'pull').then(() => setGitRefreshKey((k) => k + 1)) } },
+      { id: 'ide.gitPush', category: t('category.git'), label: t('command.gitPush'), run: () => { void ideTools.gitSync(sessionId, 'push').then(() => setGitRefreshKey((k) => k + 1)) } },
+      { id: 'ide.gitSync', category: t('category.git'), label: t('command.gitSync'), run: () => { void ideTools.gitSync(sessionId, 'sync').then(() => setGitRefreshKey((k) => k + 1)) } },
+      { id: 'ide.task', category: t('category.tasks'), label: t('command.task'), run: () => { void openTasksMenu() } },
+      { id: 'ide.themeDark', category: t('category.preferences'), label: t('command.themeDark'), run: () => ideSettings.update({ theme: 'dark-modern' }) },
+      { id: 'ide.themeLight', category: t('category.preferences'), label: t('command.themeLight'), run: () => ideSettings.update({ theme: 'light-modern' }) },
+    ]
+    ideCommands.setAll(cmds)
+  })
+
+  /** Global keybinding dispatch (user-customizable, settings-store backed). */
+  useEffect(() => {
+    const isMac = navigator.platform.toLowerCase().includes('mac')
+    const onKeydown = (e: KeyboardEvent): void => {
+      const root = containerRef.current
+      if (root === null || !root.isConnected) return
+      const chord = eventToChord(e, isMac)
+      if (!chord) return
+      const el = document.activeElement
+      const inEditor = el instanceof HTMLElement && (el.closest('.monaco-editor') !== null || el.closest('.ide-palette-input') !== null)
+      for (const kb of keybindings) {
+        if (!kb.keys || !chordMatches(kb.keys, e, isMac)) continue
+        if (inEditor && kb.command !== 'ide.commandPalette' && kb.command !== 'ide.settings') continue
+        const cmd = ideCommands.byId(kb.command)
+        if (!cmd || cmd.disabled) continue
+        e.preventDefault()
+        e.stopPropagation()
+        cmd.run()
+        return
+      }
+    }
+    window.addEventListener('keydown', onKeydown, true)
+    return () => { window.removeEventListener('keydown', onKeydown, true) }
+  }, [keybindings])
   /** Save one tab through the write Remote with a version-guarded intent. */
   const saveFile = useCallback(async (path: string): Promise<boolean> => {
     if (!sessionId) return false
@@ -1044,6 +1340,11 @@ export function IdeView(props: IdeViewInjected & {
   return (
     <div className="ide-root" data-ide-view="">
       <ContextMenuHost />
+      {settingsOpen && <SettingsDialog t={t} onClose={() => setSettingsOpen(false)} />}
+      {aboutOpen && <AboutDialog t={t} version={IDE_VERSION} monacoVersion={monacoVersion} branch={gitBranch} onClose={() => setAboutOpen(false)} />}
+      {keybindingsOpen && <KeybindingsDialog t={t} onClose={() => setKeybindingsOpen(false)} />}
+      {snippetsOpen && <SnippetsDialog t={t} onClose={() => setSnippetsOpen(false)} />}
+      {paletteOpen && <CommandPalette t={t} onClose={() => setPaletteOpen(false)} />}
       <div className="ide-body">
         <div className="ide-body-main">
         <div className="ide-activitybar">
@@ -1071,8 +1372,15 @@ export function IdeView(props: IdeViewInjected & {
             )}
           </div>
           <div className="ide-activitybar-icon" title={t('debug.title')} onClick={() => {}}>{Icons.debug}</div>
-          <div className="ide-activitybar-icon" title={t('extensions.title')} onClick={() => {}}>{Icons.extensions}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => setSidebarView('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
           <div className="ide-activitybar-spacer" />
+          <div
+            ref={gearRef}
+            className="ide-activitybar-icon"
+            title={t('settings.title')}
+            onClick={openManageMenu}
+            data-testid="ide-activitybar-gear"
+          >{Icons.gear}</div>
           <div
             className="ide-activitybar-icon"
             data-active={terminalOpen}
@@ -1082,17 +1390,28 @@ export function IdeView(props: IdeViewInjected & {
           >{Icons.terminal}</div>
         </div>
         <div className="ide-sidebar">
-          {sidebarView === 'git' ? (
+          {sidebarView === 'extensions' ? (
+            <div className="ide-sidebar-view">
+              <ExtensionsView t={t} />
+            </div>
+          ) : sidebarView === 'git' ? (
             sessionId ? (
               <SourceControlPanel
                 sessionId={sessionId}
                 cwd={cwd}
                 ideTools={ideTools}
-                onOpenDiff={(path) => {
+                onOpenDiff={(path, _kind, diffKind) => {
                   // The diff overlays the editor area, so the underlying Monaco
                   // host stays attached and closing the diff returns to the
-                  // previously active file untouched.
-                  setDiffPath({ path })
+                  // previously active file untouched. diffKind='staged' opens
+                  // the index-vs-HEAD diff (a Staged Changes group entry).
+                  setDiffPath({ path, diffKind })
+                }}
+                onOpenFile={(path) => {
+                  // VS Code SCM "Open File": open the working-tree file in the
+                  // editor, closing any active diff overlay first.
+                  setDiffPath(undefined)
+                  void openFile(path)
                 }}
                 onOpenCommitDiff={(sha, path, oldPath) => {
                   // One file inside one commit (source control graph details).
@@ -1102,11 +1421,23 @@ export function IdeView(props: IdeViewInjected & {
                 commitMessage={scmCommitMessage}
                 onCommitMessageChange={setScmCommitMessage}
                 refreshKey={gitRefreshKey}
-                onStatusChanged={(entries) => {
-                  // The panel just fetched fresh status: mirror it into the
-                  // activity-bar badge — deduped, so an unchanged list never
-                  // re-renders the view.
-                  applyGitEntries(entries)
+                onStatusChanged={(result) => {
+                  // The panel is the single poller while mounted: mirror its
+                  // full result into every consumer — badge + file tree
+                  // (entries, deduped) and the status bar (branch/ahead/
+                  // behind). Our own interval is paused in this view, so the
+                  // wire still sees exactly one gitStatus per cycle.
+                  if (result === undefined || result.notARepo) {
+                    applyGitEntries(undefined)
+                    setGitBranch(undefined)
+                    setGitAhead(undefined)
+                    setGitBehind(undefined)
+                  } else {
+                    applyGitEntries(result.entries)
+                    setGitBranch(result.branch)
+                    setGitAhead(result.ahead > 0 ? result.ahead : undefined)
+                    setGitBehind(result.behind > 0 ? result.behind : undefined)
+                  }
                 }}
                 t={t}
               />
@@ -1182,6 +1513,18 @@ export function IdeView(props: IdeViewInjected & {
                   ideToolsFull={ideTools}
                   onFileRenamed={handleFileRenamed}
                   onFileDeleted={handleFileDeleted}
+                  onOpenInTerminal={(absDir) => {
+                    // VS Code "Open in Integrated Terminal": spawn a shell already
+                    // inside the chosen directory and focus the terminal dock.
+                    if (!sessionId || !ideTools || !cwd) return
+                    const rel = absDir === cwd || absDir === cwd.replace(/[/\\]+$/, '') ? '' : absDir.replace(cwd.replace(/[/\\]+$/, '') + '/', '')
+                    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24, cwd: rel }).then((res) => {
+                      if (!res.ok) return
+                      setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
+                      setTerminalOpen(true)
+                      setActiveTerminalIdx(terminalIds.length)
+                    }).catch(() => undefined)
+                  }}
                 />
               ) : (
                 <div className="ide-tree-loading">{sessionId ? t('tree.loading') : t('empty.noSession')}</div>
@@ -1202,6 +1545,14 @@ export function IdeView(props: IdeViewInjected & {
         </div>
         <div className="ide-editor-area">
           <div className="ide-editor-toolbar">
+            <button
+              className="ide-tabbar-action"
+              data-testid="ide-find-in-file"
+              disabled={!(diffPath !== undefined || (activePath !== undefined && activeTab?.kind !== 'image'))}
+              title={t('editor.findInFile')}
+              aria-label={t('editor.findInFile')}
+              onClick={triggerFind}
+            >{Icons.search}</button>
             <button
               className="ide-tabbar-action"
               data-active={terminalOpen || undefined}
@@ -1333,6 +1684,7 @@ export function IdeView(props: IdeViewInjected & {
               path={diffPath.path}
               name={diffPath.path.split('/').pop() ?? diffPath.path}
               commit={diffPath.sha !== undefined ? { sha: diffPath.sha, path: diffPath.path, oldPath: diffPath.oldPath } : undefined}
+              diffKind={diffPath.diffKind}
               onSaved={(savedPath) => {
                 // A save from the editable diff pane changed the worktree: sync
                 // the matching normal tab (its model + saved baseline are stale
@@ -1341,6 +1693,7 @@ export function IdeView(props: IdeViewInjected & {
                 setGitRefreshKey((k) => k + 1)
               }}
               onExternalChange={() => setGitRefreshKey((k) => k + 1)}
+              onEditorReady={(ed) => { diffEditorRef.current = ed }}
               onClose={() => setDiffPath(undefined)}
               t={t}
             />
@@ -1364,6 +1717,17 @@ export function IdeView(props: IdeViewInjected & {
         )}
         </div>
         {terminalOpen && sessionId && (
+          <div className="ide-bottompanel" data-testid="ide-bottom-panel">
+            <div className="ide-bottomtabs">
+              <button className="ide-bottomtab" data-active={bottomTab === 'problems' || undefined} onClick={() => setBottomTab('problems')} data-testid="ide-bottomtab-problems">{t('problems.title')}{problems.length > 0 && <span className="ide-bottomtab-count">{problems.length}</span>}</button>
+              <button className="ide-bottomtab" data-active={bottomTab === 'terminal' || undefined} onClick={() => setBottomTab('terminal')} data-testid="ide-bottomtab-terminal">{t('terminal.title')}</button>
+            </div>
+            {bottomTab === 'problems' && (
+              <div className="ide-bottom-problems">
+                <ProblemsPanel problems={problems} onOpen={(path, line) => { setDiffPath(undefined); void openFile(path, line) }} t={t} />
+              </div>
+            )}
+            {bottomTab === 'terminal' && (
           <TerminalPanel
             sessionId={sessionId}
             ideTools={ideTools}
@@ -1375,8 +1739,37 @@ export function IdeView(props: IdeViewInjected & {
             onClose={handleTerminalClose}
             t={t}
           />
+            )}
+          </div>
         )}
-        <StatusBar activeTab={activeTab} cursor={cursor} t={t} saveState={saveState} onSave={() => { if (activePath !== undefined) void saveFile(activePath) }} model={model} branch={gitBranch} onToggleTerminal={() => setTerminalOpen((v) => !v)} terminalOpen={terminalOpen} />
+        <StatusBar
+          activeTab={activeTab}
+          cursor={cursor}
+          t={t}
+          saveState={saveState}
+          onSave={() => { if (activePath !== undefined) void saveFile(activePath) }}
+          model={model}
+          branch={gitBranch}
+          ahead={gitAhead}
+          behind={gitBehind}
+          onSync={() => { void ideTools.gitSync(sessionId, 'sync').then(() => setGitRefreshKey((k) => k + 1)) }}
+          problems={problemCounts}
+          onOpenProblems={() => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') }}
+          workspaceName={workspaceName}
+          sessionId={sessionId}
+          cwd={cwd}
+          onToggleTerminal={() => { setTerminalOpen((v) => !v); setBottomTab('terminal') }}
+          terminalOpen={terminalOpen}
+          language={modelLanguage}
+          onSetLanguage={(lang) => { const model = editorRef.current?.getModel(); if (model) { Monaco.editor.setModelLanguage(model, lang); syncModelMeta(); setTabs((prev) => prev.map((tab) => tab.path === activePath ? { ...tab, language: lang } : tab)) } }}
+          indent={modelIndent}
+          onSetIndent={(tabSize, insertSpaces) => { const model = editorRef.current?.getModel(); if (model) { model.updateOptions({ tabSize, insertSpaces }); syncModelMeta() } }}
+          eol={modelEol}
+          onSetEol={(eol) => { const model = editorRef.current?.getModel(); if (model) { model.pushEOL(eol === '\r\n' ? Monaco.editor.EndOfLineSequence.CRLF : Monaco.editor.EndOfLineSequence.LF); syncModelMeta() } }}
+          onToggleSidebar={() => setSidebarView('explorer')}
+          onToggleRightSidebar={() => setRightSidebarOpen((v) => !v)}
+          rightSidebarOpen={rightSidebarOpen}
+        />
       </div>
     </div>
   )

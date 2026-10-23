@@ -29,6 +29,9 @@ const nameMap = {
   'diff-removed': 'diffRemoved', 'diff-renamed': 'diffRenamed', 'diff-ignored': 'diffIgnored',
   refresh: 'refresh', 'cloud-download': 'cloudDownload', tag: 'tag', graph: 'gitGraph', save: 'save',
   'chrome-maximize': 'maximize', 'chrome-restore': 'restore',
+  bell: 'bell', gear: 'gear', error: 'error', warning: 'warning',
+  broadcast: 'broadcast', 'remote-explorer': 'remote',
+  'layout-sidebar-left': 'layoutSidebar', 'layout-panel': 'layoutPanel',
   // Symbol / file-type icons
   'symbol-file': 'symbolFile',
   'symbol-array': 'symbolArray',
@@ -168,6 +171,14 @@ export const Icons = {
   save: render(ICONS.save),
   tag: render(ICONS.tag),
   gitGraph: render(ICONS.gitGraph),
+  bell: render(ICONS.bell),
+  gear: render(ICONS.gear),
+  error: render(ICONS.error),
+  warning: render(ICONS.warning),
+  broadcast: render(ICONS.broadcast),
+  remote: render(ICONS.remote),
+  layoutSidebar: render(ICONS.layoutSidebar),
+  layoutPanel: render(ICONS.layoutPanel),
 } as const
 `
 

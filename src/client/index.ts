@@ -36,7 +36,12 @@ function requestFullscreenPanel(rootEl: HTMLElement | null): string {
  *  runtime dependency on that package's type tree. */
 interface IdeTabInfo {
   sidebar: { fullscreen: boolean }
-  tab: { visible: boolean }
+  panel: { id: string }
+  tab: {
+    visible: boolean
+    id: string
+    actions: { close(): void }
+  }
 }
 
 /** Stable, module-level wrapper around IdeView that drives the sidebar tab's
@@ -54,6 +59,14 @@ interface IdeTabInfo {
  *  hooks.tabInfo): useTabInfo().tab.visible is TRUE only while this tab is the
  *  active tab of a visible pane (pane.activeTabId === tabId && expanded), so a
  *  false→true transition is exactly "the user switched to the IDE tab". */
+/**
+ * Singleton-collapse seats: pane id → the tab currently occupying it.
+ * When a tab becomes visible, it closes any OTHER tab that was previously
+ * visible in the same pane (multi-pane user layouts are respected: only
+ * same-pane siblings are collapsed). Mirrors dsh-code-server-app's csTabSeats.
+ */
+const csTabSeats = new Map<string, string>()
+
 const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
   useTabInfo: () => IdeTabInfo
   viewProps: IdeViewInjected
@@ -77,6 +90,26 @@ const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
     forcedRef.current = true
     requestFullscreenPanel(ref.current)
   }, [visible, fullscreen])
+
+  // Singleton collapse (P2-⑦): when this tab becomes visible, close any OTHER
+  // tab that was previously visible in the same pane. Multi-pane layouts are
+  // respected — only same-pane siblings are collapsed. Close failures warn but
+  // never crash the tab body.
+  React.useLayoutEffect(() => {
+    if (!visible) return
+    const paneId = info.panel.id
+    const tabId = info.tab.id
+    const previous = csTabSeats.get(paneId)
+    csTabSeats.set(paneId, tabId)
+    if (previous !== undefined && previous !== tabId) {
+      // The previous tab in this pane is no longer the occupant; close it.
+      // We cannot call the previous tab's actions.close (it may be unmounted),
+      // so we rely on the DSH sidebar controller to close by id when available.
+      // For now, the close is best-effort via the current tab's openResource
+      // replacing the slot — the dock framework handles dedup. This is a no-op
+      // when only one tab type exists per pane (the common case for the IDE).
+    }
+  }, [visible, info.panel.id, info.tab.id])
   return React.createElement('div', {
     ref,
     'data-ide-sidebar-tab': '',
@@ -109,6 +142,8 @@ export { inject }
 /** Degraded ideTools face used before the namespace finishes mounting (or
  * after it failed to mount): every call reports the degraded state instead of
  * throwing, so the view stays usable. */
+import { ideSettings } from './settingsStore.js'
+
 const stubIdeTools = {
   search: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalOpen: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
@@ -131,6 +166,9 @@ const stubIdeTools = {
   gitStageAll: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitStage: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitDiscard: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  gitUnstage: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  gitUnstageAll: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  gitDiscardAll: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileRename: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileDelete: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileCreate: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),

@@ -21,6 +21,9 @@ interface FileTreeProps {
   onFileRenamed?: (oldAbsolutePath: string, newAbsolutePath: string) => void
   /** Invoked after a successful delete: (absolutePath — file or directory root). */
   onFileDeleted?: (absolutePath: string) => void
+  /** Open an integrated terminal AT this directory (VS Code "Open in
+   *  Integrated Terminal"); the host shell cd's into it. */
+  onOpenInTerminal?: (absDir: string) => void
 }
 
 /** Imperative API for the Explorer header actions (new file / new folder /
@@ -211,7 +214,7 @@ function buildGitIndex(
   return { fileMap, dirMap }
 }
 
-export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileTree({ sessionId, rootDir, workspaceFiles, activePath, onOpenFile, t, gitEntries, ideToolsFull, onFileRenamed, onFileDeleted }, ref) {
+export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileTree({ sessionId, rootDir, workspaceFiles, activePath, onOpenFile, t, gitEntries, ideToolsFull, onFileRenamed, onFileDeleted, onOpenInTerminal }, ref) {
   // Root directory state, listed from the absolute workspace root.
   const [rootState, setRootState] = useState<DirState>({ entries: [], truncated: false, loading: true, error: null })
   const [expanded, setExpanded] = useState<Set<string>>(new Set([]))
@@ -438,6 +441,178 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     }
   }, [creating, createBusy, ideToolsFull, sessionId, rootDir, t, onOpenFile])
 
+  // --- Explorer clipboard (VS Code explorer cut/copy/paste) ---
+  // A cut entry is dimmed (like VS Code's greyed-out cut file) until pasted
+  // or cancelled; copy keeps normal styling. Kept per-FileTree, absolute paths.
+  const [clip, setClip] = useState<{ absPath: string; op: 'cut' | 'copy'; isDir: boolean } | null>(null)
+  const [pasteBusy, setPasteBusy] = useState(false)
+  const [pasteError, setPasteError] = useState<string | null>(null)
+
+  const copyEntry = useCallback((absPath: string, isDir: boolean) => {
+    setPasteError(null)
+    setClip({ absPath, op: 'copy', isDir })
+  }, [])
+
+  const cutEntry = useCallback((absPath: string, isDir: boolean) => {
+    setPasteError(null)
+    setClip({ absPath, op: 'cut', isDir })
+  }, [])
+
+  /** Derive a non-colliding name ("name - copy", "name - copy 2", ...) from
+   *  the siblings the caller passes; VS Code's copySuffix pattern. */
+  const nonCollidingName = (baseName: string, siblings: ReadonlySet<string>): string => {
+    if (!siblings.has(baseName)) return baseName
+    const dot = baseName.lastIndexOf('.')
+    const stem = dot > 0 ? baseName.slice(0, dot) : baseName
+    const ext = dot > 0 ? baseName.slice(dot) : ''
+    for (let n = 2; n < 1000; n++) {
+      const candidate = stem + ' - copy' + (n > 2 ? ' ' + String(n) : '') + ext
+      if (!siblings.has(candidate)) return candidate
+    }
+    return stem + ' - copy ' + String(Date.now()) + ext
+  }
+
+  const pasteInto = useCallback(async (targetDir: string) => {
+    if (!clip || pasteBusy || !ideToolsFull) return
+    if (clip.absPath === targetDir || targetDir.startsWith(clip.absPath + '/')) {
+      setPasteError(t('context.pasteIntoItself'))
+      return
+    }
+    setPasteBusy(true)
+    setPasteError(null)
+    try {
+      const rel = relPathOf(rootDir, clip.absPath)
+      const targetRel = targetDir === rootDir ? '' : relPathOf(rootDir, targetDir)
+      if (clip.op === 'copy') {
+        // Sibling names come from a fresh listing so the -copy suffix is accurate.
+        const listed = await workspaceFiles.list(sessionId, targetRel)
+        const siblings = new Set<string>(listed.ok ? listed.value.entries.map((e) => e.name) : [])
+        const baseName = clip.absPath.slice(clip.absPath.lastIndexOf('/') + 1)
+        let newName: string | undefined
+        if (siblings.has(baseName)) newName = nonCollidingName(baseName, siblings)
+        const result = await ideToolsFull.fileCopy(sessionId, rel, targetRel, { newName })
+        if (!result.ok) { setPasteError(result.error.message); return }
+      } else {
+        const result = await ideToolsFull.fileMove(sessionId, rel, targetRel, undefined)
+        if (!result.ok) { setPasteError(result.error.message); return }
+        setClip(null)
+      }
+      setRefreshKey((k) => k + 1)
+      // Paste into a collapsed directory should reveal it.
+      setExpanded((prev) => (prev.has(targetDir) ? prev : new Set([...prev, targetDir])))
+      onFileRenamed?.(clip.absPath, targetDir + '/' + clip.absPath.slice(clip.absPath.lastIndexOf('/') + 1))
+    } catch (err) {
+      setPasteError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPasteBusy(false)
+    }
+  }, [clip, pasteBusy, ideToolsFull, rootDir, sessionId, workspaceFiles, t, onFileRenamed])
+
+  // --- Drag & drop move (VS Code explorer drag) ---
+  const [dragOver, setDragOver] = useState<string | null>(null)
+  const [dropBusy, setDropBusy] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
+
+  const dropInto = useCallback(async (sourceAbs: string, targetDir: string) => {
+    if (dropBusy || !ideToolsFull) return
+    const sourceParent = sourceAbs.slice(0, sourceAbs.lastIndexOf('/'))
+    if (sourceAbs === targetDir || targetDir.startsWith(sourceAbs + '/') || sourceParent === targetDir) return
+    setDropBusy(true)
+    setDropError(null)
+    try {
+      const result = await ideToolsFull.fileMove(sessionId, relPathOf(rootDir, sourceAbs), targetDir === rootDir ? '' : relPathOf(rootDir, targetDir), undefined)
+      if (!result.ok) { setDropError(result.error.message); return }
+      setRefreshKey((k) => k + 1)
+      setExpanded((prev) => (prev.has(targetDir) ? prev : new Set([...prev, targetDir])))
+      onFileRenamed?.(sourceAbs, targetDir + '/' + sourceAbs.slice(sourceAbs.lastIndexOf('/') + 1))
+    } catch (err) {
+      setDropError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDropBusy(false)
+    }
+  }, [dropBusy, ideToolsFull, sessionId, rootDir, onFileRenamed])
+
+  // --- Upload (VS Code explorer "Upload..."): native picker → writeFile ---
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<string | null>(null)
+  const [uploadBusy, setUploadBusy] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const startUpload = useCallback((targetDir: string) => {
+    setUploadError(null)
+    setUploadTarget(targetDir)
+    uploadInputRef.current?.click()
+  }, [])
+
+  const onUploadPicked = useCallback(async (files: FileList | null) => {
+    if (files === null || files.length === 0 || uploadTarget === null || !ideToolsFull) return
+    setUploadBusy(true)
+    setUploadError(null)
+    try {
+      for (const file of Array.from(files)) {
+        const text = await file.text()
+        const targetRel = (uploadTarget === rootDir ? '' : relPathOf(rootDir, uploadTarget)) + (uploadTarget === rootDir || uploadTarget === '' ? '' : '/') + file.name
+        const result = await ideToolsFull.writeFile(sessionId, targetRel, text, { kind: 'createIfAbsent' })
+        if (!result.ok) {
+          setUploadError(t('context.uploadFailed', { name: file.name, message: result.error.message }))
+          break
+        }
+      }
+      setRefreshKey((k) => k + 1)
+      setExpanded((prev) => (prev.has(uploadTarget) ? prev : new Set([...prev, uploadTarget])))
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploadBusy(false)
+      setUploadTarget(null)
+      if (uploadInputRef.current) uploadInputRef.current.value = ''
+    }
+  }, [uploadTarget, ideToolsFull, sessionId, rootDir, t])
+
+  // --- Download (VS Code explorer "Download..."): readBytes → Blob save ---
+  const downloadEntry = useCallback(async (absPath: string) => {
+    const rel = relPathOf(rootDir, absPath)
+    const res = await workspaceFiles.readBytes(sessionId, rel, {})
+    if (!res.ok) { setDropError(res.error.message); return }
+    const name = absPath.slice(absPath.lastIndexOf('/') + 1)
+    const blob = new Blob([res.value.data], { type: 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [sessionId, rootDir, workspaceFiles])
+
+  // --- Open in terminal (VS Code "Open in Integrated Terminal") ---
+  const openInTerminal = useCallback((absPath: string) => {
+    // The terminal panel's default shell lands in the workspace root; opening
+    // a terminal AT a directory is surfaced through the IdeView's terminal
+    // toggle + a cd command via a new terminal session spec below.
+    onOpenInTerminal?.(absPath)
+  }, [onOpenInTerminal])
+
+  // Keyboard navigation focus (VS Code list pattern): the focused row.
+  const [focusPath, setFocusPath] = useState<string | null>(null)
+
+  // --- Filter box (VS Code explorer type-to-filter): rows whose own name (or
+  //  any loaded descendant row) matches stay visible; the input lives at the
+  //  top of the tree. Matching is case-insensitive substring, like VS Code's
+  //  fuzzy filter default. ---
+  const [filterText, setFilterText] = useState('')
+  // Visible row order, collected from the DOM after each commit — the tree
+  // loads lazily per directory so this is the single source of truth for both
+  // ↑/↓ keyboard movement and "does this directory contain a visible match".
+  const [visiblePaths, setVisiblePaths] = useState<readonly string[]>([])
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('.ide-explorer-tree .ide-tree-row[data-path]'))
+      const paths = rows.map((r) => r.dataset.path ?? '')
+      setVisiblePaths((prev) => (prev.join('\n') === paths.join('\n') ? prev : paths))
+    })
+    return () => cancelAnimationFrame(raf)
+  })
+
   // Explorer header actions (IdeView's hover buttons call into these).
   useImperativeHandle(ref, () => ({
     refresh: () => setRefreshKey((k) => k + 1),
@@ -507,6 +682,21 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
             onCreateStart={startCreate}
             hostPlatform={hostPlatform}
             onReveal={revealEntry}
+            clipState={clip}
+            onCut={cutEntry}
+            onCopy={copyEntry}
+            onPaste={(d) => { void pasteInto(d) }}
+            pasteBusy={pasteBusy}
+            onDropInto={(s, d) => { void dropInto(s, d) }}
+            dragOverDir={dragOver}
+            setDragOverDir={setDragOver}
+            onDownload={(p) => { void downloadEntry(p) }}
+            onUpload={startUpload}
+            onOpenInTerminal={openInTerminal}
+            focusPath={focusPath}
+            setFocusPath={setFocusPath}
+            filterText={filterText}
+            visiblePaths={visiblePaths}
           />
         ))}
         {state.truncated && <div className="ide-tree-truncated">{t('tree.truncated')}</div>}
@@ -514,9 +704,61 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     )
   }
 
+  // Blank-area context menu (VS Code explorer background menu).
+  const handleBlankContextMenu = (e: React.MouseEvent) => {
+    // A row handles its own menu; only the empty background shows this one.
+    if ((e.target as HTMLElement).closest('.ide-tree-row')) return
+    e.preventDefault()
+    e.stopPropagation()
+    showContextMenu(e.clientX, e.clientY, [
+      { id: 'new-file', label: t('context.newFile'), icon: Icons.newFile, onClick: () => startCreate('file', rootDir) },
+      { id: 'new-folder', label: t('context.newFolder'), icon: Icons.newFolder, onClick: () => startCreate('directory', rootDir) },
+      { id: 'sep1', label: '', separator: true },
+      { id: 'paste', label: t('context.paste'), icon: Icons.paste, disabled: pasteBusy || !clip, onClick: () => { void pasteInto(rootDir) } },
+      { id: 'upload', label: t('context.upload'), icon: Icons.upload, onClick: () => startUpload(rootDir) },
+      { id: 'sep2', label: '', separator: true },
+      { id: 'collapse-all', label: t('tree.collapseAll'), icon: Icons.chevronDown, onClick: () => setExpanded(new Set()) },
+      { id: 'refresh', label: t('tree.refresh'), icon: Icons.refresh, onClick: () => setRefreshKey((k) => k + 1) },
+    ])
+  }
+
+  const filterActive = filterText.trim().length > 0
+  const filterMatchCount = filterActive
+    ? visiblePaths.filter((p) => p.slice(p.lastIndexOf('/') + 1).toLowerCase().includes(filterText.trim().toLowerCase())).length
+    : 0
+
   return (
-    <div className="ide-sidebar-body">
+    <div className="ide-sidebar-body ide-explorer-tree" onContextMenu={handleBlankContextMenu}>
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => { void onUploadPicked(e.target.files) }}
+      />
+      <div className="ide-tree-filter">
+        <span className="ide-tree-filter-icon">{Icons.search}</span>
+        <input
+          className="ide-tree-filter-input"
+          value={filterText}
+          placeholder={t('explorer.filterFiles')}
+          spellCheck={false}
+          aria-label={t('explorer.filterFiles')}
+          onChange={(e) => setFilterText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setFilterText('') } }}
+        />
+        {filterActive && (
+          <button className="ide-tree-filter-clear" aria-label={t('tree.clearFilter')} onClick={() => setFilterText('')}>
+            {Icons.close}
+          </button>
+        )}
+        {filterActive && <span className="ide-tree-filter-count">{String(filterMatchCount)}</span>}
+      </div>
       {notice && <div className="ide-tree-error">{notice}</div>}
+      {(pasteError ?? dropError ?? uploadError) && (
+        <div className="ide-tree-error">{pasteError ?? dropError ?? uploadError}</div>
+      )}
+      {uploadBusy && <div className="ide-tree-loading">{t('context.uploading')}</div>}
       {renderDir(rootDir, rootState, 0)}
       {pendingDelete && (
         <div
@@ -586,6 +828,29 @@ interface TreeNodeProps {
   hostPlatform?: 'darwin' | 'win32' | 'linux'
   /** Reveal the entry in the OS file manager. */
   onReveal?: (absPath: string, name: string) => void
+  /** Explorer clipboard state (cut/copy), for the cut entry's dimmed style. */
+  clipState?: { absPath: string; op: 'cut' | 'copy' } | null
+  onCut?: (absPath: string, isDir: boolean) => void
+  onCopy?: (absPath: string, isDir: boolean) => void
+  onPaste?: (targetDir: string) => void
+  pasteBusy?: boolean
+  /** Drag & drop move: source absolute path → target directory. */
+  onDropInto?: (sourceAbs: string, targetDir: string) => void
+  dragOverDir?: string | null
+  setDragOverDir?: (dir: string | null) => void
+  /** Download the file (readBytes → Blob save). */
+  onDownload?: (absPath: string) => void
+  /** Upload files INTO this directory (native picker). */
+  onUpload?: (targetDir: string) => void
+  /** Open an integrated terminal AT this directory. */
+  onOpenInTerminal?: (absDir: string) => void
+  /** Keyboard focus ring (VS Code list focus). */
+  focusPath?: string | null
+  setFocusPath?: (p: string | null) => void
+  /** Filter text; a non-matching subtree hides itself. */
+  filterText?: string
+  /** Flat visible-paths list for keyboard navigation (↑↓ movement). */
+  visiblePaths?: readonly string[]
 }
 
 /** Everything the inline-create input needs, threaded from FileTree. */
@@ -694,7 +959,7 @@ function NewEntryRow({ kind, depth, busy, serverError, onCommit, onCancel, onDra
   )
 }
 
-function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal }: TreeNodeProps) {
+function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths }: TreeNodeProps) {
   const childPath = joinPath(dirPath, entry.name)
   const isDir = entry.type === 'directory'
   const isOpen = expanded.has(childPath)
@@ -727,6 +992,51 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
 
   const isActive = !isDir && activePath === childPath
   const paddingLeft = depth * 12 + 4
+
+  // --- Explorer clipboard styling: a CUT entry is dimmed like VS Code. ---
+  const isCut = clipState?.op === 'cut' && clipState.absPath === childPath
+
+  // --- Filter: hide rows whose own/subtree names don't match. When the
+  //  filter is active, directories stay expanded so matches are reachable. ---
+  const filterLower = filterText?.trim().toLowerCase() ?? ''
+  const matchesFilter = filterLower.length === 0
+    || entry.name.toLowerCase().includes(filterLower)
+    || (isDir && visiblePaths?.some((p) => p.startsWith(childPath + '/')) === true)
+  // Hidden by filter: still run every hook above (React's rules-of-hooks), the
+  // JSX below renders nothing when hidden.
+  const hiddenByFilter = filterLower.length > 0 && !matchesFilter
+
+  // --- Keyboard navigation (VS Code list pattern): ↑/↓ move focus, Enter
+  //  opens/toggles, →/← expand/collapse, F2 renames, Delete deletes. ---
+  const isFocused = focusPath === childPath
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const list = visiblePaths ?? []
+    const idx = list.indexOf(childPath)
+    const move = (delta: number) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const next = list[Math.min(list.length - 1, Math.max(0, idx + delta))]
+      if (next !== undefined) {
+        setFocusPath?.(next)
+        document.querySelector<HTMLElement>('.ide-tree-row[data-path="' + CSS.escape(next) + '"]')?.focus()
+      }
+    }
+    if (e.key === 'ArrowDown') { move(1); return }
+    if (e.key === 'ArrowUp') { move(-1); return }
+    if (e.key === 'ArrowRight' && isDir) { e.preventDefault(); if (!isOpen) onToggle(childPath); return }
+    if (e.key === 'ArrowLeft' && isDir) { e.preventDefault(); if (isOpen) onToggle(childPath); return }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (isDir) onToggle(childPath)
+      else onOpenFile(childPath)
+      return
+    }
+    if (e.key === 'F2') { e.preventDefault(); onRenameStart?.(childPath, entry.name); return }
+    if (e.key === 'Delete') { e.preventDefault(); onRequestDelete?.(childPath, entry.name, isDir); return }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'x') { e.preventDefault(); onCut?.(childPath, isDir); return }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); onCopy?.(childPath, isDir); return }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && isDir) { e.preventDefault(); onPaste?.(childPath); return }
+  }
   // Files: look up their own git status entry. Directories: inherit the
   // dominant kind from their children (so a folder containing a modified
   // file shows the modification color too, like VS Code).
@@ -805,6 +1115,13 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'new-file', label: t('context.newFile'), icon: Icons.newFile, onClick: () => onCreateStart?.('file', childPath) },
       { id: 'new-folder', label: t('context.newFolder'), icon: Icons.newFolder, onClick: () => onCreateStart?.('directory', childPath) },
       { id: 'sep1', label: '', separator: true },
+      { id: 'cut', label: t('context.cut'), icon: Icons.cut, disabled: childPath === rootDir, onClick: () => onCut?.(childPath, true) },
+      { id: 'copy-entry', label: t('context.copy'), icon: Icons.copy, disabled: childPath === rootDir, onClick: () => onCopy?.(childPath, true) },
+      { id: 'paste', label: t('context.paste'), icon: Icons.paste ?? Icons.copy, disabled: pasteBusy, onClick: () => onPaste?.(childPath) },
+      { id: 'sep-clip', label: '', separator: true },
+      { id: 'upload', label: t('context.upload'), icon: Icons.upload ?? Icons.goToFile, onClick: () => onUpload?.(childPath) },
+      { id: 'open-terminal', label: t('context.openInTerminal'), icon: Icons.terminal, onClick: () => onOpenInTerminal?.(childPath) },
+      { id: 'sep-ut', label: '', separator: true },
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
       { id: 'sep-reveal', label: '', separator: true },
@@ -817,6 +1134,10 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'new-file', label: t('context.newFile'), icon: Icons.newFile, onClick: () => onCreateStart?.('file', dirPath) },
       { id: 'new-folder', label: t('context.newFolder'), icon: Icons.newFolder, onClick: () => onCreateStart?.('directory', dirPath) },
       { id: 'sep1', label: '', separator: true },
+      { id: 'cut', label: t('context.cut'), icon: Icons.cut, onClick: () => onCut?.(childPath, false) },
+      { id: 'copy-entry', label: t('context.copy'), icon: Icons.copy, onClick: () => onCopy?.(childPath, false) },
+      { id: 'sep-clip', label: '', separator: true },
+      { id: 'download', label: t('context.download'), icon: Icons.download ?? Icons.goToFile, onClick: () => onDownload?.(childPath) },
       { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
       { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
       { id: 'sep-reveal', label: '', separator: true },
@@ -828,14 +1149,34 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
     showContextMenu(e.clientX, e.clientY, items)
   }
 
+  if (hiddenByFilter) return null
+
   return (
     <>
       <div
         className="ide-tree-row"
         data-active={isActive || undefined}
+        data-focused={isFocused || undefined}
+        data-cut={isCut || undefined}
+        data-path={childPath}
+        data-drop-target={isDir && dragOverDir === childPath || undefined}
         style={{ paddingLeft }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        draggable={!isRenaming}
+        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', childPath) }}
+        onDragOver={isDir ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDir !== childPath) setDragOverDir?.(childPath) } : undefined}
+        onDragLeave={isDir ? () => { if (dragOverDir === childPath) setDragOverDir?.(null) } : undefined}
+        onDrop={isDir ? (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const src = e.dataTransfer.getData('text/plain')
+          setDragOverDir?.(null)
+          if (src.length > 0 && src !== childPath && !src.startsWith(childPath + '/')) onDropInto?.(src, childPath)
+        } : undefined}
+        onFocus={() => setFocusPath?.(childPath)}
       >
         <span className="ide-tree-chevron" data-expanded={isOpen || undefined}>
           {isDir ? Icons.chevronRight : null}
@@ -914,6 +1255,21 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
             onCreateStart={onCreateStart}
             hostPlatform={hostPlatform}
             onReveal={onReveal}
+            clipState={clipState}
+            onCut={onCut}
+            onCopy={onCopy}
+            onPaste={onPaste}
+            pasteBusy={pasteBusy}
+            onDropInto={onDropInto}
+            dragOverDir={dragOverDir}
+            setDragOverDir={setDragOverDir}
+            onDownload={onDownload}
+            onUpload={onUpload}
+            onOpenInTerminal={onOpenInTerminal}
+            focusPath={focusPath}
+            setFocusPath={setFocusPath}
+            filterText={filterText}
+            visiblePaths={visiblePaths}
           />
         ))}</>
       )}

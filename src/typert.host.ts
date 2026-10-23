@@ -26,6 +26,7 @@ const _ide_tools_ideTools_terminalOpen_parameter_1$schema = z.object({
   'cols': z.number().readonly(),
   'rows': z.number().readonly(),
   'command': z.string().optional(),
+  'cwd': z.string().optional(),
 }).readonly()
 const _ide_tools_ideTools_terminalOpen_result$schema = z.object({
   'terminalId': z.string().readonly(),
@@ -199,6 +200,7 @@ const _ide_tools_ideTools_gitCommit_parameter_2$schema = z.object({
   'signoff': z.boolean().optional().readonly(),
   'push': z.boolean().optional().readonly(),
   'sync': z.boolean().optional().readonly(),
+  'autoStage': z.boolean().optional().readonly(),
 }).readonly()
 const _ide_tools_ideTools_gitCommit_result$schema = z.object({
   'committed': z.boolean().readonly(),
@@ -208,6 +210,10 @@ const _ide_tools_ideTools_gitCommit_result$schema = z.object({
 const _ide_tools_ideTools_gitStageAll_result$schema = z.void()
 const _ide_tools_ideTools_gitStage_parameter_1$schema = z.string()
 const _ide_tools_ideTools_gitStage_result$schema = z.void()
+const _ide_tools_ideTools_gitUnstage_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitUnstage_result$schema = z.void()
+const _ide_tools_ideTools_gitUnstageAll_result$schema = z.void()
+const _ide_tools_ideTools_gitDiscardAll_result$schema = z.void()
 const _ide_tools_ideTools_gitDiscard_parameter_1$schema = z.object({
   'path': z.string().readonly(),
   'oldPath': z.string().optional(),
@@ -231,6 +237,14 @@ const _ide_tools_ideTools_fileCreate_parameter_2$schema = z.union([
   z.literal('file'), z.literal('directory'),
 ])
 const _ide_tools_ideTools_fileCreate_result$schema = z.void()
+const _ide_tools_ideTools_fileMove_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileMove_parameter_2$schema = z.string()
+const _ide_tools_ideTools_fileMove_parameter_3$schema = z.object({ newName: z.string().optional() })
+const _ide_tools_ideTools_fileMove_result$schema = z.void()
+const _ide_tools_ideTools_fileCopy_parameter_1$schema = z.string()
+const _ide_tools_ideTools_fileCopy_parameter_2$schema = z.string()
+const _ide_tools_ideTools_fileCopy_parameter_3$schema = z.object({ newName: z.string().optional() })
+const _ide_tools_ideTools_fileCopy_result$schema = z.void()
 const _ide_tools_ideTools_writeFile_parameter_1$schema = z.string()
 const _ide_tools_ideTools_writeFile_parameter_2$schema = z.string()
 const _ide_tools_ideTools_writeFile_parameter_3$schema = z.union([
@@ -249,6 +263,8 @@ const _ide_tools_ideTools_hostPlatform_result$schema = z.string()
 const _ide_tools_ideTools_gitSync_parameter_1$schema = z.union([
   z.literal('sync'),
   z.literal('publish'),
+  z.literal('pull'),
+  z.literal('push'),
 ])
 const _ide_tools_ideTools_gitSync_result$schema = z.object({
   'pushed': z.boolean().readonly(),
@@ -892,6 +908,67 @@ export const TYPERT = {
       sourceLocation: { file: 'src/index.ts', line: 700, column: 3 },
     },
     {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstage',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitUnstage',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitUnstage', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstage:path',
+            create: () => _ide_tools_ideTools_gitUnstage_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitUnstageResult',
+        create: () => _ide_tools_ideTools_gitUnstage_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1378, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstageAll',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitUnstageAll',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitUnstageAll', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitUnstageAllResult',
+        create: () => _ide_tools_ideTools_gitUnstageAll_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1395, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitDiscardAll',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitDiscardAll',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitDiscardAll', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitDiscardAllResult',
+        create: () => _ide_tools_ideTools_gitDiscardAll_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1411, column: 3 },
+    },
+    {
       id: '@zhaoyang10/dsh-web-ide#ideTools/gitDiscard',
       service: 'ideTools',
       namespace: 'ideTools',
@@ -1028,6 +1105,100 @@ export const TYPERT = {
         create: () => _ide_tools_ideTools_fileCreate_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 838, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileMove',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileMove',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileMove', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileMove:path',
+            create: () => _ide_tools_ideTools_fileMove_parameter_1$schema,
+          },
+        },
+        {
+          name: 'targetDir',
+          wire: 'targetDir',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileMove:targetDir',
+            create: () => _ide_tools_ideTools_fileMove_parameter_2$schema,
+          },
+        },
+        {
+          name: 'opts',
+          wire: 'opts',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileMove:opts',
+            create: () => _ide_tools_ideTools_fileMove_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileMoveResult',
+        create: () => _ide_tools_ideTools_fileMove_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 845, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/fileCopy',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'fileCopy',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('fileCopy', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCopy:path',
+            create: () => _ide_tools_ideTools_fileCopy_parameter_1$schema,
+          },
+        },
+        {
+          name: 'targetDir',
+          wire: 'targetDir',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCopy:targetDir',
+            create: () => _ide_tools_ideTools_fileCopy_parameter_2$schema,
+          },
+        },
+        {
+          name: 'opts',
+          wire: 'opts',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/fileCopy:opts',
+            create: () => _ide_tools_ideTools_fileCopy_parameter_3$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#FileCopyResult',
+        create: () => _ide_tools_ideTools_fileCopy_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 852, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/writeFile',
@@ -1185,7 +1356,7 @@ export const TYPERT = {
           {
             kind: 'method',
             name: 'terminalOpen',
-            signature: "@Remote async terminalOpen( workspaceFileScope: WorkspaceFileScope, spec: { cols: number; rows: number; command?: string }, signal: AbortSignal, ): Promise<IdeTerminalOpenResult>",
+            signature: "@Remote async terminalOpen( workspaceFileScope: WorkspaceFileScope, spec: { cols: number; rows: number; command?: string; cwd?: string }, signal: AbortSignal, ): Promise<IdeTerminalOpenResult>",
             summary: 'Spawn one interactive login shell in the workspace root.',
             jsDoc: '/** Spawn one interactive login shell in the workspace root. */',
           },

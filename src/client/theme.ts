@@ -35,6 +35,36 @@ export const IDE_CSS_VARS: Record<string, string> = {
   '--ide-icon-fg': '#c5c5c5',
 }
 
+/** Light Modern equivalents (VS Code light_modern): swapped when the theme
+ *  setting says light. Applied by overwriting the same CSS custom properties
+ *  on the IDE root element. */
+export const IDE_CSS_VARS_LIGHT: Record<string, string> = {
+  '--ide-bg': '#ffffff',
+  '--ide-sidebar-bg': '#f8f8f8',
+  '--ide-activitybar-bg': '#f8f8f8',
+  '--ide-activitybar-fg': '#616161',
+  '--ide-activitybar-active': '#1f1f1f',
+  '--ide-tab-bg': '#f8f8f8',
+  '--ide-tab-inactive-bg': '#f8f8f8',
+  '--ide-tab-active-bg': '#ffffff',
+  '--ide-tab-inactive-fg': '#616161',
+  '--ide-tab-active-fg': '#1f1f1f',
+  '--ide-tab-border': '#e5e5e5',
+  '--ide-statusbar-bg': '#f8f8f8',
+  '--ide-statusbar-fg': '#3b3b3b',
+  '--ide-border': '#e5e5e5',
+  '--ide-tree-hover': '#e8e8e8',
+  '--ide-tree-active': '#e4e6f1',
+  '--ide-tree-focus': '#005fb8',
+  '--ide-fg': '#3b3b3b',
+  '--ide-fg-muted': '#616161',
+  '--ide-fg-dim': '#8b8b8b',
+  '--ide-accent': '#005fb8',
+  '--ide-accent-hover': '#0258a8',
+  '--ide-titlebar-bg': '#f8f8f8',
+  '--ide-icon-fg': '#424242',
+}
+
 /** Inline stylesheet injected once when the IDE mounts. VSCode-style geometry. */
 export const IDE_STYLES = `
 /* While the IDE view is mounted in the conversation ring, take the full
@@ -114,6 +144,8 @@ export const IDE_STYLES = `
 .ide-md-pane-header{height:28px;flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px;color:var(--ide-fg)}
 .ide-md-pane-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .ide-tabbar-action{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
+.ide-tabbar-action:disabled{opacity:.35;cursor:default}
+.ide-tabbar-action:disabled:hover{background:transparent;color:var(--ide-fg-muted)}
 .ide-tabbar-action:hover{color:var(--ide-fg);background:var(--ide-tree-hover)}
 .ide-tabbar-action[data-active='true']{color:var(--ide-fg);background:var(--ide-tree-active)}
 .ide-tabbar-action svg{width:16px;height:16px}
@@ -152,17 +184,32 @@ export const IDE_STYLES = `
 .ide-statusbar{height:22px;flex:none;display:flex;align-items:center;background:var(--ide-statusbar-bg);color:var(--ide-statusbar-fg);font-size:12px;padding:0 8px;gap:12px}
 .ide-statusbar-left,.ide-statusbar-right{display:flex;align-items:center;gap:12px}
 .ide-statusbar-right{margin-left:auto}
-.ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap;background:transparent;border:none;color:inherit;font:inherit;cursor:default;padding:0}
+.ide-statusbar button.ide-statusbar-item{cursor:pointer}
+.ide-statusbar button.ide-statusbar-item:hover{background:rgba(255,255,255,.08)}
 .ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding-left:6px;border-left:2px solid var(--ide-accent,#007acc);display:flex;align-items:center;gap:4px}
 .ide-statusbar-branch-icon{display:flex;align-items:center;flex:none}
 .ide-statusbar-branch-icon svg{width:13px;height:13px}
-.ide-statusbar-terminal{background:transparent;border:none;color:var(--ide-statusbar-fg);cursor:pointer;padding:0 6px}
-.ide-statusbar-terminal:hover{background:rgba(255,255,255,.12)}
+.ide-statusbar-terminal{padding:0 6px}
 .ide-statusbar-terminal[data-active='true']{background:var(--ide-accent,#007acc)}
 .ide-statusbar-terminal svg{width:14px;height:14px}
 .ide-tree-row{display:flex;align-items:center;gap:4px;height:22px;padding:0 8px;cursor:pointer;user-select:none;color:var(--ide-fg);font-size:13px;white-space:nowrap}
 .ide-tree-row:hover{background:var(--ide-tree-hover)}
 .ide-tree-row[data-active='true']{background:var(--ide-tree-active)}
+.ide-tree-row:focus{outline:none}
+.ide-tree-row[data-focused='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff)}
+.ide-tree-row[data-cut='true']{opacity:.45}
+.ide-tree-row[data-drop-target='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff);background:rgba(55,148,255,.12)}
+.ide-tree-filter{display:flex;align-items:center;gap:4px;margin:2px 8px 6px;height:24px;padding:0 6px;border:1px solid var(--ide-border,#3c3c3c);border-radius:4px;background:var(--ide-bg-elev,#2d2d2d)}
+.ide-tree-filter:focus-within{border-color:var(--ide-accent,#3794ff)}
+.ide-tree-filter-icon{display:flex;align-items:center;color:var(--ide-fg-dim)}
+.ide-tree-filter-icon svg{width:13px;height:13px}
+.ide-tree-filter-input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ide-fg);font-size:12px}
+.ide-tree-filter-input::placeholder{color:var(--ide-fg-dim)}
+.ide-tree-filter-clear{display:flex;align-items:center;background:transparent;border:none;outline:none;cursor:pointer;color:var(--ide-fg-dim);padding:2px}
+.ide-tree-filter-clear:hover{color:var(--ide-fg)}
+.ide-tree-filter-clear svg{width:13px;height:13px}
+.ide-tree-filter-count{color:var(--ide-fg-dim);font-size:11px;min-width:12px;text-align:right}
 .ide-tree-chevron{width:16px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-muted)}
 .ide-tree-chevron svg{width:12px;height:12px;transition:transform .1s}
 .ide-tree-chevron[data-expanded='true'] svg{transform:rotate(90deg)}
@@ -180,7 +227,7 @@ export const IDE_STYLES = `
 .ide-tree-error{padding:8px 16px;color:#f48771;font-size:12px}
 .ide-tree-truncated{padding:4px 24px;color:var(--ide-fg-dim);font-size:11px;font-style:italic}
 .ide-tab-dirty{color:#cca700;font-size:9px;line-height:1}
-.ide-statusbar-dirty{color:#cca700;background:none;border:none;font:inherit;padding:0;cursor:pointer}
+.ide-statusbar-dirty{color:#cca700}
 .ide-statusbar-conflict{color:#f14c4c}
 .ide-dialog-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:40;pointer-events:auto}
 /* Window-level modal variant (Explorer delete confirm): fixed to the viewport so
@@ -190,16 +237,18 @@ export const IDE_STYLES = `
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:#cccccc;font-size:13px}
 .ide-dialog-body{color:#9d9d9d;font-size:12px;line-height:1.6;margin-bottom:16px}
 .ide-dialog-actions{display:flex;gap:8px;justify-content:flex-end}
-.ide-dialog-button{background:#0078d4;color:#ffffff;border:none;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer}
+.ide-dialog-button{background:#0078d4;color:#ffffff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;line-height:1.5;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .ide-dialog-button:hover{background:#026ec1}
 .ide-dialog-button.ide-dialog-button-quiet{background:#3c3c3c;color:#cccccc}
 .ide-dialog-button.ide-dialog-button-quiet:hover{background:#4a4a4a}
+.ide-dialog-button svg{width:12px;height:12px;flex:none}
 [data-slot="rightbar.session"] li[data-files-entry][data-ide-active] > button{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
 [data-slot="rightbar.session"] div[role="button"][data-ide-active]{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
 /* ── Source Control panel ─────────────────────────────────────────────── */
 .ide-git-panel{position:relative;display:flex;flex-direction:column;height:100%;min-height:0}
 /* Discard-confirm dialog anchors to the sidebar panel, not the whole page. */
 .ide-git-panel .ide-dialog-backdrop{z-index:30}
+.ide-git-panel .ide-dialog{max-width:calc(100vw - 80px);width:calc(100% - 16px)}
 .ide-git-header{height:35px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 20px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted)}
 .ide-git-header-title{flex:1}
 .ide-git-action{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
@@ -279,6 +328,19 @@ export const IDE_STYLES = `
 .ide-git-subpanel .ide-git-branch-row[data-remote='true']{padding-left:20px}
 .ide-git-subpanel .ide-git-entries .ide-git-entry{padding:0 8px 0 12px}
 .ide-git-entries{display:flex;flex-direction:column}
+.ide-git-group{display:flex;flex-direction:column}
+.ide-git-group-header{display:flex;align-items:center;gap:4px;padding:0 8px 0 8px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ide-fg);min-height:22px;line-height:22px;white-space:nowrap}
+.ide-git-group-label{flex:none}
+.ide-git-group-count{flex:none;opacity:.75;font-weight:400}
+.ide-git-group-actions{flex:none;margin-left:auto;display:none;align-items:center;gap:0}
+.ide-git-group-header:hover .ide-git-group-actions{display:inline-flex}
+.ide-git-group-action{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:0;background:transparent;color:var(--ide-fg);cursor:pointer;border-radius:3px;padding:0}
+.ide-git-group-action:hover{background:var(--ide-tree-hover);color:var(--ide-fg)}
+.ide-git-group-action svg{width:16px;height:16px}
+.ide-git-entry-hover-actions{display:none;align-items:center;gap:0;margin-left:auto}
+.ide-git-entry:hover .ide-git-entry-hover-actions{display:inline-flex}
+.ide-git-entry:hover .ide-git-entry-dir{display:none}
+.ide-git-group[data-group='merge'] .ide-git-group-label{color:#e2c08d}
 .ide-git-entry{display:flex;align-items:center;gap:4px;padding:0 12px 0 20px;font-size:13px;cursor:pointer;color:var(--ide-fg);min-height:22px;line-height:22px;white-space:nowrap}
 .ide-git-entry:hover{background:var(--ide-tree-hover)}
 .ide-git-entry[data-selected='true']{background:var(--ide-tree-active)}
@@ -427,8 +489,11 @@ export const IDE_STYLES = `
 .ide-search-hit-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-alias-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
 /* ── Terminal panel ───────────────────────────────────────────────────── */
 .ide-terminal-panel{display:flex;flex-direction:column;flex:none;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f;position:relative;transition:height .2s ease}
+.ide-bottompanel > .ide-terminal-panel{flex:1;height:auto;min-height:0;border-top:none}
 .ide-terminal-panel[data-state='minimized']{height:35px !important;min-height:35px !important}
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
+.ide-bottompanel:has(.ide-terminal-panel[data-state='maximized']){height:60vh}
+.ide-bottompanel:has(.ide-terminal-panel[data-state='minimized']){height:35px}
 .ide-terminal-toolbar{display:flex;align-items:center;gap:4px;padding:0 4px 0 0;border-bottom:1px solid var(--ide-border,#2b2b2b);flex:none;background:#1e1e1e;height:35px}
 .ide-terminal-tabs{display:flex;align-items:stretch;gap:0;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden}
 .ide-terminal-tabs::-webkit-scrollbar{height:3px}
@@ -462,6 +527,129 @@ export const IDE_STYLES = `
 .ide-context-menu-item-icon{position:absolute;left:6px;display:flex;align-items:center;color:inherit}
 .ide-context-menu-item-icon svg{width:14px;height:14px}
 .ide-context-menu-item-label{flex:1;overflow:hidden;text-overflow:ellipsis}
+
+/* ── Settings / About / Keybindings / Snippets dialogs ─────────────── */
+.ide-settings-dialog{max-width:560px;width:min(560px,92vw);display:flex;flex-direction:column;max-height:80vh}
+.ide-settings-header{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--ide-border)}
+.ide-settings-title{font-weight:600;color:var(--ide-fg);font-size:13px;flex:1}
+.ide-settings-search{flex:1.2;background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:5px 8px;font-size:12px}
+.ide-settings-body{overflow:auto;padding:12px 4px}
+.ide-settings-section{margin-bottom:16px}
+.ide-settings-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--ide-fg-muted);margin-bottom:6px}
+.ide-settings-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;gap:12px}
+.ide-settings-row-label{color:var(--ide-fg);font-size:12px}
+.ide-settings-select{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;min-width:160px}
+.ide-settings-number{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;width:80px}
+.ide-settings-toggle{position:relative;display:inline-block;width:34px;height:18px;cursor:pointer}
+.ide-settings-toggle input{opacity:0;width:0;height:0}
+.ide-settings-toggle span{position:absolute;inset:0;background:#3c3c3c;border-radius:9px;transition:.15s}
+.ide-settings-toggle span:before{content:'';position:absolute;width:12px;height:12px;left:3px;top:3px;background:#cccccc;border-radius:50%;transition:.15s}
+.ide-settings-toggle input:checked + span{background:var(--ide-accent)}
+.ide-settings-toggle input:checked + span:before{transform:translateX(16px);background:#ffffff}
+.ide-settings-actions{display:flex;gap:8px}
+.ide-settings-error{color:#f14c4c;font-size:12px;padding:4px 0}
+.ide-about-body{text-align:center;padding:8px 0}
+.ide-about-logo{font-size:24px;font-weight:700;color:var(--ide-accent);margin-bottom:4px}
+.ide-about-name{font-size:15px;font-weight:600;color:var(--ide-fg)}
+.ide-about-version{font-size:12px;color:var(--ide-fg-muted);margin-bottom:12px}
+.ide-about-rows{display:flex;flex-direction:column;gap:4px;text-align:left}
+.ide-about-rows div{display:flex;justify-content:space-between;font-size:12px}
+.ide-about-rows dt{color:var(--ide-fg-muted)}
+.ide-about-rows dd{color:var(--ide-fg);margin:0}
+.ide-kb-list{display:flex;flex-direction:column}
+.ide-kb-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--ide-border)}
+.ide-kb-command{flex:1;color:var(--ide-fg);font-size:12px}
+.ide-kb-keys{min-width:120px;text-align:right;color:var(--ide-fg-muted);font-size:12px;font-family:var(--ds-font-family-code,Menlo,monospace)}
+.ide-kb-edit{background:transparent;border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg-muted);font-size:11px;padding:3px 8px;cursor:pointer}
+.ide-kb-edit:hover{color:var(--ide-fg);border-color:var(--ide-accent)}
+.ide-kb-edit[data-active='true']{background:var(--ide-accent);color:#fff;border-color:var(--ide-accent)}
+.ide-snippets-hint{font-size:11px;color:var(--ide-fg-muted);margin-bottom:8px;line-height:1.5}
+.ide-snippets-editor{width:100%;min-height:220px;background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);font:12px/1.5 var(--ds-font-family-code,Menlo,monospace);padding:8px;resize:vertical;box-sizing:border-box}
+.ide-snippets-status{color:#4ec9b0;font-size:12px;padding:4px 0}
+/* ── Command palette ───────────────────────────────────────────────── */
+.ide-palette-backdrop{position:fixed;inset:0;z-index:70;display:flex;justify-content:center;padding-top:10vh;background:rgba(0,0,0,.25);pointer-events:auto}
+.ide-palette{width:min(560px,92vw);background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:60vh;overflow:hidden}
+.ide-palette-input{margin:8px;padding:7px 10px;background:var(--ide-bg);border:1px solid var(--ide-accent);border-radius:4px;color:var(--ide-fg);font-size:13px;outline:none}
+.ide-palette-list{overflow:auto;padding-bottom:6px}
+.ide-palette-item{display:flex;align-items:center;gap:8px;padding:6px 14px;font-size:12px;color:var(--ide-fg);cursor:pointer}
+.ide-palette-item[data-selected='true']{background:var(--ide-accent);color:#fff}
+.ide-palette-item[data-disabled='true']{color:var(--ide-fg-dim)}
+.ide-palette-category{color:var(--ide-fg-muted);font-size:11px}
+.ide-palette-item[data-selected='true'] .ide-palette-category{color:rgba(255,255,255,.75)}
+.ide-palette-label{flex:1}
+.ide-palette-keys{font-family:var(--ds-font-family-code,Menlo,monospace);font-size:11px;color:var(--ide-fg-muted)}
+.ide-palette-item[data-selected='true'] .ide-palette-keys{color:rgba(255,255,255,.75)}
+.ide-palette-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
+/* ── Notifications ─────────────────────────────────────────────────── */
+.ide-notify-root{position:relative;display:inline-flex}
+.ide-notify-bell{position:relative}
+.ide-notify-bell[data-has-unseen='true']::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:#f14c4c}
+.ide-notify-panel{position:absolute;bottom:24px;right:0;width:320px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:80;overflow:hidden}
+.ide-notify-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;font-size:12px;font-weight:600;color:var(--ide-fg);border-bottom:1px solid var(--ide-border)}
+.ide-notify-clear{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;cursor:pointer}
+.ide-notify-clear:hover{color:var(--ide-fg)}
+.ide-notify-list{max-height:280px;overflow:auto}
+.ide-notify-item{display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid var(--ide-border);font-size:12px}
+.ide-notify-sev svg{width:13px;height:13px}
+.ide-notify-error .ide-notify-sev{color:#f14c4c}
+.ide-notify-warning .ide-notify-sev{color:#cca700}
+.ide-notify-info .ide-notify-sev{color:#3794ff}
+.ide-notify-msg{flex:1;color:var(--ide-fg);word-break:break-word}
+.ide-notify-time{color:var(--ide-fg-dim);font-size:11px}
+.ide-notify-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
+.ide-toasts{position:absolute;right:12px;bottom:30px;display:flex;flex-direction:column;gap:6px;z-index:90;pointer-events:none}
+.ide-toast{display:flex;align-items:center;gap:8px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-left:3px solid var(--ide-accent);border-radius:4px;padding:8px 12px;font-size:12px;color:var(--ide-fg);box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;max-width:360px}
+.ide-toast-error{border-left-color:#f14c4c}
+.ide-toast-warning{border-left-color:#cca700}
+.ide-toast-sev{display:flex}
+.ide-toast-sev svg{width:13px;height:13px}
+.ide-toast-error .ide-toast-sev{color:#f14c4c}
+.ide-toast-warning .ide-toast-sev{color:#cca700}
+.ide-toast-msg{flex:1}
+.ide-toast-close{color:var(--ide-fg-dim);display:flex}
+.ide-toast-close svg{width:12px;height:12px}
+/* ── Problems panel + bottom tabs ──────────────────────────────────── */
+.ide-bottompanel{display:flex;flex-direction:column;flex:none;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f}
+.ide-bottomtabs{display:flex;gap:2px;padding:0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-sidebar-bg)}
+.ide-bottomtab{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;letter-spacing:.5px;text-transform:uppercase;padding:6px 10px;cursor:pointer;border-bottom:1px solid transparent;display:flex;align-items:center;gap:6px}
+.ide-bottomtab[data-active='true']{color:var(--ide-fg);border-bottom-color:var(--ide-fg)}
+.ide-bottomtab-count{background:#f14c4c;color:#fff;border-radius:8px;font-size:10px;padding:0 5px;min-width:14px;text-align:center}
+.ide-bottom-problems{flex:1;min-height:0;overflow:auto;background:var(--ide-bg)}
+.ide-problems{padding:8px 12px}
+.ide-problems-empty{padding:24px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
+.ide-problems-group{margin-bottom:8px}
+.ide-problems-file{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px}
+.ide-problems-file-name{color:var(--ide-fg);font-weight:600}
+.ide-problems-file-path{color:var(--ide-fg-dim);font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis}
+.ide-problems-file-count{color:var(--ide-fg-muted);font-size:11px}
+.ide-problems-item{display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;font-size:12px;cursor:pointer;color:var(--ide-fg)}
+.ide-problems-item:hover{background:var(--ide-tree-hover)}
+.ide-problems-icon svg{width:13px;height:13px}
+.ide-problems-error{color:#f14c4c}
+.ide-problems-warning{color:#cca700}
+.ide-problems-info{color:#3794ff}
+.ide-problems-message{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-problems-pos{color:var(--ide-fg-dim);font-size:11px}
+/* ── Extensions view ───────────────────────────────────────────────── */
+.ide-extensions{padding:12px}
+.ide-extensions-note{font-size:12px;color:var(--ide-fg-muted);line-height:1.6;margin-bottom:12px}
+.ide-extensions-list{display:flex;flex-direction:column;gap:6px}
+.ide-extensions-item{display:flex;align-items:center;gap:10px;background:var(--ide-tree-hover);border-radius:6px;padding:10px 12px}
+.ide-extensions-badge{background:var(--ide-accent);color:#fff;font-size:10px;border-radius:3px;padding:1px 6px;text-transform:uppercase}
+.ide-extensions-name{flex:1;font-size:13px;color:var(--ide-fg)}
+.ide-extensions-enabled{color:#4ec9b0;font-size:11px}
+/* ── Status bar additions ──────────────────────────────────────────── */
+.ide-statusbar-remote svg{width:13px;height:13px}
+.ide-statusbar-remote-icon{display:inline-flex;margin-right:4px}
+.ide-statusbar-sync{display:inline-flex;padding:0 2px;margin-left:4px}
+.ide-statusbar-sync:hover{color:var(--ide-accent-hover)}
+.ide-statusbar-sync svg{width:12px;height:12px}
+.ide-statusbar-sync-count{margin-left:5px;font-size:11px;color:var(--ide-fg-muted)}
+.ide-statusbar-problems{gap:4px}
+.ide-statusbar-prob-icon{display:inline-flex;margin:0 1px 0 4px}
+.ide-statusbar-prob-icon svg{width:12px;height:12px}
+.ide-statusbar-prob-error{color:#f14c4c}
+.ide-statusbar-prob-warn{color:#cca700}
 `
 
 /** Monaco theme definition matching VSCode Dark Modern (Dark+ equivalent). */
@@ -517,5 +705,71 @@ export const MONACO_DARK_MODERN = {
 /** Define the Dark Modern Monaco theme once per Monaco load. */
 export function defineDarkModernTheme(monaco: typeof import('monaco-editor')) {
   monaco.editor.defineTheme('dsh-dark-modern', MONACO_DARK_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
+}
+
+/** Monaco theme definition matching VSCode Light Modern (Light+ equivalent). */
+export const MONACO_LIGHT_MODERN = {
+  base: 'vs' as const,
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '008000' },
+    { token: 'keyword', foreground: '0000ff' },
+    { token: 'string', foreground: 'a31515' },
+    { token: 'number', foreground: '098658' },
+    { token: 'type', foreground: '267f99' },
+    { token: 'type.identifier', foreground: '267f99' },
+    { token: 'identifier', foreground: '001080' },
+    { token: 'function', foreground: '795e26' },
+    { token: 'variable', foreground: '001080' },
+    { token: 'variable.predefined', foreground: '0070c1' },
+    { token: 'variable.parameter', foreground: '001080' },
+    { token: 'tag', foreground: '800000' },
+    { token: 'attribute.name', foreground: 'e50000' },
+    { token: 'attribute.value', foreground: '0451a5' },
+    { token: 'delimiter', foreground: '000000' },
+    { token: 'operator', foreground: '000000' },
+    { token: 'key', foreground: '0451a5' },
+    { token: 'string.key.json', foreground: '0451a5' },
+    { token: 'string.value.json', foreground: 'a31515' },
+    { token: 'keyword.json', foreground: '0000ff' },
+  ],
+  colors: {
+    'editor.background': '#ffffff',
+    'editor.foreground': '#3b3b3b',
+    'editorLineNumber.foreground': '6e7681',
+    'editorLineNumber.activeForeground': '171184',
+    'editor.selectionBackground': 'add6ff',
+    'editor.inactiveSelectionBackground': 'e4e6f1',
+    'editor.lineHighlightBackground': 'f2f2f2',
+    'editorCursor.foreground': '000000',
+    'editorIndentGuide.background': 'd3d3d3',
+    'editorIndentGuide.activeBackground': '929292',
+    'editorGutter.background': '#ffffff',
+    'editorWidget.background': '#ffffff',
+    'editorWidget.border': '#cecece',
+    'editorSuggestWidget.background': '#ffffff',
+    'editorSuggestWidget.selectedBackground': 'e4e6f1',
+    'editorHoverWidget.background': '#ffffff',
+    'scrollbarSlider.background': '64646466',
+    'scrollbarSlider.hoverBackground': '646464b3',
+    'scrollbarSlider.activeBackground': '00000066',
+    'minimap.background': '#ffffff',
+  },
+}
+
+/** Define both Monaco themes once per Monaco load (dark is the default). */
+export function defineIdeThemes(monaco: typeof import('monaco-editor')) {
+  monaco.editor.defineTheme('dsh-dark-modern', MONACO_DARK_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
+  monaco.editor.defineTheme('dsh-light-modern', MONACO_LIGHT_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
+}
+
+/** CSS-variable set for a theme id. */
+export function cssVarsForTheme(theme: 'dark-modern' | 'light-modern'): Record<string, string> {
+  return theme === 'light-modern' ? IDE_CSS_VARS_LIGHT : IDE_CSS_VARS
+}
+
+/** Monaco theme name for a theme id. */
+export function monacoThemeFor(theme: 'dark-modern' | 'light-modern'): string {
+  return theme === 'light-modern' ? 'dsh-light-modern' : 'dsh-dark-modern'
 }
 

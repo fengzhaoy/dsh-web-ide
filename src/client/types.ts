@@ -278,7 +278,7 @@ export interface IdeToolsRemote {
   ): Promise<RemoteResult<IdeSearchResult>>
   terminalOpen(
     sessionId: SessionId,
-    spec: { cols: number; rows: number; command?: string },
+    spec: { cols: number; rows: number; command?: string; cwd?: string },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeTerminalOpenResult>>
   terminalWrite(sessionId: SessionId, terminalId: string, data: string, signal?: AbortSignal): Promise<RemoteResult<void>>
@@ -312,18 +312,25 @@ export interface IdeToolsRemote {
    *  the commit split-button dropdown (VS Code SCM parity): amend rewrites
    *  the last commit (an empty message keeps the previous one), signoff adds
    *  a Signed-off-by trailer, push runs git push, sync runs git pull + push. */
-  gitCommit(sessionId: SessionId, message: string, options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean }, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string; pushed?: boolean }>>
+  gitCommit(sessionId: SessionId, message: string, options: { amend?: boolean; signoff?: boolean; push?: boolean; sync?: boolean; autoStage?: boolean }, signal?: AbortSignal): Promise<RemoteResult<{ committed: boolean; hash?: string; pushed?: boolean }>>
   /** Stage all changes (git add -A). */
   gitStageAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Stage one path (git add -- path). */
   gitStage(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Unstage one path (VS Code "Unstage Changes"): git reset HEAD -- path. */
+  gitUnstage(sessionId: SessionId, path: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Unstage everything (the staged group's "−" action): git reset HEAD. */
+  gitUnstageAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Discard ALL uncommitted changes (destructive; the UI confirms first):
+   *  git reset --hard HEAD + git clean -fd. */
+  gitDiscardAll(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Discard one entry's uncommitted changes (index + working tree back to HEAD;
    *  untracked files are deleted, staged adds are unstaged and removed). */
   gitDiscard(sessionId: SessionId, entry: { path: string; oldPath?: string; kind: GitStatusEntry['kind'] }, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** VS Code SCM action button: 'sync' = git pull + git push on the clean
    *  tree; 'publish' = git push -u origin <branch> for a branch without an
    *  upstream. */
-  gitSync(sessionId: SessionId, action: 'sync' | 'publish', signal?: AbortSignal): Promise<RemoteResult<{ pushed: boolean }>>
+  gitSync(sessionId: SessionId, action: 'sync' | 'publish' | 'pull' | 'push', signal?: AbortSignal): Promise<RemoteResult<{ pushed: boolean }>>
   /** Generate a Conventional Commits message from the current diff via the configured LLM. */
   gitGenerateCommitMessage(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<{ message: string }>>
   /** Rename one workspace entry within its directory (Explorer context menu).
@@ -336,6 +343,13 @@ export interface IdeToolsRemote {
   /** Create one new workspace entry (file with empty content, or directory).
    *  Missing parents are created; an existing target is refused. */
   fileCreate(sessionId: SessionId, path: string, kind: 'file' | 'directory', signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Move (or rename across directories) one workspace entry into a target
+   *  directory — Explorer drag & drop. Refuses targets escaping the workspace,
+   *  a move into itself/its own subtree, and an existing target. */
+  fileMove(sessionId: SessionId, path: string, targetDir: string, opts?: { newName?: string }, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Copy one FILE into a target directory (directories are refused; move
+   *  them instead). An existing target is refused unless opts.newName is set. */
+  fileCopy(sessionId: SessionId, path: string, targetDir: string, opts?: { newName?: string }, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Write one file's whole content through the host fs seam (bounded write
    *  with an optimistic version guard). Backs the editor save and the diff
    *  panel's edit-save; the workspaceFilesWrite face below adapts onto it. */

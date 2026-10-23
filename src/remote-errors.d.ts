@@ -35,6 +35,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/git-fetch-failed': { readonly [key: string]: unknown }
     /** git add / stage failed. */
     'ide-tools/git-stage-failed': { readonly [key: string]: unknown }
+    /** git reset HEAD (unstage) failed. */
+    'ide-tools/git-unstage-failed': { readonly [key: string]: unknown }
     /** git restore / discard failed. */
     'ide-tools/git-discard-failed': { readonly [key: string]: unknown }
     /** git commit failed. */
@@ -53,6 +55,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/delete-failed': { readonly [key: string]: unknown }
     /** A create failed. */
     'ide-tools/create-failed': { readonly [key: string]: unknown }
+    /** A move (drag & drop) failed. */
+    'ide-tools/move-failed': { readonly [key: string]: unknown }
+    /** A copy (paste) failed. */
+    'ide-tools/copy-failed': { readonly [key: string]: unknown }
     /** Reveal-in-OS-Finder failed. */
     'ide-tools/reveal-failed': { readonly [key: string]: unknown }
     /** A workspace path was not found. */

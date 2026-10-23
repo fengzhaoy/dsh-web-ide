@@ -14,6 +14,7 @@ import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote, Wo
 import { Icons } from '../icons.js'
 import { defineDarkModernTheme } from '../theme.js'
 import { installMonacoWorker } from '../monacoWorkerBootstrap.js'
+import { installCodiconFont } from '../codiconFontBootstrap.js'
 
 export interface DiffEditorProps {
   sessionId: SessionId
@@ -32,8 +33,16 @@ export interface DiffEditorProps {
    *  graph → commit details). Both sides come from the git host; the working
    *  tree is never consulted. */
   commit?: { sha: string; path: string; oldPath?: string }
+  /** Staged mode (the "Staged Changes" group's click): index vs HEAD, both
+   *  sides from git objects. Default (undefined) = the working-tree diff
+   *  (HEAD vs disk), which stays editable on the right. */
+  diffKind?: 'staged'
   /** Return to the normal editor (clears the diff overlay). */
   onClose?: () => void
+  /** Fires once the diff editor is mounted (or unmounts with null), so the
+   *  owner can drive it — e.g. trigger the in-file find widget from the
+   *  toolbar or a global Ctrl/Cmd+F while focus is outside the editor. */
+  onEditorReady?: (editor: Monaco.editor.IDiffEditor | null) => void
   /** The right side was saved through the write Remote: the owner reopens the
    *  matching normal tab (sync its model + saved baseline) and refreshes git. */
   onSaved?: (path: string) => void
@@ -56,6 +65,8 @@ function ensureMonaco(m: typeof Monaco): void {
   // completed, leaving both panes unhighlighted. Idempotent; the IdeView may
   // have installed it already.
   installMonacoWorker()
+  // Same as IdeView.loadMonaco: give the runtime codepoint rules a font.
+  installCodiconFont()
   monacoLoaded = true
 }
 
@@ -101,7 +112,7 @@ function applyUnifiedDiff(original: string, patch: string): string {
   return out.join('\n')
 }
 
-export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, onClose, onSaved, onExternalChange, t }: DiffEditorProps) {
+export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, diffKind, onClose, onEditorReady, onSaved, onExternalChange, t }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
   /** Whether the one-time auto-jump to the first diff hunk has run for the
@@ -140,6 +151,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
   const reloadRef = useRef<() => Promise<void>>(async () => {})
   /** Suppresses the dirty listener while a quiet refresh writes model content. */
   const applyingRef = useRef(false)
+  /** Latest onEditorReady callback (ref indirection keeps the load effect deps
+   *  stable while the parent re-renders with a fresh closure). */
+  const onEditorReadyRef = useRef(onEditorReady)
+  onEditorReadyRef.current = onEditorReady
 
   // Destructure `commit` to primitives for the deps array: IdeView creates a
   // fresh object per render, and an object dep would remount the editor on
@@ -147,7 +162,9 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
   const commitSha = commit?.sha
   const commitPath = commit?.path
   const commitOldPath = commit?.oldPath
-  const editable = workspaceFilesWrite !== undefined && commitSha === undefined
+  // Staged mode is read-only like a commit diff: the right side is the index
+  // blob, not the working tree, so edits could not be saved anywhere.
+  const editable = workspaceFilesWrite !== undefined && commitSha === undefined && diffKind !== 'staged'
 
   /** Write the edited right side back with a version guard (Ctrl/Cmd+S or the
    *  header button). On a stale version the write is refused — the user
@@ -228,6 +245,20 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         // content here — surface it rather than an empty highlighted pane.
         if (diff.oldContent === diff.newContent) { setState('empty'); return }
         await mountDiffEditor(diff.oldContent, diff.newContent, diff.language, 'commit')
+        return
+      }
+
+      // Staged mode (the "Staged Changes" group): index vs HEAD, both sides
+      //  from git objects via the host's staged diff — the working tree is
+      //  never consulted, so unstaged edits on top do not leak in.
+      if (diffKind === 'staged') {
+        const res = await ideTools.gitDiff(sessionId, path, 'staged', ctrl.signal)
+        if (cancelled) return
+        if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
+        const diff: GitDiffResult = res.value
+        if (diff.empty) { setState('empty'); return }
+        if (diff.oldContent === diff.newContent) { setState('empty'); return }
+        await mountDiffEditor(diff.oldContent, diff.newContent, diff.language, 'staged')
         return
       }
 
@@ -371,6 +402,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { void saveEdits.current() })
       }
       editorRef.current = editor
+      onEditorReadyRef.current?.(editor)
       setStats({ old: oldModel.getLineCount(), new: newModel.getLineCount(), source })
       setState('ready')
     }
@@ -445,7 +477,9 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     // guard and offers a reload, so external work is never silently clobbered.
     let poll: ReturnType<typeof setInterval> | undefined
     let reloading = false
-    if (commitSha === undefined) {
+    // Staged diffs come from git objects only — there is no working-tree file
+    // to watch, so the external-change poll stays off (same as commit mode).
+    if (commitSha === undefined && diffKind !== 'staged') {
       poll = setInterval(() => {
         if (cancelled || dirtyRef.current || reloading) return
         reloading = true
@@ -479,10 +513,11 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       if (poll !== undefined) clearInterval(poll)
       if (editor) { editor.dispose(); editor = null }
       editorRef.current = null
+      onEditorReadyRef.current?.(null)
       for (const model of models) model.dispose()
       models = []
     }
-  }, [sessionId, cwd, ideTools, workspaceFiles, path, commitSha, commitPath, commitOldPath, reloadNonce])
+  }, [sessionId, cwd, ideTools, workspaceFiles, path, commitSha, commitPath, commitOldPath, diffKind, reloadNonce])
 
   return (
     <div className="ide-diff-root">
