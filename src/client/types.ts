@@ -109,6 +109,10 @@ export interface IdeTerminalOutputFrame {
   readonly exit: boolean
   /** The shell's exit code, present only on the terminal's final frame. */
   readonly exitCode?: number | null
+  /** True on the marker frame yielded between the replay log and live
+   *  output. The client suppresses onData echo-back during replay so
+   *  DCS/CSI query responses in the log never reach the shell as commands. */
+  readonly replay?: boolean
 }
 export type IdeTerminalSignalName = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'
 

@@ -57,6 +57,7 @@ const _ide_tools_ideTools_terminalOutput_result$schema = z.object({
   'data': z.string().readonly(),
   'exit': z.boolean().readonly(),
   'exitCode': z.number().nullable().optional(),
+  'replay': z.boolean().optional().readonly(),
 }).readonly()
 
 const _ide_tools_ideTools_gitStatus_result$schema = z.object({

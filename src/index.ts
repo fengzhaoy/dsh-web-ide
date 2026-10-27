@@ -204,6 +204,8 @@ export interface IdeTerminalOutputFrame {
   readonly exit: boolean
   /** The shell's exit code, present only on the terminal's final frame. */
   readonly exitCode?: number | null
+  /** True on the marker frame yielded between the replay log and live output. */
+  readonly replay?: boolean
 }
 export interface GitStatusEntry {
   readonly path: string
@@ -616,6 +618,10 @@ export class IdeTools extends TypertRemoteService {
     // Yield each log entry as a SEPARATE frame: joining base64 strings
     // concatenates padding chars (=) mid-string, yielding invalid base64.
     for (const entry2 of entry.log) yield { data: entry2, exit: false }
+    // Marker: replay is done, live output follows. The client suppresses
+    // onData echo-back during replay so DCS/CSI query responses in the log
+    // never reach the shell as commands; this marker re-enables it.
+    if (!entry.exited) yield { data: '', exit: false, replay: true }
     if (entry.exited) { yield { data: '', exit: true }; return }
     // Live phase: a queue fed by the pump, drained until exit or abort.
     const queue: IdeTerminalOutputFrame[] = []

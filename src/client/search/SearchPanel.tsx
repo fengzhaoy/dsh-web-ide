@@ -40,7 +40,7 @@ export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, t }: SearchP
     const includeTrimmed = include.trim()
     const result = await ideTools.search(sessionId, {
       pattern: query,
-      path: includeTrimmed.length > 0 ? includeTrimmed : undefined,
+      include: includeTrimmed.length > 0 ? includeTrimmed : undefined,
       caseSensitive,
     })
     if (seq !== searchSeq.current) return

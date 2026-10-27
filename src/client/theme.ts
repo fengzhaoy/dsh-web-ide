@@ -489,7 +489,7 @@ export const IDE_STYLES = `
 .ide-search-hit-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-alias-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
 /* ── Terminal panel ───────────────────────────────────────────────────── */
 .ide-terminal-panel{display:flex;flex-direction:column;flex:none;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f;position:relative;transition:height .2s ease}
-.ide-bottompanel > .ide-terminal-panel{flex:1;height:auto;min-height:0;border-top:none}
+.ide-bottompanel > .ide-terminal-panel{flex:1;min-height:0;height:auto;border-top:none}
 .ide-terminal-panel[data-state='minimized']{height:35px !important;min-height:35px !important}
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
 .ide-bottompanel:has(.ide-terminal-panel[data-state='maximized']){height:60vh}
@@ -609,7 +609,7 @@ export const IDE_STYLES = `
 .ide-toast-close{color:var(--ide-fg-dim);display:flex}
 .ide-toast-close svg{width:12px;height:12px}
 /* ── Problems panel + bottom tabs ──────────────────────────────────── */
-.ide-bottompanel{display:flex;flex-direction:column;flex:none;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f}
+.ide-bottompanel{display:flex;flex-direction:column;flex:none;min-height:0;overflow:hidden;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f}
 .ide-bottomtabs{display:flex;gap:2px;padding:0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-sidebar-bg)}
 .ide-bottomtab{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;letter-spacing:.5px;text-transform:uppercase;padding:6px 10px;cursor:pointer;border-bottom:1px solid transparent;display:flex;align-items:center;gap:6px}
 .ide-bottomtab[data-active='true']{color:var(--ide-fg);border-bottom-color:var(--ide-fg)}

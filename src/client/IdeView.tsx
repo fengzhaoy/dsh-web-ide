@@ -825,6 +825,13 @@ export function IdeView(props: IdeViewInjected & {
       if (bumpTimer !== undefined) return
       bumpTimer = setTimeout(() => { bumpTimer = undefined; setGitRefreshKey((k) => k + 1) }, 1000)
     }
+    // Throttled Explorer tree refresh: an agent editing/deleting/creating
+    // files externally should update the tree, not just the SCM badge.
+    let treeTimer: ReturnType<typeof setTimeout> | undefined
+    const bumpTree = () => {
+      if (treeTimer !== undefined) return
+      treeTimer = setTimeout(() => { treeTimer = undefined; explorerRef.current?.refresh() }, 1000)
+    }
     ;(async () => {
       try {
         for await (const frame of workspaceFiles.changes(sessionId, cwd ?? '', ctrl.signal)) {
@@ -835,6 +842,7 @@ export function IdeView(props: IdeViewInjected & {
           // throttled git refresh for each change frame, not only open-tab
           // hits; deletions included. The 1s throttle keeps bursts cheap.
           bumpGit()
+          bumpTree()
           // Match by absolute path or relative path against open tabs.
           const hit = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))
           const newVersion = 'version' in frame.change ? frame.change.version : undefined
@@ -864,7 +872,7 @@ export function IdeView(props: IdeViewInjected & {
         // The change stream is best-effort; ignore transport errors.
       }
     })()
-    return () => { cancelled = true; ctrl.abort(); if (bumpTimer !== undefined) clearTimeout(bumpTimer) }
+    return () => { cancelled = true; ctrl.abort(); if (bumpTimer !== undefined) clearTimeout(bumpTimer); if (treeTimer !== undefined) clearTimeout(treeTimer) }
   }, [sessionId, workspaceFiles, cwd])
 
   // Keep a ref to tabs so the change-stream effect (created once per session) sees latest.
@@ -1151,15 +1159,15 @@ export function IdeView(props: IdeViewInjected & {
   const runBuildTask = useCallback((script: string) => {
     if (!sessionId) return
     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
-      if (!res.ok) return
+      if (!res.ok) { notifications.error(res.error.message ?? res.error.code); return }
       setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
       setTerminalOpen(true)
       setBottomTab('terminal')
-      setActiveTerminalIdx(terminalIdsRef.current.length)
+      setActiveTerminalIdx((prev) => prev + 1)
       setTimeout(() => {
         void ideTools.terminalWrite(sessionId, res.value.terminalId, 'npm run ' + script + '\r')
       }, 400)
-    }).catch(() => undefined)
+    }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
   }, [sessionId, ideTools])
 
   /** The Manage gear menu (VS Code Manage menu). */
@@ -1541,11 +1549,11 @@ export function IdeView(props: IdeViewInjected & {
                     if (!sessionId || !ideTools || !cwd) return
                     const rel = absDir === cwd || absDir === cwd.replace(/[/\\]+$/, '') ? '' : absDir.replace(cwd.replace(/[/\\]+$/, '') + '/', '')
                     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24, cwd: rel }).then((res) => {
-                      if (!res.ok) return
+                      if (!res.ok) { notifications.error(res.error.message ?? res.error.code); return }
                       setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
                       setTerminalOpen(true)
-                      setActiveTerminalIdx(terminalIds.length)
-                    }).catch(() => undefined)
+                      setActiveTerminalIdx((prev) => prev + 1)
+                    }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
                   }}
                 />
               ) : (

@@ -496,11 +496,14 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         const result = await ideToolsFull.fileMove(sessionId, rel, targetRel, undefined)
         if (!result.ok) { setPasteError(result.error.message); return }
         setClip(null)
+        // Only a move (cut) relocates the source — update open editor tabs.
+        // A copy leaves the original in place; calling onFileRenamed here
+        // would close the original tab and reopen a non-existent path.
+        onFileRenamed?.(clip.absPath, targetDir + '/' + clip.absPath.slice(clip.absPath.lastIndexOf('/') + 1))
       }
       setRefreshKey((k) => k + 1)
       // Paste into a collapsed directory should reveal it.
       setExpanded((prev) => (prev.has(targetDir) ? prev : new Set([...prev, targetDir])))
-      onFileRenamed?.(clip.absPath, targetDir + '/' + clip.absPath.slice(clip.absPath.lastIndexOf('/') + 1))
     } catch (err) {
       setPasteError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1117,7 +1120,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'sep1', label: '', separator: true },
       { id: 'cut', label: t('context.cut'), icon: Icons.cut, disabled: childPath === rootDir, onClick: () => onCut?.(childPath, true) },
       { id: 'copy-entry', label: t('context.copy'), icon: Icons.copy, disabled: childPath === rootDir, onClick: () => onCopy?.(childPath, true) },
-      { id: 'paste', label: t('context.paste'), icon: Icons.paste ?? Icons.copy, disabled: pasteBusy, onClick: () => onPaste?.(childPath) },
+      { id: 'paste', label: t('context.paste'), icon: Icons.paste ?? Icons.copy, disabled: pasteBusy || !clipState, onClick: () => onPaste?.(childPath) },
       { id: 'sep-clip', label: '', separator: true },
       { id: 'upload', label: t('context.upload'), icon: Icons.upload ?? Icons.goToFile, onClick: () => onUpload?.(childPath) },
       { id: 'open-terminal', label: t('context.openInTerminal'), icon: Icons.terminal, onClick: () => onOpenInTerminal?.(childPath) },

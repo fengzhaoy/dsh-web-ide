@@ -129,6 +129,10 @@ export function TerminalPanel({
   // Track which terminal IDs we've already attached an xterm to, so the effect
   // below only runs once per terminal.
   const attachedRef = useRef<Set<string>>(new Set())
+  // Per-terminal echo-back gate: false during replay (suppresses onData
+  // → terminalWrite so DCS/CSI responses in the log never reach the shell
+  // as commands), flipped true by the host's replay-marker frame.
+  const echoBackRefs = useRef<Map<string, { enabled: boolean }>>(new Map())
   // Track active abort controllers per terminal for stream cancellation.
   const abortsRef = useRef<Map<string, AbortController>>(new Map())
   // Latch for the "panel opened with no terminals" auto-spawn. The effect that
@@ -242,8 +246,16 @@ export function TerminalPanel({
         const origDispose = termsRef.current.get(id)!.dispose
         termsRef.current.get(id)!.dispose = () => { ro.disconnect(); if (resizeTimer !== undefined) clearTimeout(resizeTimer); origDispose() }
 
-        // Keystrokes → host write.
+        // Keystrokes → host write. Suppressed during replay: the replay log
+        // carries the shell's own DCS/CSI query responses (cursor position,
+        // color capabilities, etc.), and xterm echoes those back through
+        // onData on re-attach — without this guard they reach the shell as
+        // commands ("zsh: command not found: 2RR0"). The replay marker
+        // frame from the host re-enables echo-back for live input.
+        const echoBack = { enabled: false }
+        echoBackRefs.current.set(id, echoBack)
         term.onData((data) => {
+          if (!echoBack.enabled) return
           void ideTools.terminalWrite(sessionId, id, btoa(unescape(encodeURIComponent(data))))
         })
 
@@ -255,6 +267,11 @@ export function TerminalPanel({
           try {
             for await (const frame of stream) {
               if (cancelled) break
+              if (frame.replay === true) {
+                // Replay done: re-enable echo-back for live input.
+                echoBackRefs.current.get(id)!.enabled = true
+                continue
+              }
               if (frame.data.length > 0) termsRef.current.get(id)?.term.write(decodeBase64(frame.data))
               if (frame.exit) {
                 setStatuses((prev) => ({ ...prev, [id]: 'exited' }))
@@ -281,6 +298,7 @@ export function TerminalPanel({
         termsRef.current.delete(id)
         hostsRef.current.delete(id)
         attachedRef.current.delete(id)
+        echoBackRefs.current.delete(id)
         abortsRef.current.get(id)?.abort()
         abortsRef.current.delete(id)
       }
@@ -415,8 +433,12 @@ export function TerminalPanel({
     // they keep their browser defaults (context menu, autoscroll).
     if (e.button !== 0) return
     e.preventDefault()
-    const panelEl = panelRef.current
-    const startHeight = panelEl ? panelEl.getBoundingClientRect().height : PANEL_HEIGHT_DEFAULT
+    // The sizer controls the OUTER container (ide-bottompanel) height, not
+    // this inner panel: in a flex column the inner panel is flex:1 so its
+    // inline height is ignored by the flex algorithm. The outer container is
+    // flex:none and honors inline height, and the inner panel fills it.
+    const outerEl = panelRef.current?.parentElement
+    const startHeight = outerEl ? outerEl.getBoundingClientRect().height : PANEL_HEIGHT_DEFAULT
     dragStartRef.current = { startY: e.clientY, startHeight }
     setResizing(true)
   }, [])
@@ -448,13 +470,27 @@ export function TerminalPanel({
   const activeStatus = activeId !== undefined ? (statuses[activeId] ?? 'connecting') : 'connecting'
   const activeError = activeId !== undefined ? errors[activeId] : undefined
 
-  // Inline height only applies in the 'normal' state: maximize/minimize use
-  // their own CSS rules (data-state selectors) and must override this inline
-  // value, so we pass undefined there. null panelHeight falls back to the CSS
-  // default (no inline style at all).
-  const normalHeightStyle = panelState === 'normal' && panelHeight !== null
-    ? { height: panelHeight + 'px' }
-    : undefined
+  // The sizer controls the OUTER container (ide-bottompanel). The inner
+  // panel is flex:1 so it fills whatever height the outer container has;
+  // setting inline height on the inner panel is ignored by the flex
+  // algorithm. We sync the outer container's height via an effect so the
+  // xterm viewport (and its ResizeObserver) react to real DOM changes.
+  // Maximize/minimize keep their own CSS rules (data-state selectors) and
+  // override the outer height by clearing it here.
+  const normalHeightStyle = undefined
+  useEffect(() => {
+    const outer = panelRef.current?.parentElement
+    if (outer === undefined || outer === null) return
+    if (panelState === 'normal' && panelHeight !== null) {
+      outer.style.height = panelHeight + 'px'
+    } else if (panelState === 'minimized' || panelState === 'maximized') {
+      // Let the CSS :has() rules on ide-bottompanel take over.
+      outer.style.height = ''
+    } else {
+      // normal + null panelHeight → CSS default (no inline height).
+      outer.style.height = ''
+    }
+  }, [panelHeight, panelState])
 
   return (
     <div
