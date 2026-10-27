@@ -129,9 +129,14 @@ export function BranchesView({ sessionId, cwd, ideTools, onMutated, t }: Branche
   }, [newName, newCheckout, creating, runAction, ideTools, sessionId])
 
   const handleDelete = useCallback((name: string, force: boolean) => {
+    setDeleting(true)
     void runAction(name, async () => {
       const res = await ideTools.gitDeleteBranch(sessionId, name, force)
       if (!res.ok) throw new Error(res.error.message ?? res.error.code)
+    }).finally(() => {
+      setDeleting(false)
+      // Close the dialog on failure too: keeping it open hides the
+      // panel-body actionError behind the modal backdrop.
       setConfirmDelete(undefined)
     })
   }, [runAction, ideTools, sessionId])

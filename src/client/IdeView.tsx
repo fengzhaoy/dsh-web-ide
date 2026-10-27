@@ -830,6 +830,11 @@ export function IdeView(props: IdeViewInjected & {
         for await (const frame of workspaceFiles.changes(sessionId, cwd ?? '', ctrl.signal)) {
           if (cancelled || frame.kind !== 'change') continue
           const absPath = frame.change.absolutePath
+          // Every workspace write can flip the SCM badge and the change
+          // groups (VS Code reacts to every external write too) — bump the
+          // throttled git refresh for each change frame, not only open-tab
+          // hits; deletions included. The 1s throttle keeps bursts cheap.
+          bumpGit()
           // Match by absolute path or relative path against open tabs.
           const hit = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))
           const newVersion = 'version' in frame.change ? frame.change.version : undefined
@@ -853,7 +858,6 @@ export function IdeView(props: IdeViewInjected & {
           if (hit && hit.status === 'ready' && !hit.dirty && newVersion !== undefined && newVersion !== hit.version) {
             // Re-open IN PLACE (no remount); do not steal focus.
             void reopenFile(hit.path)
-            bumpGit()
           }
         }
       } catch {
@@ -1199,6 +1203,24 @@ export function IdeView(props: IdeViewInjected & {
     showContextMenu(rect ? rect.left : 40, rect ? rect.top - 4 : 40, items)
   }, [sessionId, workspaceFiles, t, runBuildTask])
 
+  /** Pull/push/sync shared by the command palette and the status bar.
+   *  Failures surface as notifications — a bare .then chain dropped ok:false
+   *  and left no-remote / no-upstream / auth failures with zero feedback. */
+  const runGitSyncCommand = (action: 'pull' | 'push' | 'sync') => {
+    const label = action === 'pull' ? t('command.gitPull') : action === 'push' ? t('command.gitPush') : t('command.gitSync')
+    void ideTools.gitSync(sessionId, action)
+      .then((res) => {
+        if (res.ok) {
+          setGitRefreshKey((k) => k + 1)
+        } else {
+          notifications.error(label + ': ' + (res.error.message ?? res.error.code))
+        }
+      })
+      .catch((err) => {
+        notifications.error(label + ': ' + (err instanceof Error ? err.message : String(err)))
+      })
+  }
+
   /** Build the command registry (rebuilt per render: closures stay fresh). */
   useEffect(() => {
     const cmds: IdeCommand[] = [
@@ -1217,9 +1239,9 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.viewSearch', category: t('category.view'), label: t('command.viewSearch'), run: () => setSidebarView('search') },
       { id: 'ide.viewGit', category: t('category.git'), label: t('command.viewGit'), run: () => setSidebarView('git') },
       { id: 'ide.viewExtensions', category: t('category.view'), label: t('command.viewExtensions'), run: () => setSidebarView('extensions') },
-      { id: 'ide.gitPull', category: t('category.git'), label: t('command.gitPull'), run: () => { void ideTools.gitSync(sessionId, 'pull').then(() => setGitRefreshKey((k) => k + 1)) } },
-      { id: 'ide.gitPush', category: t('category.git'), label: t('command.gitPush'), run: () => { void ideTools.gitSync(sessionId, 'push').then(() => setGitRefreshKey((k) => k + 1)) } },
-      { id: 'ide.gitSync', category: t('category.git'), label: t('command.gitSync'), run: () => { void ideTools.gitSync(sessionId, 'sync').then(() => setGitRefreshKey((k) => k + 1)) } },
+      { id: 'ide.gitPull', category: t('category.git'), label: t('command.gitPull'), run: () => runGitSyncCommand('pull') },
+      { id: 'ide.gitPush', category: t('category.git'), label: t('command.gitPush'), run: () => runGitSyncCommand('push') },
+      { id: 'ide.gitSync', category: t('category.git'), label: t('command.gitSync'), run: () => runGitSyncCommand('sync') },
       { id: 'ide.task', category: t('category.tasks'), label: t('command.task'), run: () => { void openTasksMenu() } },
       { id: 'ide.themeDark', category: t('category.preferences'), label: t('command.themeDark'), run: () => ideSettings.update({ theme: 'dark-modern' }) },
       { id: 'ide.themeLight', category: t('category.preferences'), label: t('command.themeLight'), run: () => ideSettings.update({ theme: 'light-modern' }) },
@@ -1752,7 +1774,7 @@ export function IdeView(props: IdeViewInjected & {
           branch={gitBranch}
           ahead={gitAhead}
           behind={gitBehind}
-          onSync={() => { void ideTools.gitSync(sessionId, 'sync').then(() => setGitRefreshKey((k) => k + 1)) }}
+          onSync={() => runGitSyncCommand('sync')}
           problems={problemCounts}
           onOpenProblems={() => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') }}
           workspaceName={workspaceName}

@@ -166,11 +166,16 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
           statusChangedRef.current?.(res.value)
         }
       } else {
-        setStatus('error'); setError(res.error.message ?? res.error.code)
+        // Only a load with NO list to show surfaces the error state — a
+        // background poll failure keeps the current list visible (VS Code
+        // style; one transient error must not blank the panel).
+        setStatus((current) => (current === 'ready' || current === 'notrepo' ? current : 'error'))
+        setError(res.error.message ?? res.error.code)
       }
     } catch (err) {
       if (mySeq !== seq.current) return
-      setStatus('error'); setError(err instanceof Error ? err.message : String(err))
+      setStatus((current) => (current === 'ready' || current === 'notrepo' ? current : 'error'))
+      setError(err instanceof Error ? err.message : String(err))
     }
   }, [sessionId, cwd, ideTools])
 
@@ -194,11 +199,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   }, [refreshKey, refresh])
 
   /** VS Code SCM grouping: a staged entry (X letter set, or an unmerged
-   *  conflict) lives in the "Staged Changes" / "Merge Changes" group. */
+   *  conflict) lives in the "Staged Changes" / "Merge Changes" group.
+   *  Porcelain v2 marks an unchanged index slot with '.' (v1 used a
+   *  space), so BOTH count as not-staged alongside untracked '?'. */
   const isStagedEntry = useCallback((entry: GitStatusEntry): boolean => {
     if (entry.kind === 'conflicted') return true
     const x = entry.statusCode[0] ?? ' '
-    return x !== ' ' && x !== '?'
+    return x !== ' ' && x !== '.' && x !== '?'
   }, [])
 
   const handleClick = useCallback((entry: GitStatusEntry, staged: boolean) => {
@@ -299,7 +306,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     } finally {
       setCommitting(false)
     }
-  }, [sessionId, commitMessage, committing, ideTools, refresh])
+  }, [sessionId, commitMessage, committing, ideTools, refresh, result, isStagedEntry])
 
   /** Unstage one path (hover button / context menu). */
   const handleUnstage = useCallback(async (entry: GitStatusEntry) => {
@@ -537,7 +544,10 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                 { id: 'open-change', label: t('git.openDiff'), icon: Icons.diff, onClick: () => handleClick(entry, staged) },
                 { id: 'open-file', label: t('git.openFile'), icon: Icons.goToFile, disabled: !onOpenFile, onClick: () => { onOpenFile?.(entry.path) } },
                 { id: 'sep1', label: '', separator: true },
-                ...(staged
+                // Conflicted entries stage instead of unstaging: git add on an
+                // unmerged path marks the conflict resolved (VS Code parity),
+                // while git reset HEAD on it just errors.
+                ...(staged && entry.kind !== 'conflicted'
                   ? [{ id: 'unstage', label: t('git.unstage'), icon: Icons.dash, onClick: () => { void handleUnstage(entry) } }]
                   : [{ id: 'stage', label: t('git.stage'), icon: Icons.plus, onClick: () => { void handleStage(entry) } }]),
                 { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
@@ -563,7 +573,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                 title={t('git.discard')}
                 onClick={(e) => { e.stopPropagation(); setDiscardError(null); setConfirmDiscard(entry) }}
               >{Icons.discard}</button>
-              {staged ? (
+              {staged && entry.kind !== 'conflicted' ? (
                 <button
                   type="button"
                   className="ide-git-group-action"

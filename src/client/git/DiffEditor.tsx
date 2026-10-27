@@ -207,7 +207,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     const ctrl = new AbortController()
 
     async function run(): Promise<void> {
-      if (!cwd) { setState('error'); setError('no cwd'); return }
+      if (!cwd) { setState('error'); setError(t('git.diffNoCwd')); return }
       setState('loading')
       setError(null)
       setImageSrc('')
@@ -257,6 +257,20 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
         const diff: GitDiffResult = res.value
         if (diff.empty) { setState('empty'); return }
+        // Staged images render as <img> (the host returns the worktree bytes,
+        // normally identical to the staged blob); staged binaries get the
+        // placeholder — neither may reach Monaco (garbled utf8 bytes).
+        if (diff.contentType === 'image' && diff.imageBase64) {
+          setImageSrc(diff.imageBase64)
+          setState('image')
+          return
+        }
+        if (diff.contentType === 'binary') {
+          setBinaryLabel(diff.newContent)
+          setStats({ old: 1, new: 1, source: 'binary' })
+          setState('binary')
+          return
+        }
         if (diff.oldContent === diff.newContent) { setState('empty'); return }
         await mountDiffEditor(diff.oldContent, diff.newContent, diff.language, 'staged')
         return
@@ -269,6 +283,13 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
       const diff: GitDiffResult = res.value
       if (diff.empty) { setState('empty'); return }
+      // Binary blobs (incl. deleted images): placeholder, not Monaco.
+      if (diff.contentType === 'binary') {
+        setBinaryLabel(diff.newContent)
+        setStats({ old: 1, new: 1, source: 'binary' })
+        setState('binary')
+        return
+      }
       // Image files: render as <img>, not Monaco.
       if (diff.contentType === 'image' && diff.imageBase64) {
         setImageSrc(diff.imageBase64)
@@ -308,7 +329,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       // misleading, so surface the failure instead of pretending "no diff".
       if (diff.oldContent === newText) {
         setState('error')
-        setError('left and right are identical (source: ' + source + ', read: ' + (fileRes.ok ? 'ok' : fileRes.error.code) + ')')
+        setError(t('git.diffIdentical', { source, read: fileRes.ok ? 'ok' : fileRes.error.code }))
         return
       }
       await mountDiffEditor(diff.oldContent, newText, diff.language, source)

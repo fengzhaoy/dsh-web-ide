@@ -96,7 +96,14 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
         setState('error')
         return
       }
-      setCommits((prev) => (mode === 'more' ? [...prev, ...value.commits] : value.commits))
+      setCommits((prev) => {
+        if (mode !== 'more') return value.commits
+        // skip-based paging can overlap when new commits land between pages
+        // (fetch / another machine's push): drop hashes already rendered so
+        // the React keys stay unique.
+        const seen = new Set(prev.map((c) => c.hash))
+        return [...prev, ...value.commits.filter((c) => !seen.has(c.hash))]
+      })
       setHasMore(value.hasMore)
       setHead(value.head)
       setCurrentBranch(value.currentBranch)

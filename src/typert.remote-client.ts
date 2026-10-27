@@ -188,7 +188,7 @@ const _ide_tools_ideTools_gitDiff_result$schema = z.object({
   'oldPath': z.string().readonly(),
   'newPath': z.string().readonly(),
   'language': z.string().readonly(),
-  'contentType': z.union([z.literal('text'), z.literal('image')]).optional().readonly(),
+  'contentType': z.union([z.literal('text'), z.literal('image'), z.literal('binary')]).optional().readonly(),
   'imageBase64': z.string().optional().readonly(),
 }).readonly()
 const _ide_tools_ideTools_gitCommitFileDiff_result$schema = _ide_tools_ideTools_gitDiff_result$schema

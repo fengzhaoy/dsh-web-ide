@@ -385,6 +385,9 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitDiff', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitStage', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDiscard', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitCommit', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitStageAll', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitSync', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileRename', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileDelete', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'fileCreate', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -785,7 +788,8 @@ export class IdeTools extends TypertRemoteService {
     const y = xy[1] ?? ' '
     if (x === 'A' || y === 'A') return 'added'
     if (x === 'D' || y === 'D') return 'deleted'
-    if (x === 'R' || y === 'R') return 'renamed'
+    // 'C' (copied) shares the renamed treatment.
+    if (x === 'R' || y === 'R' || x === 'C' || y === 'C') return 'renamed'
     if (x === 'M' || y === 'M' || x === 'T' || y === 'T') return 'modified'
     if (x === 'U' || y === 'U') return 'conflicted'
     return 'modified'
@@ -947,8 +951,12 @@ export class IdeTools extends TypertRemoteService {
       const limit = Math.max(1, Math.min(500, Math.round(options?.limit ?? 100)))
       const skip = Math.max(0, Math.round(options?.skip ?? 0))
       const scope = options?.scope ?? 'current'
-      // Unborn repository (no commits yet): rev-parse HEAD fails quietly.
-      const head = (await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal)).trim()
+      // Unborn repository (no commits yet): rev-parse --quiet --verify HEAD
+      // exits 1 with no output — treat that as "no history", not an error
+      // (runGit throws on any non-zero exit; the .catch maps it to empty).
+      const head = await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal)
+        .then((s) => s.trim())
+        .catch(() => '')
       if (head.length === 0) return { ...EMPTY, notARepo: false }
       const argv = [
         '-c', 'i18n.logOutputEncoding=UTF-8',
@@ -1082,9 +1090,10 @@ export class IdeTools extends TypertRemoteService {
       }
       const path = fields[++i] ?? ''
       if (path.length === 0) continue
-      const kind: GitCommitFile['kind'] = letter === 'A' ? 'added'
+      // Binary first: a binary add/delete must badge as binary, not added.
+      const kind: GitCommitFile['kind'] = counts.get(path)?.binary === true ? 'binary'
+        : letter === 'A' ? 'added'
         : letter === 'D' ? 'deleted'
-        : counts.get(path)?.binary === true ? 'binary'
         : 'modified'
       files.push({ path, kind, ...count(path) })
     }
@@ -1258,40 +1267,74 @@ export class IdeTools extends TypertRemoteService {
     const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
     const isImage = ['png','jpg','jpeg','gif','webp','bmp','ico','svg'].includes(ext)
     if (isImage && cwd) {
-      // For image files, read the working-tree file from disk and return it as base64
-      let oldContent = ''
-      try {
-        oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
-      } catch { /* untracked */ }
+      // For image files, read the working-tree file from disk and return it as
+      // base64 (covers staged clicks too — the worktree copy is normally the
+      // staged blob; git blobs cannot cross the text subprocess seam).
+      let inHead = true
+      try { await this.runGit(cwd, ['cat-file', '-e', 'HEAD:' + path], signal) } catch { inHead = false }
       let imageBase64 = ''
       try {
-        const buf = await readFile(join(cwd, path))
+        // resolveWorkspacePath refuses paths escaping the workspace root
+        // (raw fs read, not a git pathspec).
+        const buf = await readFile(resolveWorkspacePath(cwd, path))
         const mime = ext === 'svg' ? 'image/svg+xml' : 'image/' + ext
         imageBase64 = 'data:' + mime + ';base64,' + buf.toString('base64')
-      } catch { /* deleted */ }
+      } catch { /* deleted from the worktree / path escapes the workspace */ }
+      if (imageBase64.length === 0) {
+        // A missing worktree copy on a tracked image is a DELETION change —
+        // an "empty diff" tile would claim nothing changed. The blob cannot
+        // cross the text subprocess seam, so flag it binary and let the
+        // client show the placeholder (mirrors gitCommitFileDiff).
+        if (inHead) {
+          return { empty: false, diff: '', oldContent: '', newContent: path, oldPath: path, newPath: path, language, contentType: 'binary' }
+        }
+        return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language, contentType: 'image' }
+      }
       return {
-        empty: !imageBase64,
+        empty: false,
         diff: '',
-        oldContent,
+        oldContent: '',
         newContent: '',
         oldPath: path,
         newPath: path,
         language,
         contentType: 'image',
-        imageBase64: imageBase64 || undefined,
+        imageBase64,
       }
     }
     // Pick the diff scope:
     //  unstaged → git diff -- <path>            (worktree vs index)
     //  staged   → git diff --cached -- <path>   (index vs HEAD)
     //  head     → git diff HEAD -- <path>       (worktree vs HEAD, staged+unstaged)
+    // Unborn repository (no commits yet): `git diff HEAD` exits 128 with
+    // "fatal: bad revision 'HEAD'". Probe once (kind 'head' only) and fall
+    // back to a plain diff: oldContent reads HEAD:path in a try/catch
+    // (stays ''), the right side still comes from disk, so new files render.
+    let hasHead = true
+    if (kind === 'head' && cwd) {
+      hasHead = await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal).then(() => true, () => false)
+    }
     const diffArgv: string[] = ['diff']
     if (kind === 'staged') diffArgv.push('--cached')
-    else if (kind === 'head') diffArgv.push('HEAD')
+    else if (kind === 'head' && hasHead) diffArgv.push('HEAD')
     diffArgv.push('--', path)
     try {
       if (!cwd) return { empty: true, diff: '', oldContent: '', newContent: '', oldPath: path, newPath: path, language }
       const diff = await this.runGit(cwd, diffArgv, signal)
+      // Binary blobs do not survive the text subprocess seam (lossy utf8
+      // decode). git numstat prints '-' for binary counts — flag the result
+      // so the client renders a placeholder instead of garbled bytes
+      // (mirrors gitCommitFileDiff).
+      try {
+        const numstatArgv: string[] = ['diff']
+        if (kind === 'staged') numstatArgv.push('--cached')
+        else if (kind === 'head' && hasHead) numstatArgv.push('HEAD')
+        numstatArgv.push('--numstat', '--', path)
+        const numstat = (await this.runGit(cwd, numstatArgv, signal)).trim()
+        if (/^-\t-\t/m.test(numstat)) {
+          return { empty: false, diff: '', oldContent: '', newContent: path, oldPath: path, newPath: path, language, contentType: 'binary' }
+        }
+      } catch { /* fall through to the text path */ }
       if (kind === 'staged') {
         // Staged diff (VS Code's "Staged Changes" click): index vs HEAD. Both
         // sides come from git objects — the working tree is never consulted
@@ -1315,12 +1358,15 @@ export class IdeTools extends TypertRemoteService {
           language,
         }
       }
-      // Left side: the committed (HEAD) version — empty for a new/untracked file.
+      // Left side: the committed (HEAD) version for 'head' — empty for a
+      // new/untracked file. For 'unstaged' the INDEX blob (:path): that diff
+      // is index↔worktree, so a partially staged file must show its staged
+      // content on the left, not the HEAD version.
       let oldContent = ''
       try {
-        oldContent = await this.runGit(cwd, ['show', 'HEAD:' + path], signal)
+        oldContent = await this.runGit(cwd, kind === 'unstaged' ? ['show', ':' + path] : ['show', 'HEAD:' + path], signal)
       } catch {
-        // HEAD:path does not exist (added/untracked) — oldContent stays ''.
+        // The blob does not exist on that side (added/untracked) — oldContent stays ''.
       }
       // Right side: the WORKING-TREE file. An unstaged edit leaves the index at
       // the HEAD blob, so reading ':path' here produced two identical sides and
@@ -1328,10 +1374,13 @@ export class IdeTools extends TypertRemoteService {
       // actual uncommitted content (staged + unstaged) against HEAD.
       let newContent = ''
       try {
-        const buf = await readFile(join(cwd, path))
+        // resolveWorkspacePath refuses paths escaping the workspace root —
+        // git's own pathspecs are repo-bounded, but this is a raw fs read.
+        const buf = await readFile(resolveWorkspacePath(cwd, path))
         newContent = buf.toString('utf8')
       } catch {
-        // The file is gone from the working tree (deleted) — newContent stays ''.
+        // The file is gone from the working tree (deleted) or the path
+        // escapes the workspace — newContent stays ''.
       }
       // A diff is "empty" only when there is genuinely nothing to show: no
       // diff text AND old/new content are identical (or both absent). An
@@ -1382,6 +1431,7 @@ export class IdeTools extends TypertRemoteService {
     signal: AbortSignal | undefined,
   ): Promise<void> {
     const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
     try {
       await this.runGit(cwd, ['add', '-A'], signal)
     } catch (err) {
@@ -1432,6 +1482,7 @@ export class IdeTools extends TypertRemoteService {
     signal: AbortSignal | undefined,
   ): Promise<void> {
     const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
     try {
       await this.runGit(cwd, ['reset', 'HEAD'], signal)
     } catch (err) {
@@ -1451,9 +1502,9 @@ export class IdeTools extends TypertRemoteService {
     if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
     try {
       // Staged renames keep a phantom index entry after reset unless the
-      // target path is also cleaned, so clean runs after reset. Untracked
-      // files (including staged adds, which reset turns back into untracked)
-      // are removed by -d.
+      // target path is also cleaned, so clean runs after reset. Staged adds
+      // are deleted by reset --hard itself (the worktree is forced back to
+      // HEAD); clean -d only sweeps the never-staged untracked files.
       await this.runGit(cwd, ['reset', '--hard', 'HEAD'], signal)
       await this.runGit(cwd, ['clean', '-fd'], signal)
     } catch (err) {
@@ -1846,7 +1897,6 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot: cwd } = workspaceFileScope
     const opts = options ?? {}
     try {
-      try { await writeFile('/tmp/gitCommit-debug.log', new Date().toISOString() + ' ENTER gitCommit cwd=' + cwd + ' msg=' + JSON.stringify(message).slice(0, 80) + ' opts=' + JSON.stringify(opts) + '\n', { flag: 'a' }) } catch { /* ignore */ }
       // VS Code's smart-commit model: stage everything UNLESS the caller says
       // the index already holds the exact set to commit (autoStage:false).
       // Staging a clean tree is a no-op, so amend-with-empty-input still only
@@ -1873,8 +1923,9 @@ export class IdeTools extends TypertRemoteService {
           throw err
         })
       const out = await commitOnce()
-      // Extract the commit hash from the commit output (line like "[main abc1234] ...").
-      const hashMatch = out.match(/\[\S+ ([0-9a-f]{7,})\]/)
+      // Extract the commit hash from the commit output (line like "[main abc1234]"
+      // or "[detached HEAD 5cf6db4]" — the branch label may contain spaces).
+      const hashMatch = out.match(/\[[^\]]*?([0-9a-f]{7,40})\]/)
       // Post-commit commands (VS Code's Commit & Push / Commit & Sync):
       // sync = pull then push; push alone just pushes. Failures surface the
       // raw git stderr (e.g. a missing upstream), keeping the cause visible.
@@ -1905,8 +1956,6 @@ export class IdeTools extends TypertRemoteService {
       return { committed: true, hash: hashMatch?.[1], pushed }
     } catch (err) {
       const message2 = err instanceof Error ? err.message : String(err)
-      // DIAGNOSTIC: log the full error for debugging git commit failures.
-      try { await writeFile('/tmp/gitCommit-debug.log', new Date().toISOString() + '\n' + message2 + '\n' + (err instanceof Error ? err.stack ?? '' : '') + '\n---\n', { flag: 'a' }) } catch { /* ignore */ }
       // "nothing to commit" is not a hard error — report it as committed:false.
       if (message2.includes('nothing to commit') || message2.includes('no changes')) {
         return { committed: false }
@@ -2024,9 +2073,9 @@ export class IdeTools extends TypertRemoteService {
 
       let diff = ''
       let diffSource: 'staged' | 'working-tree' = 'working-tree'
+      const untracked: string[] = []
       try {
         const statusRaw = await this.runGit(cwd, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], signal)
-        const untracked: string[] = []
         for (const part of statusRaw.split('\u0000')) {
           if (part.startsWith('?? ')) untracked.push(part.slice(3))
         }
@@ -2039,7 +2088,10 @@ export class IdeTools extends TypertRemoteService {
         if (diff.trim().length > 0) {
           diffSource = 'staged'
         } else {
-          diff = await this.runGit(cwd, ['diff', 'HEAD', '--no-color'], signal)
+          // Unborn repository: `git diff HEAD` exits 128 — treat it as empty
+          // so the plain worktree diff below takes over (it works on unborn
+          // and includes the intent-to-add content).
+          diff = await this.runGit(cwd, ['diff', 'HEAD', '--no-color'], signal).catch(() => '')
           if (diff.trim().length === 0) {
             diff = await this.runGit(cwd, ['diff', '--no-color'], signal)
           }
@@ -2049,6 +2101,15 @@ export class IdeTools extends TypertRemoteService {
           throw new RemoteError('ide-tools/not-a-repo', 'workspace is not a git repository', {})
         }
         throw err
+      } finally {
+        // Undo the intent-to-add marks: they linger in the index otherwise —
+        // rendering as '.A' status entries and never being committed by a
+        // plain `git commit` (git does not count i-t-a as staged changes).
+        // Resetting exactly the paths we marked restores the pristine
+        // untracked state, whatever happened above.
+        if (untracked.length > 0) {
+          try { await this.runGit(cwd, ['reset', '-q', '--', ...untracked], signal) } catch { /* ignore */ }
+        }
       }
 
       if (diff.trim().length === 0) {
