@@ -109,12 +109,16 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
     }
     if (anchor.classList.contains('ide-md-anchor')) {
       e.preventDefault()
-      const id = (anchor.getAttribute('href') ?? '').slice(1)
+      const rawId = (anchor.getAttribute('href') ?? '').slice(1)
       const doc = bodyRef.current
-      if (doc !== null && id !== '') {
-        try {
-          doc.querySelector('#' + CSS.escape(id))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        } catch { /* invalid selector — ignore */ }
+      if (doc !== null && rawId !== '') {
+        // Heading ids come from slugify() on the raw text, but a Markdown
+        // anchor may be percent-encoded (`## 安装` → `[go](#%E5%AE%89%E8%A3%85)`),
+        // which never matched. Decode first, then fall back to the raw form.
+        let decoded = rawId
+        try { decoded = decodeURIComponent(rawId) } catch { /* malformed escape — keep raw */ }
+        const heading = doc.querySelector('#' + CSS.escape(decoded)) ?? doc.querySelector('#' + CSS.escape(rawId))
+        heading?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }
   }, [baseDir, onOpenPath])

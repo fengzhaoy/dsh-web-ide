@@ -41,6 +41,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/git-discard-failed': { readonly [key: string]: unknown }
     /** git commit failed. */
     'ide-tools/git-commit-failed': { readonly [key: string]: unknown }
+    /** The commit SUCCEEDED but a follow-up pull/push did not — carries the
+     *  created hash so the client can report "committed, push failed" instead
+     *  of claiming nothing was committed. */
+    'ide-tools/git-commit-push-failed': {
+      readonly committed?: boolean
+      readonly hash?: string
+      readonly [key: string]: unknown
+    }
     /** git pull/push sync failed. */
     'ide-tools/git-sync-failed': { readonly [key: string]: unknown }
     /** The terminal id is unknown (never opened, or already gone). */

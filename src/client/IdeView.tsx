@@ -446,6 +446,15 @@ export function IdeView(props: IdeViewInjected & {
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   const gitEntriesRef = useRef<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   /** Current git branch name (HEAD short name) — shown in the status bar. */
+  /** Monotonic token for openFile: a load that resolves after a NEWER open has
+   *  started must not attach its model, or the editor would show file A while
+   *  activePath is B and the next Ctrl+S would write A's text into B. */
+  const openSeqRef = useRef(0)
+  /** Paths with a write currently in flight. Ctrl+S is not debounced, so two
+   *  quick presses used to fire two writes carrying the SAME stale version:
+   *  the second always failed the version guard and popped the conflict dialog
+   *  even though nothing had changed on disk. */
+  const savingRef = useRef<Set<string>>(new Set())
   const [gitBranch, setGitBranch] = useState<string | undefined>(undefined)
   /** Detached HEAD: the short SHA to show where the branch name would be
    *  (VS Code parity — hiding the whole status-bar block lost the sync
@@ -673,9 +682,16 @@ export function IdeView(props: IdeViewInjected & {
       return next
     })
     setActivePath(path)
+    activePathRef.current = path
+    // A newer openFile supersedes this one: its token differs, so its result is
+    // dropped instead of hijacking the editor (and the save target) of the file
+    // the user actually clicked last.
+    const mySeq = ++openSeqRef.current
+    const stillWanted = (): boolean => mySeq === openSeqRef.current && activePathRef.current === path
     const ctrl = new AbortController()
     const result = await loadFileContent(workspaceFiles, sessionId, path, ctrl.signal)
     if (ctrl.signal.aborted) return
+    if (!stillWanted()) return
     if (result.error) {
       const errTab: OpenTab = { path, name, language, version: result.version, truncated: false, lines: 0, status: 'error', error: result.error, dirty: false, kind: isImage ? 'image' : 'text' }
       setTabs((prev) => prev.map((t) => t.path === path ? errTab : t))
@@ -688,6 +704,7 @@ export function IdeView(props: IdeViewInjected & {
       return
     }
     const m = await loadMonaco()
+    if (!stillWanted()) return
     const model = createOrReuseModel(m, path, result.text, language)
     ideEditor.models.set(path, model)
     ideEditor.saved.set(path, result.text)
@@ -1271,10 +1288,20 @@ export function IdeView(props: IdeViewInjected & {
       const chord = eventToChord(e, isMac)
       if (!chord) return
       const el = document.activeElement
+      // Focus that already consumed the chord: the editor, the command input,
+      // and ANY text field (search box, settings filter, snippet textarea).
+      // Only the editor and the palette input were covered before, so typing
+      // in the other inputs still ran global commands — and preventDefault()
+      // swallowed the keystroke the field expected.
       const inEditor = el instanceof HTMLElement && (el.closest('.monaco-editor') !== null || el.closest('.ide-palette-input') !== null)
+      const inTextField = el instanceof HTMLElement && (
+        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable
+      )
       for (const kb of keybindings) {
         if (!kb.keys || !chordMatches(kb.keys, e, isMac)) continue
-        if (inEditor && kb.command !== 'ide.commandPalette' && kb.command !== 'ide.settings') continue
+        const isGlobalCommand = kb.command === 'ide.commandPalette' || kb.command === 'ide.settings'
+        if (inEditor && !isGlobalCommand) continue
+        if (inTextField && !isGlobalCommand) continue
         const cmd = ideCommands.byId(kb.command)
         if (!cmd || cmd.disabled) continue
         e.preventDefault()
@@ -1292,10 +1319,25 @@ export function IdeView(props: IdeViewInjected & {
     const tab = tabsRef.current.find((t) => t.path === path)
     const model = ideEditor.models.get(path)
     if (!tab || !model || tab.status !== 'ready' || tab.truncated) return false
+    // One write per path at a time: the follow-up press is a no-op rather than
+    // a second write racing the first one's (now obsolete) version token.
+    if (savingRef.current.has(path)) return false
+    savingRef.current.add(path)
     const content = model.getValue()
     setSaveState('saving')
     const intent = tab.version ? { kind: 'replaceIfVersion' as const, version: tab.version } : { kind: 'createIfAbsent' as const }
-    const res = await workspaceFilesWrite.write(sessionId, path, content, intent)
+    let res
+    try {
+      res = await workspaceFilesWrite.write(sessionId, path, content, intent)
+    } catch (err) {
+      // A rejected write (transport drop) used to leave saveState on 'saving'
+      // forever with no message at all.
+      savingRef.current.delete(path)
+      setSaveState('idle')
+      setError(t('save.failed', { message: err instanceof Error ? err.message : String(err) }))
+      return false
+    }
+    savingRef.current.delete(path)
     if (!res.ok) {
       if (res.error.code === 'workspace-file-write/stale-version') {
         setConflictPath(path)

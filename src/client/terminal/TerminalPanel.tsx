@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
+import { ideSettings, terminalXtermOptions } from '../settingsStore.js'
 // xterm.js core styles: hides the helper textarea (the IME/keyboard capture
 // element that otherwise shows as a stray input box), sizes the viewport/
 // screen/rows layers, and sets the canvas/DOM renderer stacking. Without this
@@ -267,6 +268,12 @@ export function TerminalPanel({
         const { Terminal, FitAddon } = await loadXterm()
         if (cancelled) return
 
+        // User settings (Settings → Terminal) used to be dead: the panel
+        // hardcoded all three values and terminalXtermOptions() was never
+        // called, so changing font size / cursor blink / scrollback did
+        // nothing at all. Read them at construction and follow live updates
+        // in the subscription effect below.
+        const xtermSettings = terminalXtermOptions(ideSettings.getSnapshot())
         const term = new Terminal({
           // xterm.js measures character width via canvas at init time; CSS
           // var() references are NOT resolved by canvas, so the measured cell
@@ -274,12 +281,12 @@ export function TerminalPanel({
           // Use a concrete font stack matching iTerm2 / VSCode defaults:
           // Menlo (macOS), Consolas (Windows), monospace (Linux fallback).
           fontFamily: 'Menlo, Consolas, \'DejaVu Sans Mono\', monospace',
-          fontSize: 13,
+          fontSize: xtermSettings.fontSize,
           lineHeight: 1,
           letterSpacing: 0,
-          cursorBlink: true,
+          cursorBlink: xtermSettings.cursorBlink,
           cursorStyle: 'bar',
-          scrollback: 5000,
+          scrollback: xtermSettings.scrollback,
           allowProposedApi: true,
           macOptionIsMeta: true,
           // Full ANSI 16-color palette matching VSCode Dark+ so zsh prompts,
@@ -413,6 +420,21 @@ export function TerminalPanel({
     const { cols, rows } = entry.term
     void ideTools.terminalResize(sessionId, id, cols, rows).catch(() => undefined)
   }, [sessionId, ideTools])
+
+  // Live-apply terminal settings (Settings → Terminal) to every open xterm.
+  // Font size changes the cell box, so each terminal is refitted afterwards —
+  // without the refit the PTY keeps the old cols/rows and wrapping breaks.
+  useEffect(() => {
+    return ideSettings.subscribe(() => {
+      const opts = terminalXtermOptions(ideSettings.getSnapshot())
+      for (const [id, entry] of termsRef.current) {
+        entry.term.options.fontSize = opts.fontSize
+        entry.term.options.cursorBlink = opts.cursorBlink
+        entry.term.options.scrollback = opts.scrollback
+        fitAndResize(id)
+      }
+    })
+  }, [fitAndResize])
 
   // --- Ref callback: register each terminal's host div ---
   const setHostRef = useCallback((id: string) => (el: HTMLDivElement | null) => {

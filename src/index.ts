@@ -14,7 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
@@ -338,6 +338,11 @@ export interface GitRemoteBranch {
 /** One live interactive terminal plus its replay log and live subscribers. */
 interface TerminalEntry {
   readonly id: string
+  /** Session that created this terminal. Every terminal* call (write, resize,
+   *  signal, terminate, output) verifies it: ids are guessable (`t1-<base36>`),
+   *  so without this check any other Session's browser console could inject
+   *  commands into someone else's shell. */
+  readonly ownerSessionId: string
   readonly handle: {
     readonly pid: number
     readonly output: NodeJS.ReadableStream
@@ -483,7 +488,15 @@ export class IdeTools extends TypertRemoteService {
     if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty', {})
     const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
     if (query.include !== undefined && query.include.length > 0) input.include = query.include
-    if (query.path !== undefined && query.path.length > 0) input.path = query.path
+    if (query.path !== undefined && query.path.length > 0) {
+      // ripgrep resolves `path` against the workdir, so an absolute path, a
+      // `..` traversal or a `~` would escape the Session workspace entirely —
+      // this was the ONE read here with no confinement at all (`path: "/"`
+      // grepped the whole disk). Normalize through the same guard the file
+      // operations use; the relative form is what rg should receive.
+      const abs = resolveWorkspacePath(workspaceRoot, query.path)
+      input.path = relative(workspaceRoot, abs).split(sep).join('/')
+    }
     let argv = buildGrepCommand(input)
     if (!query.caseSensitive) argv = ['-i', ...argv]
     // runRipgrep reads only exec.signal and exec.agent.session.header.cwd at runtime
@@ -552,6 +565,7 @@ export class IdeTools extends TypertRemoteService {
     const id = 't' + ++this.counter + '-' + Date.now().toString(36)
     const entry: TerminalEntry = {
       id,
+      ownerSessionId: workspaceFileScope.sessionId,
       handle: handle as unknown as TerminalEntry['handle'],
       log: [],
       logBytes: 0,
@@ -561,6 +575,20 @@ export class IdeTools extends TypertRemoteService {
     this.terminals.set(id, entry)
     this.pump(entry)
     return { terminalId: id, pid: handle.pid }
+  }
+
+  /** Look up a terminal and verify the caller's Session owns it.
+   *
+   *  Ids are `t<counter>-<base36 time>` — trivially guessable — so every
+   *  terminal* entry point must go through this instead of a bare `get()`.
+   *  A foreign id is reported exactly like a missing one (no-such-terminal):
+   *  distinguishing them would let a caller probe which terminals exist. */
+  private ownedTerminal(scope: { sessionId: string }, terminalId: string): TerminalEntry {
+    const entry = this.terminals.get(terminalId)
+    if (entry === undefined || entry.ownerSessionId !== scope.sessionId) {
+      throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    }
+    return entry
   }
 
   /** Pump the PTY output Readable into the replay log and live subscribers. */
@@ -581,12 +609,22 @@ export class IdeTools extends TypertRemoteService {
         const head = entry.log[0]
         if (head !== undefined) {
           // The log holds base64, so decode → find the boundary → re-encode.
+          //
+          // The cut is a CHARACTER index into the decoded string, but logBytes
+          // is a BYTE count: slicing the string and re-encoding silently
+          // changes the byte length by more than the character count whenever
+          // the dropped prefix contains multi-byte text (a Chinese path, an
+          // emoji in a prompt). The old code compensated with chars * 0.75,
+          // which drifts and can also cut mid-codepoint — leaving the byte
+          // ledger wrong so later trims slice too much and the replay stream
+          // corrupts. Measure the real byte delta instead.
           const raw = Buffer.from(head, 'base64')
-          const cut = findSafeReplayStart(raw.toString('utf8'))
+          const text = raw.toString('utf8')
+          const cut = findSafeReplayStart(text)
           if (cut > 0) {
-            const trimmed = Buffer.from(raw.toString('utf8').slice(cut), 'utf8')
+            const trimmed = Buffer.from(text.slice(cut), 'utf8')
             entry.log[0] = trimmed.toString('base64')
-            entry.logBytes -= (trimmed.length - raw.length) * -0.75
+            entry.logBytes -= raw.length - trimmed.length
           }
         }
       }
@@ -616,13 +654,12 @@ export class IdeTools extends TypertRemoteService {
 
   /** Deliver one input chunk to the terminal. */
   async terminalWrite(
-    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
     terminalId: string,
     data: string,
     _signal: AbortSignal,
   ): Promise<void> {
-    const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    const entry = this.ownedTerminal(workspaceFileScope, terminalId)
     if (entry.exited) throw new RemoteError('ide-tools/terminal-exited', 'terminal ' + JSON.stringify(terminalId) + ' has exited', {})
     const text = Buffer.from(data, 'base64').toString('utf8')
     await entry.handle.write(text)
@@ -630,24 +667,26 @@ export class IdeTools extends TypertRemoteService {
 
   /** Signal the terminal's foreground process group (e.g. Ctrl+C as SIGINT). */
   async terminalSignal(
-    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
     terminalId: string,
     signalName: 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP',
     _signal: AbortSignal,
   ): Promise<void> {
-    const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    const entry = this.ownedTerminal(workspaceFileScope, terminalId)
     await entry.handle.signalForeground(signalName)
   }
 
   /** Terminate the whole terminal session and drop it from the registry. */
   async terminalTerminate(
-    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
     terminalId: string,
     _signal: AbortSignal,
   ): Promise<void> {
     const entry = this.terminals.get(terminalId)
-    if (entry === undefined) return
+    // Idempotent: a missing (or someone else's) terminal is a no-op, matching
+    // the previous "already gone" behaviour without letting a foreign Session
+    // kill a shell it does not own.
+    if (entry === undefined || entry.ownerSessionId !== workspaceFileScope.sessionId) return
     this.terminals.delete(terminalId)
     for (const subscriber of entry.subscribers) subscriber({ data: '', exit: true })
     entry.subscribers.clear()
@@ -665,14 +704,13 @@ export class IdeTools extends TypertRemoteService {
    *  shows a different viewport, so prompt wrapping, line editing, and
    *  full-screen apps (vim, less) all misbehave. */
   async terminalResize(
-    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
     terminalId: string,
     cols: number,
     rows: number,
     _signal: AbortSignal,
   ): Promise<void> {
-    const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    const entry = this.ownedTerminal(workspaceFileScope, terminalId)
     const c = Math.max(2, Math.min(500, Math.round(cols)))
     const r = Math.max(2, Math.min(300, Math.round(rows)))
     await entry.handle.resize(c, r)
@@ -680,12 +718,11 @@ export class IdeTools extends TypertRemoteService {
 
   /** Stream one terminal's output: replay log first, then live frames. */
   async *terminalOutput(
-    _workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
     terminalId: string,
     signal: AbortSignal,
   ): AsyncGenerator<IdeTerminalOutputFrame, void, void> {
-    const entry = this.terminals.get(terminalId)
-    if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
+    const entry = this.ownedTerminal(workspaceFileScope, terminalId)
     // Reset the SGR state before replaying. A freshly attached xterm starts
     // with default attributes, but the replay log may begin in the middle of
     // a styled run (its head was trimmed, or the capture started after a
@@ -869,6 +906,24 @@ export class IdeTools extends TypertRemoteService {
       entries,
       clean: entries.length === 0,
       headSha,
+    }
+  }
+
+  /** True when the repository has at least one commit (HEAD resolves).
+   *
+   *  An unborn repository (`git init`, nothing committed yet) rejects plan
+   *  operations that name HEAD — `reset HEAD`, `reset --hard HEAD`,
+   *  `checkout -- <path>` all fail with "ambiguous argument 'HEAD'" or
+   *  "pathspec did not match". Callers branch on this instead of guessing.
+   *  A `rev-parse` probe is used rather than the status snapshot because the
+   *  index itself may be empty while HEAD exists (a fully-staged-then-reset
+   *  tree), and vice versa. */
+  private async hasHeadCommit(cwd: string, signal: AbortSignal | undefined): Promise<boolean> {
+    try {
+      await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal)
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -1574,7 +1629,12 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot: cwd } = workspaceFileScope
     if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
     try {
-      await this.runGit(cwd, ['reset', 'HEAD'], signal)
+      // In an UNBORN repository (git init, nothing committed) `reset HEAD`
+      // fails with "ambiguous argument 'HEAD'". A bare `reset` (no revision)
+      // empties the index without needing HEAD, which is exactly the semantics
+      // wanted here.
+      const hasHead = await this.hasHeadCommit(cwd, signal)
+      await this.runGit(cwd, hasHead ? ['reset', '-q', 'HEAD'] : ['reset', '-q'], signal)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       throw new RemoteError('ide-tools/git-unstage-failed', message, {})
@@ -1595,7 +1655,16 @@ export class IdeTools extends TypertRemoteService {
       // target path is also cleaned, so clean runs after reset. Staged adds
       // are deleted by reset --hard itself (the worktree is forced back to
       // HEAD); clean -d only sweeps the never-staged untracked files.
-      await this.runGit(cwd, ['reset', '--hard', 'HEAD'], signal)
+      //
+      // UNBORN repository: `reset --hard HEAD` fails (no HEAD to hard-reset
+      // to). Emptying the index with `read-tree --empty` leaves every file as
+      // untracked, and clean -f then removes them all — the same end state.
+      const hasHead = await this.hasHeadCommit(cwd, signal)
+      if (hasHead) {
+        await this.runGit(cwd, ['reset', '--hard', 'HEAD'], signal)
+      } else {
+        await this.runGit(cwd, ['read-tree', '--empty'], signal)
+      }
       await this.runGit(cwd, ['clean', '-fd'], signal)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1635,7 +1704,7 @@ export class IdeTools extends TypertRemoteService {
       // "pathspec did not match any file(s) known to git" — the user's discard
       // then reports an error and changes nothing. Detect that case ONCE and
       // discard by dropping the index entry plus the worktree copy instead.
-      const hasHead = await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal).then(() => true, () => false)
+      const hasHead = await this.hasHeadCommit(cwd, signal)
       if (!hasHead) {
         // Nothing was ever committed, so the "committed" version of every path
         // is nonexistent: discard = unstage (if staged) and delete the file.
@@ -2034,31 +2103,52 @@ export class IdeTools extends TypertRemoteService {
       // sync = pull then push; push alone just pushes. Failures surface the
       // raw git stderr (e.g. a missing upstream), keeping the cause visible.
       let pushed: boolean | undefined
+      // The push/pull steps run AFTER the commit already landed. A failure there
+      // must never be reported as "nothing to commit" (the outer catch below
+      // matches on the error text, and a push rejection can mention "no
+      // changes") — it is tagged and surfaced as a distinct post-commit error
+      // carrying the created hash so the client can say "committed, push failed".
+      const postCommit = async (step: () => Promise<unknown>): Promise<void> => {
+        try {
+          await step()
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new RemoteError('ide-tools/git-commit-push-failed', msg, { committed: true, hash: hashMatch?.[1] })
+        }
+      }
       if (opts.sync) {
         // VS Code parity: Commit and Sync pulls+pushes when an upstream is
         // configured, but PUBLISHES (push -u) a branch with no upstream instead
         // of failing on a bare pull (no tracking information).
         const hasUpstream = await this.hasUpstream(cwd, signal)
-        if (hasUpstream) {
-          await this.runGit(cwd, ['pull'], signal)
-          await this.runGit(cwd, ['push'], signal)
-        } else {
-          await this.publishBranch(cwd, signal)
-        }
+        await postCommit(async () => {
+          if (hasUpstream) {
+            await this.runGit(cwd, ['pull'], signal)
+            await this.runGit(cwd, ['push'], signal)
+          } else {
+            await this.publishBranch(cwd, signal)
+          }
+        })
         pushed = true
       } else if (opts.push) {
         // VS Code parity: Commit & Push pushes the upstream when set, else
         // publishes (push -u) so a branch with no upstream does not fail.
         const hasUpstream = await this.hasUpstream(cwd, signal)
-        if (hasUpstream) {
-          await this.runGit(cwd, ['push'], signal)
-        } else {
-          await this.publishBranch(cwd, signal)
-        }
+        await postCommit(async () => {
+          if (hasUpstream) {
+            await this.runGit(cwd, ['push'], signal)
+          } else {
+            await this.publishBranch(cwd, signal)
+          }
+        })
         pushed = true
       }
       return { committed: true, hash: hashMatch?.[1], pushed }
     } catch (err) {
+      // A post-commit failure already carries its own code + the new hash:
+      // rethrow untouched so the client can report "committed, push failed"
+      // instead of the text heuristic below swallowing it.
+      if (err instanceof RemoteError) throw err
       const message2 = err instanceof Error ? err.message : String(err)
       // "nothing to commit" is not a hard error — report it as committed:false.
       if (message2.includes('nothing to commit') || message2.includes('no changes')) {

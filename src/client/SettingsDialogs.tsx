@@ -92,16 +92,22 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
                 <option value="light-modern">{t('settings.theme.light')}</option>
               </select>
             </SettingsRow>
-            <SettingsRow label={t('settings.uiLocale')} visible={rowVisible(t('settings.uiLocale'))}>
-              <select
-                className="ide-settings-select"
-                value={uiLocale === 'en' ? 'en' : 'zh'}
-                onChange={(e) => { if (onSetUiLocale) onSetUiLocale(e.target.value === 'en' ? 'en' : 'zh') }}
-              >
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-              </select>
-            </SettingsRow>
+            {/* Only rendered when the host actually exposes a locale switch.
+                It used to render unconditionally while IdeView passed no
+                callback at all, so picking English silently did nothing — a
+                UI control that could never work. */}
+            {onSetUiLocale !== undefined && (
+              <SettingsRow label={t('settings.uiLocale')} visible={rowVisible(t('settings.uiLocale'))}>
+                <select
+                  className="ide-settings-select"
+                  value={uiLocale === 'en' ? 'en' : 'zh'}
+                  onChange={(e) => onSetUiLocale(e.target.value === 'en' ? 'en' : 'zh')}
+                >
+                  <option value="zh">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </SettingsRow>
+            )}
           </SettingsSection>
 
           <SettingsSection title={t('settings.section.editor')} visible={sectionVisible(t('settings.section.editor'), [t('settings.editor.fontSize'), t('settings.editor.lineHeight'), t('settings.editor.minimap'), t('settings.editor.wordWrap'), t('settings.editor.renderWhitespace'), t('settings.editor.lineNumbers'), t('settings.editor.cursorBlinking'), t('settings.editor.smoothScrolling')])}>

@@ -38,16 +38,24 @@ export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, t }: SearchP
     const seq = ++searchSeq.current
     setState({ status: 'running', matches: [], truncated: false, totalMatches: 0, error: null })
     const includeTrimmed = include.trim()
-    const result = await ideTools.search(sessionId, {
-      pattern: query,
-      include: includeTrimmed.length > 0 ? includeTrimmed : undefined,
-      caseSensitive,
-    })
-    if (seq !== searchSeq.current) return
-    if (result.ok) {
-      setState({ status: 'done', matches: result.value.matches, truncated: result.value.truncated, totalMatches: result.value.totalMatches, error: null })
-    } else {
-      setState({ status: 'failed', matches: [], truncated: false, totalMatches: 0, error: result.error.message })
+    // The remote can REJECT (transport drop, unmounted host), not only resolve
+    // with !ok. Without this catch the panel stayed on 'running' forever and the
+    // rejection went unhandled.
+    try {
+      const result = await ideTools.search(sessionId, {
+        pattern: query,
+        include: includeTrimmed.length > 0 ? includeTrimmed : undefined,
+        caseSensitive,
+      })
+      if (seq !== searchSeq.current) return
+      if (result.ok) {
+        setState({ status: 'done', matches: result.value.matches, truncated: result.value.truncated, totalMatches: result.value.totalMatches, error: null })
+      } else {
+        setState({ status: 'failed', matches: [], truncated: false, totalMatches: 0, error: result.error.message })
+      }
+    } catch (err) {
+      if (seq !== searchSeq.current) return
+      setState({ status: 'failed', matches: [], truncated: false, totalMatches: 0, error: err instanceof Error ? err.message : String(err) })
     }
   }, [pattern, include, caseSensitive, sessionId, ideTools])
 

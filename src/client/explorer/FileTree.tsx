@@ -49,9 +49,29 @@ function joinPath(parent: string, name: string): string {
   return `${parent.replace(/[/\\]+$/, '')}/${name}`
 }
 
-/** Strip the workspace-root prefix from an absolute path → workspace-relative (git-style). */
+/** Normalize a path to forward slashes and drop trailing separators, so a
+ *  Windows root (`C:\\work`) and a POSIX root (`/work`) compare the same way. */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+/** Strip the workspace-root prefix from an absolute path → workspace-relative (git-style).
+ *
+ *  This is a real PREFIX test, not a String.replace: replace() treats the root
+ *  as a pattern and strips its FIRST occurrence anywhere in the string, so a
+ *  root of `/` turned `/a/b` into `a/b`, and a Windows root (`C:\\w`) never
+ *  matched the forward-slash child paths produced by joinPath — both leaked an
+ *  absolute path to the host, which then refused it as "escapes the workspace
+ *  root" (breaking create / rename / delete / drag for those workspaces). */
 function relPathOf(rootDir: string, absPath: string): string {
-  return absPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')
+  const root = normalizePath(rootDir)
+  const abs = normalizePath(absPath)
+  if (abs === root) return ''
+  // Root '/' normalizes to '' — every absolute path is then already relative
+  // once its leading slash is dropped.
+  if (root === '') return abs.replace(/^\/+/, '')
+  const prefix = root + '/'
+  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs
 }
 
 /**
@@ -79,8 +99,7 @@ let hostPlatformAuthoritative = false
 
 /** Workspace-relative path of a directory, with '' for the workspace root itself. */
 function parentRelOf(rootDir: string, absPath: string): string {
-  const clean = rootDir.replace(/[/\\]+$/, '')
-  if (absPath === clean || absPath === rootDir) return ''
+  if (normalizePath(absPath) === normalizePath(rootDir)) return ''
   return relPathOf(rootDir, absPath)
 }
 

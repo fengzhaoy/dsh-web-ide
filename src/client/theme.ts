@@ -557,7 +557,7 @@ export const IDE_STYLES = `
 .ide-settings-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;gap:12px}
 .ide-settings-row-label{color:var(--ide-fg);font-size:12px}
 .ide-settings-select{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;min-width:160px}
-.ide-settings-number{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;width:80px}
+.ide-settings-number{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;width:88px;min-width:88px;flex:none;box-sizing:border-box;text-align:right}
 .ide-settings-toggle{position:relative;display:inline-block;width:34px;height:18px;cursor:pointer}
 .ide-settings-toggle input{opacity:0;width:0;height:0}
 .ide-settings-toggle span{position:absolute;inset:0;background:#3c3c3c;border-radius:9px;transition:.15s}
