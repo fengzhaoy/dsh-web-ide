@@ -180,18 +180,27 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     const intent: WorkspaceFileWriteIntent | undefined = versionRef.current !== undefined
       ? { kind: 'replaceIfVersion', version: versionRef.current }
       : undefined
-    const res = await workspaceFilesWrite.write(sessionId, path, content, intent)
-    if (!res.ok) {
+    // The write can REJECT (transport failure, unmounted remote), not just
+    // resolve with !ok. Without this catch the phase stayed 'saving' forever
+    // and the rejection went unhandled — no error UI at all.
+    try {
+      const res = await workspaceFilesWrite.write(sessionId, path, content, intent)
+      if (!res.ok) {
+        setSavePhase('error')
+        setSaveError(res.error.code === 'workspace-file-write/stale-version'
+          ? t('diff.staleError')
+          : t('diff.saveError', { message: res.error.message ?? res.error.code }))
+        return
+      }
+      versionRef.current = res.value.version
+      dirtyRef.current = false
+      setDirty(false)
+      setSavePhase('idle')
+    } catch (err) {
       setSavePhase('error')
-      setSaveError(res.error.code === 'workspace-file-write/stale-version'
-        ? t('diff.staleError')
-        : t('diff.saveError', { message: res.error.message ?? res.error.code }))
+      setSaveError(t('diff.saveError', { message: err instanceof Error ? err.message : String(err) }))
       return
     }
-    versionRef.current = res.value.version
-    dirtyRef.current = false
-    setDirty(false)
-    setSavePhase('idle')
     // Let the owner sync the matching normal tab (model + saved baseline) and
     // refresh git state — the save just changed the worktree.
     onSaved?.(path)
@@ -454,7 +463,15 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         const diff: GitDiffResult = diffRes.value
         let newText = diff.newContent
         let oldText = diff.oldContent
-        if (diff.contentType === 'image' || diff.contentType === 'binary') return
+        if (diff.contentType === 'image' || diff.contentType === 'binary') {
+          // A live Monaco model cannot represent an image or a binary blob, so
+          // quietly rewriting the text models below is meaningless. Bump the
+          // reload nonce instead: the whole diff pane re-runs (fresh image
+          // preview / binary placeholder) so an external edit becomes visible
+          // rather than leaving stale content on screen forever.
+          setReloadNonce((n) => n + 1)
+          return
+        }
         const fileRes = await workspaceFiles.readBytes(sessionId, path, {}, ctrl.signal)
         if (cancelled || dirtyRef.current) return
         if (fileRes.ok) {

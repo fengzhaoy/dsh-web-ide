@@ -71,7 +71,12 @@ export function BranchesView({ sessionId, cwd, ideTools, onMutated, t }: Branche
     }
   }, [sessionId, cwd, ideTools, t])
 
+  // Reset per-session/dialog state when the workspace switches: a half-open
+  // delete confirmation or a stale action error must not leak into the new
+  // session's branch list.
   useEffect(() => {
+    setActionError(null)
+    setConfirmDelete(undefined)
     void load()
   }, [load])
 

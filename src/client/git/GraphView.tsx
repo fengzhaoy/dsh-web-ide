@@ -59,7 +59,13 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
   const [expandedSha, setExpandedSha] = useState<string | undefined>(undefined)
   /** Loaded commit details, keyed by full hash. */
   const [details, setDetails] = useState<ReadonlyMap<string, GitCommitDetailsResult>>(new Map())
-  const [detailsLoading, setDetailsLoading] = useState(false)
+  /** Per-hash detail fetch state, so expanding another commit while one is
+   *  still loading does not get skipped by a single global lock (which left
+   *  the second commit stuck on its spinner forever). */
+  const [detailsLoading, setDetailsLoading] = useState<ReadonlySet<string>>(new Set())
+  /** Per-hash detail load failure, rendered inside that commit's own block
+   *  instead of the shared action banner. */
+  const [detailsError, setDetailsError] = useState<ReadonlyMap<string, string>>(new Map())
   /** Inline action error (fetch/checkout/branch failures). */
   const [actionError, setActionError] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
@@ -70,6 +76,14 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
   const loadingMoreRef = useRef(false)
 
   const seq = useRef(0)
+  /** Latest committed list, so `load` can read the paging offset without
+   *  taking commits.length as a dependency (which rebuilt the callback on every
+   *  page and made the toolbar refresh closure churn). */
+  const commitsRef = useRef<readonly GitLogEntry[]>([])
+  /** Next `--skip` offset for paging. Tracked separately from commits.length:
+   *  hash dedupe can drop records, so rendered count drifts below the git-side
+   *  offset and the next page would fetch overlapping commits. */
+  const skipRef = useRef(0)
 
   const load = useCallback(async (mode: 'reset' | 'more') => {
     if (!cwd) return
@@ -81,7 +95,7 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
     try {
       const res = await ideTools.gitLog(sessionId, {
         limit: PAGE_SIZE,
-        skip: mode === 'more' ? commits.length : 0,
+        skip: mode === 'more' ? skipRef.current : 0,
         scope: filter,
       })
       if (mySeq !== seq.current) return
@@ -104,6 +118,9 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
         const seen = new Set(prev.map((c) => c.hash))
         return [...prev, ...value.commits.filter((c) => !seen.has(c.hash))]
       })
+      // Advance the git-side offset by exactly what this page returned, so a
+      // dedupe-driven shortfall never re-fetches the same commits.
+      skipRef.current = mode === 'more' ? skipRef.current + value.commits.length : value.commits.length
       setHasMore(value.hasMore)
       setHead(value.head)
       setCurrentBranch(value.currentBranch)
@@ -116,13 +133,19 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
     } finally {
       loadingMoreRef.current = false
     }
-  }, [sessionId, cwd, ideTools, filter, commits.length, t])
+  }, [sessionId, cwd, ideTools, filter, t])
+
+  // Mirror the commit list into a ref for the paging offset.
+  useEffect(() => { commitsRef.current = commits }, [commits])
 
   // Reload on mount and whenever the branch filter changes.
   useEffect(() => {
     setCommits([])
+    commitsRef.current = []
+    skipRef.current = 0
     setExpandedSha(undefined)
     setDetails(new Map())
+    setDetailsError(new Map())
     void load('reset')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, cwd, filter])
@@ -157,19 +180,21 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
     setActionError(null)
     if (expandedSha === sha) { setExpandedSha(undefined); return }
     setExpandedSha(sha)
-    if (details.has(sha) || detailsLoading) return
-    setDetailsLoading(true)
+    // Only skip when THIS commit is already loaded or already in flight.
+    if (details.has(sha) || detailsLoading.has(sha)) return
+    setDetailsLoading((prev) => new Set(prev).add(sha))
+    setDetailsError((prev) => { const next = new Map(prev); next.delete(sha); return next })
     try {
       const res = await ideTools.gitCommitDetails(sessionId, sha)
       if (res.ok) {
         setDetails((prev) => new Map(prev).set(sha, res.value))
       } else {
-        setActionError(res.error.message ?? res.error.code)
+        setDetailsError((prev) => new Map(prev).set(sha, res.error.message ?? res.error.code))
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err))
+      setDetailsError((prev) => new Map(prev).set(sha, err instanceof Error ? err.message : String(err)))
     } finally {
-      setDetailsLoading(false)
+      setDetailsLoading((prev) => { const next = new Set(prev); next.delete(sha); return next })
     }
   }, [expandedSha, details, detailsLoading, sessionId, ideTools])
 
@@ -364,7 +389,7 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
 
                 {expanded && (
                   <div className="ide-git-graph-details">
-                    {detailsLoading && expandedDetails === undefined ? (
+                    {detailsLoading.has(commit.hash) && expandedDetails === undefined ? (
                       <div className="ide-git-graph-details-loading">{Icons.loading}<span>{t('git.loading')}</span></div>
                     ) : expandedDetails !== undefined ? (
                       <>
@@ -398,7 +423,9 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
                         </div>
                       </>
                     ) : (
-                      <div className="ide-git-graph-details-loading">{t('git.diffError', { message: '' })}</div>
+                      <div className="ide-git-graph-details-loading ide-git-error">
+                        {t('git.diffError', { message: detailsError.get(commit.hash) ?? '' })}
+                      </div>
                     )}
                   </div>
                 )}

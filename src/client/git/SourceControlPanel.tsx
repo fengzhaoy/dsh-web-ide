@@ -157,7 +157,9 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
         if (res.value.notARepo) {
           setStatus((current) => (current === 'notrepo' ? current : 'notrepo'))
           setResult((current) => (current === null ? current : null))
-          statusChangedRef.current?.(res.value)
+          // Contract: `undefined` means "no repo / no data". Passing the
+          // notARepo object here made callers rely on a field check instead.
+          statusChangedRef.current?.(undefined)
         } else {
           setStatus((current) => (current === 'ready' ? current : 'ready'))
           // Write the result only when something actually changed: identical

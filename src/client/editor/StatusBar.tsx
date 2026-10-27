@@ -22,6 +22,9 @@ interface StatusBarProps {
   model?: string
   /** Current git branch name (HEAD short name), shown on the left side. */
   branch?: string
+  /** Detached HEAD: short SHA shown in place of the branch name (VS Code
+   *  parity — otherwise the whole branch + sync block disappears). */
+  detachedSha?: string
   /** Commits ahead of upstream (status-bar sync indicator). */
   ahead?: number
   /** Commits behind upstream (status-bar sync indicator). */
@@ -63,7 +66,7 @@ interface StatusBarProps {
 const LANGUAGE_OPTIONS = ['typescript', 'javascript', 'json', 'css', 'scss', 'less', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile', 'plaintext']
 
 export function StatusBar(props: StatusBarProps) {
-  const { activeTab, cursor, t, saveState, onSave, model, branch, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
+  const { activeTab, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
 
   const menuAt = (el: HTMLElement | null, items: Parameters<typeof showContextMenu>[2]) => {
     const rect = el?.getBoundingClientRect()
@@ -126,10 +129,10 @@ export function StatusBar(props: StatusBarProps) {
           <span className="ide-statusbar-remote-icon">{Icons.remote}</span>
           {workspaceName ?? t('status.workspace')}
         </button>
-        {branch && (
-          <span className="ide-statusbar-item ide-statusbar-branch" data-testid="ide-statusbar-branch">
+        {(branch !== undefined || detachedSha !== undefined) && (
+          <span className="ide-statusbar-item ide-statusbar-branch" data-testid="ide-statusbar-branch" title={detachedSha !== undefined ? t('status.detachedSha', { sha: detachedSha }) : branch}>
             <span className="ide-statusbar-branch-icon">{Icons.branch}</span>
-            {branch}
+            {branch ?? detachedSha}
             {(ahead !== undefined && ahead > 0) && <span className="ide-statusbar-sync-count" title={t('status.ahead', { count: ahead })}>↑{ahead}</span>}
             {(behind !== undefined && behind > 0) && <span className="ide-statusbar-sync-count" title={t('status.behind', { count: behind })}>↓{behind}</span>}
             {onSync && ((ahead ?? 0) > 0 || (behind ?? 0) > 0) && (

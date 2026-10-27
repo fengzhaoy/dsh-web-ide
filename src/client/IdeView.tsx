@@ -447,6 +447,10 @@ export function IdeView(props: IdeViewInjected & {
   const gitEntriesRef = useRef<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   /** Current git branch name (HEAD short name) — shown in the status bar. */
   const [gitBranch, setGitBranch] = useState<string | undefined>(undefined)
+  /** Detached HEAD: the short SHA to show where the branch name would be
+   *  (VS Code parity — hiding the whole status-bar block lost the sync
+   *  affordance entirely). */
+  const [gitDetachedSha, setGitDetachedSha] = useState<string | undefined>(undefined)
   /** Deduped write path for git status: identical lists leave state untouched
    *  so background refreshes never re-render the view. */
   const applyGitEntries = useCallback((entries: readonly import('./types.js').GitStatusEntry[] | undefined) => {
@@ -897,10 +901,11 @@ export function IdeView(props: IdeViewInjected & {
       void ideTools.gitStatus(sessionId, ctrl.signal).then((res) => {
         if (cancelled) return
         if (res.ok) {
-          if (res.value.notARepo) { applyGitEntries(undefined); setGitBranch(undefined); setGitAhead(undefined); setGitBehind(undefined) }
+          if (res.value.notARepo) { applyGitEntries(undefined); setGitBranch(undefined); setGitDetachedSha(undefined); setGitAhead(undefined); setGitBehind(undefined) }
           else {
             if (res.value.entries) applyGitEntries(res.value.entries)
             setGitBranch(res.value.branch)
+            setGitDetachedSha(res.value.detached && res.value.headSha !== undefined ? res.value.headSha.slice(0, 7) : undefined)
             setGitAhead(res.value.ahead > 0 ? res.value.ahead : undefined)
             setGitBehind(res.value.behind > 0 ? res.value.behind : undefined)
           }
@@ -1460,11 +1465,13 @@ export function IdeView(props: IdeViewInjected & {
                   if (result === undefined || result.notARepo) {
                     applyGitEntries(undefined)
                     setGitBranch(undefined)
+                    setGitDetachedSha(undefined)
                     setGitAhead(undefined)
                     setGitBehind(undefined)
                   } else {
                     applyGitEntries(result.entries)
                     setGitBranch(result.branch)
+                    setGitDetachedSha(result.detached && result.headSha !== undefined ? result.headSha.slice(0, 7) : undefined)
                     setGitAhead(result.ahead > 0 ? result.ahead : undefined)
                     setGitBehind(result.behind > 0 ? result.behind : undefined)
                   }
@@ -1780,6 +1787,7 @@ export function IdeView(props: IdeViewInjected & {
           onSave={() => { if (activePath !== undefined) void saveFile(activePath) }}
           model={model}
           branch={gitBranch}
+          detachedSha={gitDetachedSha}
           ahead={gitAhead}
           behind={gitBehind}
           onSync={() => runGitSyncCommand('sync')}

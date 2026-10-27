@@ -186,6 +186,7 @@ export const zh = {
   'status.conflict': '冲突：文件已被外部修改',
 
   'status.sync': '同步更改',
+  'status.detachedSha': '分离头指针（HEAD 位于 {sha}）',
   'status.ahead': '领先 {count} 个提交',
   'status.behind': '落后 {count} 个提交',
   'status.problems': '问题',
@@ -548,6 +549,7 @@ export const en = {
   'status.saved': 'Saved',
   'status.conflict': 'Conflict: file changed on disk',
   'status.sync': 'Synchronize Changes',
+  'status.detachedSha': 'Detached HEAD at {sha}',
   'status.ahead': '{count}↑ commits ahead',
   'status.behind': '{count}↓ commits behind',
   'status.problems': 'Problems',

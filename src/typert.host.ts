@@ -68,6 +68,7 @@ const _ide_tools_ideTools_gitStatus_result$schema = z.object({
   'ahead': z.number().readonly(),
   'behind': z.number().readonly(),
   'detached': z.boolean().readonly(),
+  'headSha': z.string().optional(),
   'entries': z.array(z.object({
     'path': z.string().readonly(),
     'oldPath': z.string().optional(),

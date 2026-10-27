@@ -220,6 +220,9 @@ export interface GitStatusResult {
   readonly ahead: number
   readonly behind: number
   readonly detached: boolean
+  /** HEAD commit hash (porcelain `# branch.oid`); absent when unborn. Used by
+   *  the status bar to label a detached HEAD with its short SHA. */
+  readonly headSha?: string
   readonly entries: readonly GitStatusEntry[]
   readonly clean: boolean
 }
@@ -803,6 +806,7 @@ export class IdeTools extends TypertRemoteService {
     let ahead = 0
     let behind = 0
     let detached = false
+    let headSha: string | undefined
     const entries: GitStatusEntry[] = []
     const records = raw.split('\u0000')
     for (let i = 0; i < records.length; i++) {
@@ -816,6 +820,10 @@ export class IdeTools extends TypertRemoteService {
           const v = record.slice('# branch.head '.length)
           if (v === '(detached)') detached = true
           else branch = v
+        } else if (record.startsWith('# branch.oid ')) {
+          const oid = record.slice('# branch.oid '.length)
+          // "(initial)" — an unborn repository has no commit yet.
+          if (oid !== '(initial)') headSha = oid
         } else if (record.startsWith('# branch.upstream ')) {
           upstream = record.slice('# branch.upstream '.length)
         } else if (record.startsWith('# branch.ab ')) {
@@ -860,6 +868,7 @@ export class IdeTools extends TypertRemoteService {
       detached,
       entries,
       clean: entries.length === 0,
+      headSha,
     }
   }
 
@@ -1620,6 +1629,20 @@ export class IdeTools extends TypertRemoteService {
     const { path, oldPath, kind } = entry
     if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
     try {
+      // `reset -- <path>` / `checkout -- <path>` need a HEAD commit to pull the
+      // old content from. In an UNBORN repository (git init, nothing committed
+      // yet) git reset silently succeeds but `checkout -- <path>` fails with
+      // "pathspec did not match any file(s) known to git" — the user's discard
+      // then reports an error and changes nothing. Detect that case ONCE and
+      // discard by dropping the index entry plus the worktree copy instead.
+      const hasHead = await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal).then(() => true, () => false)
+      if (!hasHead) {
+        // Nothing was ever committed, so the "committed" version of every path
+        // is nonexistent: discard = unstage (if staged) and delete the file.
+        await this.runGit(cwd, ['rm', '-f', '-q', '--cached', '--ignore-unmatch', '--', path], signal)
+        await this.runGit(cwd, ['clean', '-f', '-q', '--', path], signal)
+        return
+      }
       if (kind === 'untracked') {
         await this.runGit(cwd, ['clean', '-f', '-q', '--', path], signal)
       } else if (kind === 'added') {

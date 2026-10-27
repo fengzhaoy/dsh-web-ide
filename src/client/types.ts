@@ -142,6 +142,8 @@ export interface GitStatusResult {
   readonly behind: number
   /** Detached HEAD state. */
   readonly detached: boolean
+  /** HEAD commit hash (porcelain `# branch.oid`); absent when unborn. */
+  readonly headSha?: string
   /** All changed entries (staged + unstaged + untracked), no dups. */
   readonly entries: readonly GitStatusEntry[]
   /** True when there are no changes (clean working tree). */
