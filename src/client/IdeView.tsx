@@ -1816,6 +1816,7 @@ export function IdeView(props: IdeViewInjected & {
             onActiveChange={setActiveTerminalIdx}
             onTerminalClosed={handleTerminalClosed}
             onClose={handleTerminalClose}
+            tabVisible={props.tabVisible}
             t={t}
           />
             )}

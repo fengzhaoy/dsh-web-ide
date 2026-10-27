@@ -38,6 +38,11 @@ export interface TerminalPanelProps {
   onTerminalClosed: (idx: number) => void
   /** Close the entire panel (terminals keep running on the host). */
   onClose: () => void
+  /** True while the hosting IDE tab is visible. Switching to the chat tab and
+   *  back does NOT remount this panel (DSH hides the body), so without this
+   *  signal the focus effect below never re-runs and the terminal silently
+   *  stops accepting keystrokes after the user returns. */
+  tabVisible?: boolean
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -160,6 +165,7 @@ export function TerminalPanel({
   onActiveChange,
   onTerminalClosed,
   onClose,
+  tabVisible,
   t,
 }: TerminalPanelProps) {
   // One xterm instance per terminal ID, surviving re-renders.
@@ -451,8 +457,16 @@ export function TerminalPanel({
   // xterm canvas keeps its DOM binding but stops rendering. Once visible again
   // we refit AND call term.focus() — focus re-arms the blinking cursor and
   // re-paints the viewport, which is what was missing (cursor stayed hidden).
+  //
+  // Coming back from the chat tab is the OTHER critical case: DSH hides this
+  // body rather than unmounting it, so nothing in the dependencies above
+  // changes and the effect never re-ran — the terminal kept rendering but had
+  // no keyboard focus, so typing went nowhere until the user clicked it.
+  // `tabVisible` (from useTabInfo().tab.visible) flips false→true exactly on
+  // that transition and is therefore part of the dependency list.
   useEffect(() => {
     if (activeId === undefined || isMinimized) return
+    if (tabVisible === false) return
     const t = setTimeout(() => {
       fitAndResize(activeId)
       // In split view, refit the other member too.
@@ -464,7 +478,7 @@ export function TerminalPanel({
     }, 50)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, isMinimized, isMaximized, panelState, panelHeight, fitAndResize, isSplit, liveSplitKey])
+  }, [activeId, isMinimized, isMaximized, panelState, panelHeight, fitAndResize, isSplit, liveSplitKey, tabVisible])
 
   // --- Actions ---
   const newTerminal = useCallback(() => {

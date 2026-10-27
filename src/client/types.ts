@@ -400,6 +400,12 @@ export interface IdeViewInjected {
   t?: (key: string, params?: Record<string, string | number>) => string
   /** Current AI model identifier, when known (shown in the status bar). */
   model?: string
+  /** True while this tab is the active tab of a VISIBLE pane
+   *  (useTabInfo().tab.visible). DSH hides an inactive tab's body instead of
+   *  unmounting it, so this is the only signal that the IDE just became
+   *  visible again — the terminal needs it to re-take keyboard focus. Undefined
+   *  when the host exposes no tabInfo hook. */
+  tabVisible?: boolean
 }
 
 /** Loose client context shaped by the boot kernel from the `inject` array. */

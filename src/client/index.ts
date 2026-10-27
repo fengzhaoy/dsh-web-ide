@@ -110,11 +110,16 @@ const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
       // when only one tab type exists per pane (the common case for the IDE).
     }
   }, [visible, info.panel.id, info.tab.id])
+  // Pass per-tab visibility down: DSH HIDES an inactive tab's body instead of
+  // unmounting it, so the only moment a terminal can learn that the user just
+  // returned from the chat tab is this flag flipping false→true. Without it
+  // the terminal kept rendering but never re-took keyboard focus.
+  const visibleProps: IdeViewInjected = viewProps.tabVisible === visible ? viewProps : { ...viewProps, tabVisible: visible }
   return React.createElement('div', {
     ref,
     'data-ide-sidebar-tab': '',
     style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' as const },
-  }, IdeView(viewProps))
+  }, IdeView(visibleProps))
 })
 IdeSidebarTab.displayName = 'IdeSidebarTab'
 
