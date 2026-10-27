@@ -494,24 +494,42 @@ export const IDE_STYLES = `
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
 .ide-bottompanel:has(.ide-terminal-panel[data-state='maximized']){height:60vh}
 .ide-bottompanel:has(.ide-terminal-panel[data-state='minimized']){height:35px}
-.ide-terminal-toolbar{display:flex;align-items:center;gap:4px;padding:0 4px 0 0;border-bottom:1px solid var(--ide-border,#2b2b2b);flex:none;background:#1e1e1e;height:35px}
-.ide-terminal-tabs{display:flex;align-items:stretch;gap:0;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden}
-.ide-terminal-tabs::-webkit-scrollbar{height:3px}
-.ide-terminal-tabs::-webkit-scrollbar-thumb{background:#424242;border-radius:2px}
-.ide-terminal-tab{display:flex;align-items:center;gap:6px;padding:0 8px 0 12px;cursor:pointer;white-space:nowrap;color:var(--ide-fg-dim,#9d9d9d);border-right:1px solid var(--ide-border,#2b2b2b);font-size:12px;min-width:0;transition:background-color .1s}
-.ide-terminal-tab[data-exited]{opacity:.55;text-decoration:line-through}
-.ide-terminal-tab:hover{background:var(--ide-tree-hover,#2a2d2e)}
-.ide-terminal-tab[data-active='true']{background:var(--ide-bg,#1f1f1f);color:var(--ide-fg,#cccccc)}
-.ide-terminal-tab[data-active='true']::before{content:'';position:absolute}
-.ide-terminal-tab-label{overflow:hidden;text-overflow:ellipsis}
-.ide-terminal-tab-close{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex:none}
-.ide-terminal-tab-close:hover{background:var(--ide-tree-hover,#3a3d41);color:var(--ide-fg,#cccccc)}
-.ide-terminal-tab-close svg{width:14px;height:14px}
+.ide-terminal-toolbar{display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;border-bottom:1px solid var(--ide-border,#2b2b2b);flex:none;background:#1e1e1e;height:35px}.ide-terminal-toolbar-label{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted,#9d9d9d);flex:none;margin-right:auto;padding-left:2px}
+/* ── Terminal body: hosts (left) + sidebar list (right) ─────────────── */
+.ide-terminal-body{display:flex;flex:1;min-height:0;position:relative;overflow:hidden}
+.ide-terminal-body[data-hidden]{display:none}
+.ide-terminal-sidebar{flex:none;width:160px;min-width:120px;max-width:240px;display:flex;flex-direction:column;border-left:1px solid var(--ide-border,#2b2b2b);background:#1e1e1e;overflow:hidden;transition:width .15s ease,opacity .15s ease}
+.ide-terminal-sidebar-header{display:flex;align-items:center;gap:4px;padding:4px 4px 4px 10px;flex:none;border-bottom:1px solid var(--ide-border,#2b2b2b);height:28px}
+.ide-terminal-sidebar-title{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted,#9d9d9d);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-terminal-sidebar-new{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:2px 4px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex:none}
+.ide-terminal-sidebar-new:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+.ide-terminal-sidebar-new svg{width:14px;height:14px}
+.ide-terminal-sidebar-list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:2px 0}
+.ide-terminal-sidebar-list::-webkit-scrollbar{width:6px}
+.ide-terminal-sidebar-list::-webkit-scrollbar-thumb{background:#424242;border-radius:3px}
+.ide-terminal-sidebar-list::-webkit-scrollbar-track{background:transparent}
+.ide-terminal-sidebar-item{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 6px;cursor:pointer;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);min-width:0;transition:background-color .1s;position:relative}.ide-terminal-sidebar-color{flex:none;width:2px;height:14px;border-radius:1px;align-self:center;background:transparent}.ide-terminal-sidebar-color[data-active='true']{background:#2472c8}
+.ide-terminal-sidebar-item:hover{background:var(--ide-tree-hover,#2a2d2e)}
+.ide-terminal-sidebar-item[data-active='true']{background:var(--ide-bg,#252526);color:var(--ide-fg,#cccccc)}
+.ide-terminal-sidebar-item[data-active='true']::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ide-fg,#cccccc)}
+.ide-terminal-sidebar-item[data-exited]{opacity:.55}
+.ide-terminal-sidebar-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ide-terminal-sidebar-close{flex:none;background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s}
+.ide-terminal-sidebar-item:hover .ide-terminal-sidebar-close,.ide-terminal-sidebar-item[data-active='true'] .ide-terminal-sidebar-close{opacity:1}
+.ide-terminal-sidebar-close:hover{background:var(--ide-tree-hover,#3a3d41);color:var(--ide-fg,#cccccc)}
+.ide-terminal-sidebar-close svg{width:14px;height:14px}.ide-terminal-sidebar-rename{flex:1;min-width:0;background:#3c3c3c;border:1px solid var(--ide-accent,#007acc);color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;padding:1px 4px;border-radius:2px;outline:none}.ide-terminal-sidebar-rename:focus{border-color:var(--ide-accent,#007acc)}
+/* ── Terminal context menu ──────────────────────────────────────────── */
+.ide-terminal-context-overlay{position:fixed;inset:0;z-index:9998;background:transparent}
+.ide-terminal-context-menu{position:fixed;z-index:9999;min-width:160px;background:#252526;border:1px solid #454545;border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;flex-direction:column}
+.ide-terminal-context-item{display:flex;align-items:center;gap:8px;padding:4px 12px;background:transparent;border:none;color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;cursor:pointer;text-align:left;white-space:nowrap}
+.ide-terminal-context-item:hover{background:var(--ide-accent,#04395e);color:#fff}
+.ide-terminal-context-icon{display:flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none}
+.ide-terminal-context-icon svg{width:14px;height:14px}
 .ide-terminal-actions{display:flex;align-items:center;gap:1px;flex:none;padding-left:4px}
 .ide-terminal-action{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:flex;align-items:center;justify-content:center}
 .ide-terminal-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
 .ide-terminal-action svg{width:16px;height:16px}
-.ide-terminal-resizer{flex:none;height:4px;cursor:row-resize;background:transparent;position:relative;z-index:2}.ide-terminal-resizer:hover{background:var(--ide-border,#3b3b3b)}.ide-terminal-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;border-radius:1px;background:#424242}.ide-terminal-panel[data-resizing]{transition:none;user-select:none}.ide-terminal-panel[data-resizing] *{user-select:none}.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}.ide-terminal-hosts[data-hidden]{display:none}
+.ide-terminal-resizer{flex:none;height:4px;cursor:row-resize;background:transparent;position:relative;z-index:2}.ide-terminal-resizer:hover{background:var(--ide-border,#3b3b3b)}.ide-terminal-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;border-radius:1px;background:#424242}.ide-terminal-panel[data-resizing]{transition:none;user-select:none}.ide-terminal-panel[data-resizing] *{user-select:none}.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}.ide-terminal-hosts[data-hidden]{display:none}.ide-terminal-hosts[data-split]{display:flex;flex-direction:row;gap:0}.ide-terminal-hosts[data-split] .ide-terminal-host{flex:1 1 0;min-width:0}.ide-terminal-hosts[data-split] .ide-terminal-host+.ide-terminal-host{border-left:1px solid var(--ide-border,#2b2b2b)}
 .ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
 .ide-terminal-error{padding:10px;font-size:12px;color:#f48771;overflow:auto}

@@ -354,6 +354,57 @@ interface TerminalEntry {
 
 /** Cap the replay log at ~512 KiB per terminal, dropping the oldest chunks. */
 const MAX_LOG_BYTES = 512 * 1024
+
+/**
+ * Find the first index in `text` at which replaying is SAFE, i.e. not in the
+ * middle of a terminal escape sequence. Used when the replay log is trimmed
+ * from the head: the surviving chunk may begin with the tail of a sequence
+ * that opened in the dropped chunk, and replaying that tail makes xterm print
+ * stray bytes (classically `%`, the leftover of a zsh prompt escape).
+ *
+ * Returns 0 when the chunk already starts on a clean boundary.
+ */
+function findSafeReplayStart(text: string): number {
+  if (text.length === 0) return 0
+  const first = text.charCodeAt(0)
+  // Not a control character: already safe.
+  if (first !== 0x1b && first !== 0x07 && first !== 0x9d && first !== 0x90 && first !== 0x9b) return 0
+  // ESC / BEL: scan forward for the end of the sequence that started earlier.
+  const esc = 0x1b
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i)
+    if (code !== esc) continue
+    const next = text.charCodeAt(i + 1)
+    // OSC (ESC ]): terminated by BEL or ST (ESC \).
+    if (next === 0x5d) {
+      for (let j = i + 2; j < text.length; j += 1) {
+        const c = text.charCodeAt(j)
+        if (c === 0x07) return j + 1
+        if (c === esc && text.charCodeAt(j + 1) === 0x5c) return j + 2
+      }
+      return text.length
+    }
+    // CSI (ESC [): parameter/intermediate bytes then a final byte 0x40-0x7e.
+    if (next === 0x5b) {
+      for (let j = i + 2; j < text.length; j += 1) {
+        const c = text.charCodeAt(j)
+        if (c >= 0x40 && c <= 0x7e) return j + 1
+      }
+      return text.length
+    }
+    // DCS / SOS / PM / APC (ESC P^_ XOR): terminated by ST.
+    if (next === 0x50 || next === 0x58 || next === 0x5e || next === 0x5f) {
+      for (let j = i + 2; j < text.length - 1; j += 1) {
+        if (text.charCodeAt(j) === esc && text.charCodeAt(j + 1) === 0x5c) return j + 2
+      }
+      return text.length
+    }
+    // Any other escape: a single byte of payload is usually enough; skip it.
+    return Math.min(i + 2, text.length)
+  }
+  // Lone BEL or C1 control at the very start: skip it.
+  return Math.min(1, text.length)
+}
 /** Cap the returned matches per search. */
 const MAX_RESULTS = 250
 
@@ -515,8 +566,26 @@ export class IdeTools extends TypertRemoteService {
       entry.log.push(data)
       entry.logBytes += data.length * 0.75
       while (entry.logBytes > MAX_LOG_BYTES && entry.log.length > 1) {
-        entry.logBytes -= entry.log[0].length * 0.75
+        const dropped = entry.log[0]
+        entry.logBytes -= dropped.length * 0.75
         entry.log.shift()
+        // Dropping WHOLE log entries is not enough: a section of the log often
+        // ends mid escape sequence (e.g. the tail of an `\x1b]0;title\x07`
+        // that opened in the dropped chunk). Replaying from that point makes
+        // xterm print the raw leftover (`%` — the zsh prompt escape) instead
+        // of swallowing it. Trim the NEW head back to the first safe boundary
+        // so the replay always starts at a complete escape sequence.
+        const head = entry.log[0]
+        if (head !== undefined) {
+          // The log holds base64, so decode → find the boundary → re-encode.
+          const raw = Buffer.from(head, 'base64')
+          const cut = findSafeReplayStart(raw.toString('utf8'))
+          if (cut > 0) {
+            const trimmed = Buffer.from(raw.toString('utf8').slice(cut), 'utf8')
+            entry.log[0] = trimmed.toString('base64')
+            entry.logBytes -= (trimmed.length - raw.length) * -0.75
+          }
+        }
       }
       for (const subscriber of entry.subscribers) subscriber({ data, exit, ...(exit ? { exitCode } : {}) })
     }
@@ -614,7 +683,13 @@ export class IdeTools extends TypertRemoteService {
   ): AsyncGenerator<IdeTerminalOutputFrame, void, void> {
     const entry = this.terminals.get(terminalId)
     if (entry === undefined) throw new RemoteError('ide-tools/no-such-terminal', 'terminal ' + JSON.stringify(terminalId) + ' is not open', {})
-    // Replay everything the terminal emitted before this subscription.
+    // Reset the SGR state before replaying. A freshly attached xterm starts
+    // with default attributes, but the replay log may begin in the middle of
+    // a styled run (its head was trimmed, or the capture started after a
+    // prompt was drawn). Without a reset a rich prompt (powerlevel10k,
+    // oh-my-zsh) can leak its raw escape marker — the classic `%` — into the
+    // first line. SGR-only (no clear) so scrollback is preserved.
+    yield { data: Buffer.from('\x1b[0m', 'utf8').toString('base64'), exit: false }
     // Yield each log entry as a SEPARATE frame: joining base64 strings
     // concatenates padding chars (=) mid-string, yielding invalid base64.
     for (const entry2 of entry.log) yield { data: entry2, exit: false }

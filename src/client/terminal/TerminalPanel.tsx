@@ -13,7 +13,7 @@
  * - panelState controls the panel height: normal (220px), maximized (60vh),
  *   minimized (toolbar-only 35px).
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
 // xterm.js core styles: hides the helper textarea (the IME/keyboard capture
@@ -49,6 +49,21 @@ type TermStatus = 'connecting' | 'ready' | 'exited' | 'failed'
 const PANEL_HEIGHT_DEFAULT = 220
 const PANEL_HEIGHT_MIN = 120
 const PANEL_HEIGHT_MAX = 800
+
+// VS Code-style per-terminal color palette: each terminal gets a color from
+// this cycle, shown as a left bar on its sidebar entry. Matches VS Code's
+// terminal tab color feature.
+const TERMINAL_COLORS = [
+  '#f14c4c', // red
+  '#0dbc79', // green
+  '#2472c8', // blue
+  '#e5e510', // yellow
+  '#bc3fbc', // magenta
+  '#11a8cd', // cyan
+  '#f5f543', // bright yellow
+  '#d670d6', // bright magenta
+] as const
+
 
 type TerminalModule = typeof import('@xterm/xterm')
 type FitModule = typeof import('@xterm/addon-fit')
@@ -87,6 +102,48 @@ function decodeBase64(data: string): Uint8Array {
   }
 }
 
+/** Context menu with edge-flip: measures its rendered height and flips
+ *  upward when it would overflow the viewport bottom (past the status bar). */
+function ContextMenu({ cx, cy, items, onClose }: {
+  cx: number
+  cy: number
+  items: { label: string; icon?: React.ReactNode; onClick: () => void }[]
+  onClose: () => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: cx, top: cy })
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (el === null) return
+    const rect = el.getBoundingClientRect()
+    let left = cx
+    let top = cy
+    // Flip up if the menu overflows the viewport bottom (leave 8px margin,
+    // and account for the ~22px status bar at the very bottom).
+    if (top + rect.height > window.innerHeight - 30) {
+      top = Math.max(8, window.innerHeight - 30 - rect.height)
+    }
+    // Flip left if it overflows the right edge.
+    if (left + rect.width > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - 8 - rect.width)
+    }
+    setPos({ left, top })
+  }, [cx, cy])
+  return (
+    <>
+      <div className="ide-terminal-context-overlay" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
+      <div ref={menuRef} className="ide-terminal-context-menu" style={{ left: pos.left, top: pos.top }} data-testid="ide-terminal-context-menu">
+        {items.map((item, i) => (
+          <button key={i} className="ide-terminal-context-item" onClick={item.onClick}>
+            {item.icon !== undefined && <span className="ide-terminal-context-icon">{item.icon}</span>}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
 interface TermEntry {
   term: import('@xterm/xterm').Terminal
   fit: import('@xterm/addon-fit').FitAddon
@@ -116,6 +173,21 @@ export function TerminalPanel({
   const [statuses, setStatuses] = useState<Record<string, TermStatus>>({})
   // Per-terminal error message.
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Per-terminal custom name (user rename), keyed by terminal ID.
+  const [names, setNames] = useState<Record<string, string>>({})
+  // Per-terminal color index (cycled from TERMINAL_COLORS).
+  const [colorIdx, setColorIdx] = useState<Record<string, number>>({})
+  // Sidebar collapsed (VS Code can hide the terminal list).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Which terminal is being renamed (inline edit).
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  // Context menu position ("x y" string) for the right-click menu.
+  const [contextMenu, setContextMenu] = useState<string | null>(null)
+  // Split view: the terminal IDs currently shown side-by-side (VS Code style,
+  // supports N panes). Empty = single view. Members that no longer exist are
+  // filtered out on read; the split collapses when fewer than 2 remain.
+  const [splitIds, setSplitIds] = useState<string[]>([])
   // Per-terminal shell exit code (when the terminal reached the exited state).
   const [exitCodes, setExitCodes] = useState<Record<string, number | null>>({})
   const [panelState, setPanelState] = useState<PanelState>('normal')
@@ -144,6 +216,21 @@ export function TerminalPanel({
   const activeId = terminalIds[activeIdx]
   const isMinimized = panelState === 'minimized'
   const isMaximized = panelState === 'maximized'
+  // Split view derivation (N panes). The split group is PERSISTENT: focusing
+  // a terminal outside it does NOT destroy the group (VS Code keeps it).
+  // Only members that still exist count; fewer than 2 live members collapses
+  // back to single view.
+  const liveSplit = splitIds.filter((id) => terminalIds.includes(id))
+  const isSplit = liveSplit.length >= 2
+  // Visible terminals: the live group, plus the focused terminal when focus
+  // sits outside the group (otherwise switching to a non-split terminal would
+  // render nothing). DOM order follows terminalIds so panes do not jump.
+  const visibleIds = isSplit
+    ? terminalIds.filter((id) => liveSplit.includes(id) || id === activeId)
+    : [activeId]
+  // Stable key for the effect dependency: the array identity changes every
+  // render, which would re-run the refit effect needlessly.
+  const liveSplitKey = visibleIds.join('|')
 
   // --- Ensure exactly ONE terminal exists when the panel opens with an empty list ---
   useEffect(() => {
@@ -162,6 +249,8 @@ export function TerminalPanel({
     for (const id of terminalIds) {
       if (attachedRef.current.has(id)) continue
       attachedRef.current.add(id)
+      // Assign a color to this terminal (cycled palette, VS Code style).
+      setColorIdx((prev) => prev[id] !== undefined ? prev : { ...prev, [id]: Object.keys(prev).length % TERMINAL_COLORS.length })
       const ctrl = new AbortController()
       abortsRef.current.set(id, ctrl)
       let cancelled = false
@@ -344,11 +433,16 @@ export function TerminalPanel({
     if (activeId === undefined || isMinimized) return
     const t = setTimeout(() => {
       fitAndResize(activeId)
+      // In split view, refit the other member too.
+      // Refit every visible pane (live group + focused-outside terminal), so
+      // panes that just became visible get their real width before painting.
+      if (isSplit) { for (const id of visibleIds) if (id !== activeId) fitAndResize(id) }
       // Refocus so the cursor (and keyboard input) come back after restore.
       try { termsRef.current.get(activeId)?.term.focus() } catch { /* disposed */ }
     }, 50)
     return () => clearTimeout(t)
-  }, [activeId, isMinimized, isMaximized, panelState, panelHeight, fitAndResize])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, isMinimized, isMaximized, panelState, panelHeight, fitAndResize, isSplit, liveSplitKey])
 
   // --- Actions ---
   const newTerminal = useCallback(() => {
@@ -361,19 +455,32 @@ export function TerminalPanel({
   }, [sessionId, ideTools, onTerminalOpened, onActiveChange, terminalIds.length])
 
   const splitTerminal = useCallback(() => {
-    // "Split" in VSCode opens a new terminal in the same group. We approximate
-    // by opening a new terminal and switching to it.
-    newTerminal()
-  }, [newTerminal])
+    if (activeId === undefined) return
+    // Open a new terminal and ADD it to the split group. Splitting repeatedly
+    // grows the group (VS Code supports N panes); the new terminal takes focus.
+    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
+      if (!res.ok) return
+      onTerminalOpened(res.value.terminalId)
+      setSplitIds((prev) => {
+        // Ensure the terminal being split FROM is a group member too, otherwise
+        // the focus lands on a terminal outside the group and isSplit goes
+        // false (the freshly created pane would never render).
+        const base = prev.includes(activeId) ? prev : [...prev, activeId]
+        return base.includes(res.value.terminalId) ? base : [...base, res.value.terminalId]
+      })
+      onActiveChange(terminalIds.length)
+    })
+  }, [activeId, sessionId, ideTools, onTerminalOpened, onActiveChange, terminalIds.length])
 
   const killActive = useCallback(() => {
     if (activeId === undefined) return
+    if (splitIds.includes(activeId)) setSplitIds((prev) => prev.filter((id) => id !== activeId))
     // Drop the tab first, kill in the background: gating the UI on the kill
     // round-trip made the click look dead until a second click.
     const idx = terminalIds.indexOf(activeId)
     if (idx >= 0) onTerminalClosed(idx)
     void ideTools.terminalTerminate(sessionId, activeId).catch(() => undefined)
-  }, [sessionId, ideTools, activeId, terminalIds, onTerminalClosed])
+  }, [sessionId, ideTools, activeId, terminalIds, onTerminalClosed, splitIds])
 
   const signalInterrupt = useCallback(() => {
     if (activeId === undefined) return
@@ -392,11 +499,13 @@ export function TerminalPanel({
     e.stopPropagation()
     const id = terminalIds[idx]
     if (id === undefined) return
+    // Clear split if the closed terminal was a split member.
+    if (splitIds.includes(id)) setSplitIds((prev) => prev.filter((x) => x !== id))
     // Same as killActive: remove immediately so one click closes the tab (and
     // the whole panel when it was the last terminal).
     onTerminalClosed(idx)
     void ideTools.terminalTerminate(sessionId, id).catch(() => undefined)
-  }, [sessionId, ideTools, terminalIds, onTerminalClosed])
+  }, [sessionId, ideTools, terminalIds, onTerminalClosed, splitIds])
 
   /** VS Code's 终端 restart: replace one dead terminal with a fresh shell.
    *  The new tab is appended and the dead one removed afterwards — appending
@@ -417,6 +526,32 @@ export function TerminalPanel({
       onTerminalClosed(idx)
     })
   }, [sessionId, ideTools, terminalIds, onTerminalOpened, onTerminalClosed])
+
+  /** Clear the active terminal's screen (VS Code "Clear" command). */
+  const clearActive = useCallback(() => {
+    if (activeId === undefined) return
+    const entry = termsRef.current.get(activeId)
+    if (entry === undefined) return
+    entry.term.clear()
+  }, [activeId])
+
+  /** Start inline rename for a terminal (VS Code double-click to rename). */
+  const startRename = useCallback((id: string) => {
+    const current = names[id] ?? t('terminal.tabTitle', { index: (terminalIds.indexOf(id) + 1) || 1 })
+    setRenamingId(id)
+    setRenameValue(current)
+  }, [names, terminalIds, t])
+
+  /** Commit the rename (Enter or blur). */
+  const commitRename = useCallback(() => {
+    if (renamingId === null) return
+    const trimmed = renameValue.trim()
+    if (trimmed.length > 0) {
+      setNames((prev) => ({ ...prev, [renamingId]: trimmed }))
+    }
+    setRenamingId(null)
+    setRenameValue('')
+  }, [renamingId, renameValue])
 
   // --- Draggable height sizer (top edge of the panel) ---
   // The sizer lives above the toolbar. mousedown captures the starting cursor
@@ -513,32 +648,15 @@ export function TerminalPanel({
         />
       )}
       <div className="ide-terminal-toolbar">
-        {/* Tab list: one entry per terminal */}
-        <div className="ide-terminal-tabs">
-          {terminalIds.map((id, idx) => (
-            <div
-              key={id}
-              className="ide-terminal-tab"
-              data-active={idx === activeIdx || undefined}
-              data-exited={statuses[id] === 'exited' || statuses[id] === 'failed' || undefined}
-              onClick={() => onActiveChange(idx)}
-              title={`Terminal ${idx + 1}`}
-            >
-              <span className="ide-terminal-tab-label">{t('terminal.tabTitle', { index: idx + 1 })}</span>
-              <button
-                className="ide-terminal-tab-close"
-                title={t('terminal.killTab')}
-                onClick={(e) => closeTab(idx, e)}
-              >{Icons.close}</button>
-            </div>
-          ))}
-        </div>
+        {/* Panel title (VS Code style: label on the left, actions on the right) */}
+        <span className="ide-terminal-toolbar-label">{t('terminal.title')}</span>
 
         {/* Right-side action buttons */}
         <div className="ide-terminal-actions">
           <button className="ide-terminal-action" title={t('terminal.new')} onClick={newTerminal}>{Icons.plus}</button>
           <button className="ide-terminal-action" title={t('terminal.split')} onClick={splitTerminal}>{Icons.splitEditor}</button>
           <button className="ide-terminal-action" title={t('terminal.interrupt')} onClick={signalInterrupt}>^C</button>
+          <button className="ide-terminal-action" title={t('terminal.clear')} onClick={clearActive}>{Icons.refresh}</button>
           <button className="ide-terminal-action" title={t('terminal.terminate')} onClick={killActive}>{Icons.trash}</button>
           {!isMinimized && (
             <>
@@ -551,6 +669,11 @@ export function TerminalPanel({
           {isMinimized && (
             <button className="ide-terminal-action" title={t('terminal.expand')} onClick={toggleMinimize}>{Icons.chevronUp}</button>
           )}
+          {terminalIds.length > 0 && (
+            <button className="ide-terminal-action" title={sidebarCollapsed ? t('terminal.showSidebar') : t('terminal.hideSidebar')} onClick={() => setSidebarCollapsed((v) => !v)}>
+              <span style={{ display: 'inline-flex', transform: sidebarCollapsed ? 'none' : 'scaleX(-1)' }}>{Icons.chevronRight}</span>
+            </button>
+          )}
           <button className="ide-terminal-action" title={t('terminal.close')} onClick={onClose}>{Icons.close}</button>
         </div>
       </div>
@@ -561,13 +684,14 @@ export function TerminalPanel({
           `{!isMinimized && ...}` form) detached xterm from the document, and
           on restore the attach effect never re-ran (attachedRef was set), so
           the terminal stayed blank with the cursor hidden. */}
-      <div className="ide-terminal-hosts" data-hidden={isMinimized || undefined}>
-          {terminalIds.map((id, idx) => (
+      <div className="ide-terminal-body" data-hidden={isMinimized || undefined}>
+        <div className="ide-terminal-hosts" data-split={isSplit || undefined}>
+          {terminalIds.map((id) => (
             <div
               key={id}
               ref={setHostRef(id)}
               className="ide-terminal-host"
-              style={{ display: idx === activeIdx ? 'block' : 'none' }}
+              style={{ display: visibleIds.includes(id) ? 'block' : 'none' }}
               data-testid="ide-terminal-host"
             />
           ))}
@@ -587,6 +711,79 @@ export function TerminalPanel({
             <div className="ide-terminal-empty">{t('terminal.noTerminals')}</div>
           )}
         </div>
+
+        {/* Right-side vertical terminal list (VS Code style): each entry is a
+            clickable row showing the terminal title and status; hovering reveals
+            the kill button so switching and closing terminals no longer crowds
+            the top toolbar. Double-click renames; right-click opens a context
+            menu (new / rename / kill / clear). */}
+        {terminalIds.length > 0 && !sidebarCollapsed && (
+          <div className="ide-terminal-sidebar" data-testid="ide-terminal-sidebar">
+            <div className="ide-terminal-sidebar-header">
+              <span className="ide-terminal-sidebar-title">{t('terminal.title')}</span>
+              <button className="ide-terminal-sidebar-new" title={t('terminal.new')} onClick={newTerminal}>{Icons.plus}</button>
+            </div>
+            <div className="ide-terminal-sidebar-list">
+              {terminalIds.map((id, idx) => {
+                const st = statuses[id] ?? 'connecting'
+                const exited = st === 'exited' || st === 'failed'
+                const color = TERMINAL_COLORS[colorIdx[id] ?? 0]
+                const displayName = names[id] ?? t('terminal.tabTitle', { index: idx + 1 })
+                const isRenaming = renamingId === id
+                return (
+                  <div
+                    key={id}
+                    className="ide-terminal-sidebar-item"
+                    data-active={idx === activeIdx || undefined}
+                    data-exited={exited || undefined}
+                    onClick={() => onActiveChange(idx)}
+                    onDoubleClick={() => startRename(id)}
+                    onContextMenu={(e) => { e.preventDefault(); onActiveChange(idx); setContextMenu(e.clientX + ' ' + e.clientY) }}
+                    title={displayName}
+                  >
+                    <span className="ide-terminal-sidebar-color" data-active={idx === activeIdx || undefined} />
+                    {isRenaming ? (
+                      <input
+                        className="ide-terminal-sidebar-rename"
+                        value={renameValue}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setRenamingId(null); setRenameValue('') } }}
+                        onBlur={commitRename}
+                      />
+                    ) : (
+                      <span className="ide-terminal-sidebar-label">{displayName}</span>
+                    )}
+                    {!isRenaming && (
+                      <button
+                        className="ide-terminal-sidebar-close"
+                        title={t('terminal.killTab')}
+                        onClick={(ev) => closeTab(idx, ev)}
+                      >{Icons.close}</button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Right-click context menu (VS Code style). */}
+      {contextMenu !== null && activeId !== undefined && (() => {
+        const [cx, cy] = contextMenu.split(' ').map(Number)
+        const items = [
+          { label: t('terminal.new'), icon: Icons.plus, onClick: () => { newTerminal(); setContextMenu(null) } },
+          { label: t('terminal.rename'), icon: Icons.edit, onClick: () => { startRename(activeId); setContextMenu(null) } },
+          { label: t('terminal.clear'), icon: Icons.refresh, onClick: () => { clearActive(); setContextMenu(null) } },
+          { label: t('terminal.interrupt'), icon: undefined, onClick: () => { signalInterrupt(); setContextMenu(null) } },
+          { label: t('terminal.killTab'), icon: Icons.trash, onClick: () => { killActive(); setContextMenu(null) } },
+        ]
+        return (
+          <ContextMenu cx={cx} cy={cy} items={items} onClose={() => setContextMenu(null)} />
+        )
+      })()}
     </div>
   )
 }
