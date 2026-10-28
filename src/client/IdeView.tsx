@@ -4,7 +4,7 @@ import { IDE_STYLES, defineIdeThemes, cssVarsForTheme, monacoThemeFor } from './
 import { FileTree } from './explorer/FileTree.js'
 import type { ExplorerHandle } from './explorer/FileTree.js'
 import { SearchPanel } from './search/SearchPanel.js'
-import { SourceControlPanel } from './git/SourceControlPanel.js'
+import { SourceControlPanel, type ScmOpenViews } from './git/SourceControlPanel.js'
 import { DiffEditor } from './git/DiffEditor.js'
 import { TerminalPanel } from './terminal/TerminalPanel.js'
 import { TabBar } from './editor/TabBar.js'
@@ -519,6 +519,15 @@ export function IdeView(props: IdeViewInjected & {
   // switching the sidebar to the explorer and back — which unmounts/remounts
   // <SourceControlPanel> — does not wipe a typed or AI-generated message.
   const [scmCommitMessage, setScmCommitMessage] = useState('')
+  /** Source Control views to force open (status bar → Branches). A fresh
+   *  object per request so clicking twice after collapsing re-opens it. */
+  const [scmOpenViewsRequest, setScmOpenViewsRequest] = useState<Partial<ScmOpenViews> | undefined>(undefined)
+  /** Mirror of the Source Control panel's expanded views (reported by the
+   *  panel) so the status-bar branch button can toggle Branches and show it
+   *  as active. */
+  const [scmOpenViews, setScmOpenViews] = useState<ScmOpenViews>({ changes: true, graph: false, branches: false })
+  /** True while a status-bar / command git sync is running (spinner + guard). */
+  const [gitSyncBusy, setGitSyncBusy] = useState(false)
   /** Sidebar position: left (default) or right. Toggled from the top-right
    *  panel-layout buttons (VS Code "Toggle Side Bar Position"). */
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false)
@@ -1427,6 +1436,10 @@ export function IdeView(props: IdeViewInjected & {
    *  and left no-remote / no-upstream / auth failures with zero feedback. */
   const runGitSyncCommand = (action: 'pull' | 'push' | 'sync') => {
     const label = action === 'pull' ? t('command.gitPull') : action === 'push' ? t('command.gitPush') : t('command.gitSync')
+    // One sync at a time: a second click while pull/push is in flight would
+    // race two git processes against the same index and refs.
+    if (gitSyncBusy) return
+    setGitSyncBusy(true)
     void ideTools.gitSync(sessionId, action)
       .then((res) => {
         if (res.ok) {
@@ -1438,6 +1451,19 @@ export function IdeView(props: IdeViewInjected & {
       .catch((err) => {
         notifications.error(label + ': ' + (err instanceof Error ? err.message : String(err)))
       })
+      .finally(() => { setGitSyncBusy(false) })
+  }
+
+  /** Status-bar branch name: TOGGLE the Branches view. When it is already
+   *  showing (Source Control open with Branches expanded) a second click
+   *  collapses it again; otherwise it switches to Source Control and expands
+   *  Branches — the same open/close rhythm as VS Code's branch picker button. */
+  const openScmBranches = () => {
+    const branchesShown = sidebarView === 'git' && scmOpenViews.branches
+    setSidebarView('git')
+    // A fresh object each call: the panel applies it on every identity change,
+    // so a view the user collapsed by hand re-opens on the next click.
+    setScmOpenViewsRequest({ branches: !branchesShown })
   }
 
   /** Build the command registry (rebuilt per render: closures stay fresh). */
@@ -1655,19 +1681,19 @@ export function IdeView(props: IdeViewInjected & {
           <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => setSidebarView('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
           <div className="ide-activitybar-spacer" />
           <div
-            ref={gearRef}
-            className="ide-activitybar-icon"
-            title={t('settings.title')}
-            onClick={openManageMenu}
-            data-testid="ide-activitybar-gear"
-          >{Icons.gear}</div>
-          <div
             className="ide-activitybar-icon"
             data-active={terminalOpen}
             title={t('terminal.title')}
             onClick={() => setTerminalOpen((v) => !v)}
             data-testid="ide-activitybar-terminal"
           >{Icons.terminal}</div>
+          <div
+            ref={gearRef}
+            className="ide-activitybar-icon"
+            title={t('settings.title')}
+            onClick={openManageMenu}
+            data-testid="ide-activitybar-gear"
+          >{Icons.gear}</div>
         </div>
         <div className="ide-sidebar">
           {sidebarView === 'extensions' ? (
@@ -1701,6 +1727,8 @@ export function IdeView(props: IdeViewInjected & {
                 commitMessage={scmCommitMessage}
                 onCommitMessageChange={setScmCommitMessage}
                 refreshKey={gitRefreshKey}
+                openViewsRequest={scmOpenViewsRequest}
+                onOpenViewsChanged={setScmOpenViews}
                 onStatusChanged={(result) => {
                   // The panel is the single poller while mounted: mirror its
                   // full result into every consumer — badge + file tree
@@ -2058,6 +2086,9 @@ export function IdeView(props: IdeViewInjected & {
           ahead={gitAhead}
           behind={gitBehind}
           onSync={() => runGitSyncCommand('sync')}
+          syncBusy={gitSyncBusy}
+          onOpenBranch={openScmBranches}
+          branchPanelOpen={sidebarView === 'git' && scmOpenViews.branches}
           problems={problemCounts}
           onOpenProblems={() => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') }}
           workspaceName={workspaceName}

@@ -200,7 +200,13 @@ export const IDE_STYLES = `
 .ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap;background:transparent;border:none;color:inherit;font:inherit;cursor:default;padding:0}
 .ide-statusbar button.ide-statusbar-item{cursor:pointer}
 .ide-statusbar button.ide-statusbar-item:hover{background:rgba(255,255,255,.08)}
-.ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding-left:6px;border-left:2px solid var(--ide-accent,#007acc);display:flex;align-items:center;gap:4px}
+/* Branch group: the clickable branch name plus the sync button beside it. */
+.ide-statusbar-branch-group{display:inline-flex;align-items:center;gap:0;flex:none}
+.ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding:0 4px;border-radius:3px;display:flex;align-items:center;gap:4px;background:transparent;border:none;font-family:inherit;font-size:inherit;cursor:pointer;height:18px}
+.ide-statusbar button.ide-statusbar-branch:hover{background:var(--ide-statusbar-active-bg,rgba(255,255,255,.16))}
+/* Branches view showing: keep the branch button highlighted like a toggled control. */
+.ide-statusbar button.ide-statusbar-branch[data-active='true']{background:var(--ide-statusbar-active-bg,rgba(255,255,255,.16));color:var(--ide-statusbar-active-fg,#fff)}
+.ide-statusbar-branch-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
 .ide-statusbar-branch-icon{display:flex;align-items:center;flex:none}
 .ide-statusbar-branch-icon svg{width:13px;height:13px}
 .ide-statusbar-terminal{padding:0 6px;height:18px}
@@ -688,10 +694,18 @@ export const IDE_STYLES = `
 /* ── Status bar additions ──────────────────────────────────────────── */
 .ide-statusbar-remote svg{width:13px;height:13px}
 .ide-statusbar-remote-icon{display:inline-flex;margin-right:4px}
-.ide-statusbar-sync{display:inline-flex;padding:0 2px;margin-left:4px}
-.ide-statusbar-sync:hover{color:var(--ide-accent-hover)}
-.ide-statusbar-sync svg{width:12px;height:12px}
-.ide-statusbar-sync-count{margin-left:5px;font-size:11px;color:var(--ide-fg-muted)}
+/* VS Code's synchronize affordance: a codicon-style circular arrow next to the
+   branch, with the ahead/behind counts inline. Spins while a sync is running. */
+.ide-statusbar-sync{display:inline-flex;align-items:center;gap:2px;padding:0 4px;margin-left:1px;height:18px;border:none;background:transparent;color:inherit;font:inherit;font-size:11px;cursor:pointer;border-radius:3px}
+.ide-statusbar button.ide-statusbar-sync:hover{background:var(--ide-statusbar-active-bg,rgba(255,255,255,.16))}
+.ide-statusbar-sync:disabled{cursor:default;opacity:.75}
+/* Nothing to pull or push: the icon stays visible but muted. */
+.ide-statusbar-sync[data-idle]{opacity:.45}
+.ide-statusbar-sync-ring{display:inline-flex;align-items:center}
+.ide-statusbar-sync svg{width:13px;height:13px}
+.ide-statusbar-sync[data-busy] .ide-statusbar-sync-ring{animation:ide-sync-spin .9s linear infinite}
+@keyframes ide-sync-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.ide-statusbar-sync-count{font-size:11px;color:var(--ide-fg-muted);font-variant-numeric:tabular-nums}
 .ide-statusbar-problems{gap:4px}
 .ide-statusbar-problems[data-active='true']{background:var(--ide-accent,#007acc)}
 .ide-statusbar-prob-icon{display:inline-flex;margin:0 1px 0 4px}

@@ -76,6 +76,50 @@ await test('StatusBar:远程信息弹层里的项目路径可点击复制并弹�
   }
 })
 
+await test('左侧活动栏:设置按钮在终端按钮下方', () => {
+  const term = ide.indexOf("data-testid=\"ide-activitybar-terminal\"")
+  const gear = ide.indexOf("data-testid=\"ide-activitybar-gear\"")
+  assert.ok(term !== -1 && gear !== -1, '两个按钮都存在')
+  assert.ok(term < gear, '终端按钮在前，设置按钮在其下方')
+  // 两者都必须在活动栏底部分隔线之后（VS Code 的位置语义）。
+  const spacer = ide.indexOf('ide-activitybar-spacer')
+  assert.ok(spacer !== -1 && spacer < term, '仍位于活动栏底部区域')
+})
+
+await test('StatusBar:分支在最左、其后是同步按钮、点击分支打开 SCM 分支视图', () => {
+  // 顺序：分支名 → 同步图标 → 远程/工作区指示器。
+  assert.ok(sb.indexOf('ide-statusbar-branch-name') < sb.indexOf('ide-statusbar-sync'), '分支名在同步按钮之前')
+  assert.ok(sb.indexOf('ide-statusbar-branch-name') < sb.indexOf('ide-statusbar-remote'), '分支在远程指示器之前(最左侧)')
+  assert.match(sb, /onClick=\{\(\) => onOpenBranch\?\.\(\)\}/, '点击分支名触发 onOpenBranch')
+  assert.match(sb, /syncBusy/, '同步按钮有进行中状态')
+  assert.match(ide, /const openScmBranches = /, 'IdeView 有 openScmBranches')
+  assert.match(ide, /setScmOpenViewsRequest\(\{ branches: !branchesShown \}\)/, '按当前状态决定展开还是收起分支视图')
+  assert.match(ide, /const branchesShown = sidebarView === 'git' && scmOpenViews\.branches/, '以"已在 SCM 且分支已展开"作为收起条件')
+  assert.match(ide, /setSidebarView\('git'\)[\s\S]{0,240}setScmOpenViewsRequest/, '同时切到源代码管理视图')
+  assert.match(ide, /onOpenBranch=\{openScmBranches\}/, 'StatusBar 收到 onOpenBranch')
+  const scm = read('../src/client/git/SourceControlPanel.tsx')
+  assert.match(scm, /openViewsRequest\?: Partial<ScmOpenViews>/, 'SCM 面板接受 openViewsRequest')
+  assert.match(scm, /\[openViewsRequest\]\)/, 'openViewsRequest 变化时展开对应视图')
+  assert.match(css, /\.ide-statusbar-sync\[data-busy\]/, '同步进行中有旋转动画')
+  // 同步图标必须常驻：只有 ahead/behind 计数是条件渲染，按钮本身不能包在条件里。
+  assert.ok(
+    !/onSync !== undefined && \(\(ahead \?\? 0\) > 0 \|\| \(behind \?\? 0\) > 0/.test(sb),
+    '同步按钮不再按 ahead/behind 条件渲染（本地无改动时也应显示）',
+  )
+  assert.match(sb, /onSync !== undefined && \(\s*<button\s+type="button"\s+className="ide-statusbar-item ide-statusbar-sync"/, '同步按钮恒渲染')
+  assert.match(sb, /data-idle=\{/, '无待同步内容时标记 idle')
+  assert.match(css, /\.ide-statusbar-sync\[data-idle\]/, 'idle 时图标弱化但可见')
+  // 分支按钮为开关语义。
+  assert.match(sb, /data-active={branchPanelOpen === true \|\| undefined}/, '分支按钮有激活态')
+  assert.match(sb, /aria-expanded={branchPanelOpen === true}/, '分支按钮带 aria-expanded')
+  assert.match(ide, /branches: !branchesShown/, '再次点击分支名收起分支视图')
+  assert.match(ide, /onOpenViewsChanged=\{setScmOpenViews\}/, 'SCM 上报展开状态给 IdeView')
+  assert.match(scm, /onOpenViewsChanged\?\.\(openViews\)/, 'SCM 面板回报当前展开视图')
+  for (const key of ['status.syncing', 'status.branchClick']) {
+    assert.equal(loc.split("'" + key + "'").length - 1, 2, key + ' 中英文文案齐全')
+  }
+})
+
 await test('SCM:图表/分支 panel 固定在面板底部(不随变更滚动浮动)', () => {
   const src = read('../src/client/git/SourceControlPanel.tsx')
   assert.match(src, /ide-git-subpanel-top/, '变更 panel 包在 ide-git-subpanel-top(上部可滚动)')

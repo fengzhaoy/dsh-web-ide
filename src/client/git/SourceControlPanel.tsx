@@ -44,6 +44,13 @@ export interface SourceControlPanelProps {
    *  does not wipe a typed/AI-generated commit message. */
   commitMessage?: string
   onCommitMessageChange?: (value: string) => void
+  /** Views the owner wants opened (e.g. the status-bar branch button opens the
+   *  Branches view). Applied once per new array identity — the owner passes a
+   *  fresh object each request, so repeated clicks re-open the view. */
+  openViewsRequest?: Partial<ScmOpenViews>
+  /** Which views are currently expanded (mirrored to the owner so the status
+   *  bar can toggle the Branches view and show its active state). */
+  onOpenViewsChanged?: (views: ScmOpenViews) => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -53,7 +60,7 @@ type Status = 'loading' | 'ready' | 'error' | 'notrepo'
  *  collapsible sub-panels (源代码管理 / 图表 / 分支) instead of a header
  *  dropdown. Each entry is its own open/close state — multi-expand, not
  *  single-active (modelled on the reference project's csCard accordion). */
-type ScmOpenViews = { changes: boolean; graph: boolean; branches: boolean }
+export type ScmOpenViews = { changes: boolean; graph: boolean; branches: boolean }
 
 /** The commit split-button modes (VS Code SCM dropdown parity). */
 type CommitMode = 'commit' | 'amend' | 'signoff' | 'push' | 'sync'
@@ -98,8 +105,17 @@ function sameStatus(a: GitStatusResult | null, b: GitStatusResult): boolean {
   return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind && a.detached === b.detached
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenFile, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, t }: SourceControlPanelProps) {
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenFile, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, openViewsRequest, onOpenViewsChanged, t }: SourceControlPanelProps) {
   const [openViews, setOpenViews] = useState<ScmOpenViews>({ changes: true, graph: false, branches: false })
+  // External "open this view" requests (status-bar branch button). Keyed on
+  // object identity so the SAME view can be re-opened after the user
+  // collapsed it.
+  useEffect(() => {
+    if (openViewsRequest === undefined) return
+    setOpenViews((current) => ({ ...current, ...openViewsRequest }))
+  }, [openViewsRequest])
+  // Mirror the expanded set to the owner (status-bar branch button state).
+  useEffect(() => { onOpenViewsChanged?.(openViews) }, [openViews, onOpenViewsChanged])
   const [status, setStatus] = useState<Status>('loading')
   // Commit message: controlled by the owner when lift props are supplied (so
   // it survives sidebar view switches); otherwise a local state fallback.

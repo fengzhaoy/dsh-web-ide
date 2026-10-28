@@ -35,6 +35,14 @@ interface StatusBarProps {
   behind?: number
   /** Click the branch sync indicator: pull + push (gitSync 'sync'). */
   onSync?: () => void
+  /** Click the branch name: toggle the Source Control Branches view (open it
+   *  when collapsed, collapse it again on the next click). */
+  onOpenBranch?: () => void
+  /** Whether the Source Control Branches view is currently showing; drives the
+   *  branch button's active state. */
+  branchPanelOpen?: boolean
+  /** Whether a git sync is in flight (spins the sync button, blocks re-entry). */
+  syncBusy?: boolean
   /** Problem counts from Monaco markers (status-bar problems indicator). */
   problems?: { errors: number; warnings: number }
   /** Click the problems indicator: open the Problems bottom-panel tab. */
@@ -75,7 +83,7 @@ interface StatusBarProps {
 const LANGUAGE_OPTIONS = ['typescript', 'javascript', 'json', 'css', 'scss', 'less', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile', 'plaintext']
 
 export function StatusBar(props: StatusBarProps) {
-  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, bottomTab, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
+  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, onOpenBranch, branchPanelOpen, syncBusy, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, bottomTab, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
 
   const menuAt = (el: HTMLElement | null, items: Parameters<typeof showContextMenu>[2]) => {
     const rect = el?.getBoundingClientRect()
@@ -173,6 +181,49 @@ export function StatusBar(props: StatusBarProps) {
   return (
     <div className="ide-statusbar" data-testid="ide-statusbar">
       <div className="ide-statusbar-left">
+        {/* Branch indicator — leftmost, VS Code order: branch name, then the
+            sync button, then the remote/workspace indicator. Clicking the
+            branch name opens the Source Control Branches view; the sync button
+            (shown only when there is something to pull or push) runs
+            gitSync('sync'). */}
+        {(branch !== undefined || detachedSha !== undefined) && (
+          <span className="ide-statusbar-item ide-statusbar-branch-group" data-testid="ide-statusbar-branch">
+            <button
+              type="button"
+              className="ide-statusbar-item ide-statusbar-branch"
+              title={detachedSha !== undefined ? t('status.detachedSha', { sha: detachedSha }) : t('status.branchClick', { branch: branch ?? '' })}
+              data-testid="ide-statusbar-branch-name"
+              data-active={branchPanelOpen === true || undefined}
+              aria-expanded={branchPanelOpen === true}
+              onClick={() => onOpenBranch?.()}
+            >
+              <span className="ide-statusbar-branch-icon">{Icons.branch}</span>
+              <span className="ide-statusbar-branch-name">{branch ?? detachedSha}</span>
+            </button>
+            {/* Always rendered (VS Code keeps the synchronize affordance in
+                place): only the ahead/behind counters appear when there is
+                something to pull or push. While a sync is running it spins and
+                refuses re-entry; when there is nothing to sync it stays visible
+                but muted, so the button never seems to vanish. */}
+            {onSync !== undefined && (
+              <button
+                type="button"
+                className="ide-statusbar-item ide-statusbar-sync"
+                title={syncBusy === true ? t('status.syncing') : (ahead ?? 0) > 0 || (behind ?? 0) > 0 ? t('status.sync') : t('status.nothingToSync')}
+                aria-label={t('status.sync')}
+                data-testid="ide-statusbar-sync"
+                data-busy={syncBusy === true || undefined}
+                data-idle={((ahead ?? 0) === 0 && (behind ?? 0) === 0) || undefined}
+                disabled={syncBusy === true}
+                onClick={onSync}
+              >
+                <span className="ide-statusbar-sync-ring">{Icons.sync}</span>
+                {(ahead !== undefined && ahead > 0) && <span className="ide-statusbar-sync-count" title={t('status.ahead', { count: ahead })}>{ahead}</span>}
+                {(behind !== undefined && behind > 0) && <span className="ide-statusbar-sync-count" title={t('status.behind', { count: behind })}>{behind}</span>}
+              </button>
+            )}
+          </span>
+        )}
         {/* Remote/workspace indicator (VS Code remote indicator position). */}
         <button
           type="button"
@@ -184,23 +235,6 @@ export function StatusBar(props: StatusBarProps) {
           <span className="ide-statusbar-remote-icon">{Icons.remote}</span>
           {workspaceName ?? t('status.workspace')}
         </button>
-        {(branch !== undefined || detachedSha !== undefined) && (
-          <span className="ide-statusbar-item ide-statusbar-branch" data-testid="ide-statusbar-branch" title={detachedSha !== undefined ? t('status.detachedSha', { sha: detachedSha }) : branch}>
-            <span className="ide-statusbar-branch-icon">{Icons.branch}</span>
-            {branch ?? detachedSha}
-            {(ahead !== undefined && ahead > 0) && <span className="ide-statusbar-sync-count" title={t('status.ahead', { count: ahead })}>↑{ahead}</span>}
-            {(behind !== undefined && behind > 0) && <span className="ide-statusbar-sync-count" title={t('status.behind', { count: behind })}>↓{behind}</span>}
-            {onSync && ((ahead ?? 0) > 0 || (behind ?? 0) > 0) && (
-              <button
-                type="button"
-                className="ide-statusbar-sync"
-                title={t('status.sync')}
-                data-testid="ide-statusbar-sync"
-                onClick={onSync}
-              >{Icons.sync}</button>
-            )}
-          </span>
-        )}
         {onToggleTerminal && (
           <button
             type="button"
