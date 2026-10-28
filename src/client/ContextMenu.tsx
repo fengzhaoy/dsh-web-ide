@@ -9,10 +9,18 @@ export interface ContextMenuItem {
   label: string
   /** Optional codicon node rendered before the label. */
   icon?: ReactNode
+  /** Optional codicon node rendered AFTER the label, pinned right. Use for
+   *  the affordance of a row that acts on click (e.g. a copy icon) so the row
+   *  reads as an action while the label keeps its full width. */
+  actionIcon?: ReactNode
   /** Disabled items render greyed and do not fire. */
   disabled?: boolean
   /** Separator before this item. */
   separator?: boolean
+  /** Muted trailing hint (e.g. "点击复制"): shows the action an otherwise
+   *  informational row offers, so rows that copy a value read as clickable
+   *  instead of looking like dead labels. */
+  hint?: string
   /** Click handler. */
   onClick?: () => void
 }
@@ -164,7 +172,9 @@ export function ContextMenuHost() {
             }}
           >
             {item.icon && <span className="ide-context-menu-item-icon">{item.icon}</span>}
-            <span className="ide-context-menu-item-label">{item.label}</span>
+            <span className="ide-context-menu-item-label" title={item.label}>{item.label}</span>
+            {item.hint !== undefined && <span className="ide-context-menu-item-hint">{item.hint}</span>}
+            {item.actionIcon !== undefined && <span className="ide-context-menu-item-action">{item.actionIcon}</span>}
           </div>
         )
       ))}

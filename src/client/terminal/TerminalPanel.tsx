@@ -14,6 +14,7 @@
  *   minimized (toolbar-only 35px).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
 import { ideSettings, terminalXtermOptions } from '../settingsStore.js'
@@ -43,6 +44,11 @@ export interface TerminalPanelProps {
    *  signal the focus effect below never re-runs and the terminal silently
    *  stops accepting keystrokes after the user returns. */
   tabVisible?: boolean
+  /** DOM mount point at the right end of the bottom panel's tab row. The
+   *  action buttons are portaled into it so they sit at the top-right corner
+   *  of the bottom panel, sharing the row with the 问题 / 终端 tabs. The
+   *  terminal no longer renders a toolbar of its own. */
+  actionsHost?: HTMLElement | null
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -166,6 +172,7 @@ export function TerminalPanel({
   onTerminalClosed,
   onClose,
   tabVisible,
+  actionsHost = null,
   t,
 }: TerminalPanelProps) {
   // One xterm instance per terminal ID, surviving re-renders.
@@ -683,12 +690,12 @@ export function TerminalPanel({
           onDoubleClick={() => setPanelHeight(null)}
         />
       )}
-      <div className="ide-terminal-toolbar">
-        {/* Panel title (VS Code style: label on the left, actions on the right) */}
-        <span className="ide-terminal-toolbar-label">{t('terminal.title')}</span>
-
-        {/* Right-side action buttons */}
-        <div className="ide-terminal-actions">
+      {/* The terminal has no toolbar of its own: the action buttons are
+          rendered further down and portaled into the host element the parent
+          passes via actionsHost — the right end of the bottom panel's tab row
+          (same line as the 问题 / 终端 tabs). */}
+      {actionsHost !== null && createPortal(
+        <div className="ide-terminal-actions" data-testid="ide-terminal-actions">
           <button className="ide-terminal-action" title={t('terminal.new')} onClick={newTerminal}>{Icons.plus}</button>
           <button className="ide-terminal-action" title={t('terminal.split')} onClick={splitTerminal}>{Icons.splitEditor}</button>
           <button className="ide-terminal-action" title={t('terminal.interrupt')} onClick={signalInterrupt}>^C</button>
@@ -711,8 +718,9 @@ export function TerminalPanel({
             </button>
           )}
           <button className="ide-terminal-action" title={t('terminal.close')} onClick={onClose}>{Icons.close}</button>
-        </div>
-      </div>
+        </div>,
+        actionsHost,
+      )}
 
       {/* The hosts container is ALWAYS mounted: while minimized it is
           hidden via CSS (data-hidden) instead of unmounted, so each xterm

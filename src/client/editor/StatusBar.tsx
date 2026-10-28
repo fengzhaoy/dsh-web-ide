@@ -7,6 +7,7 @@
 import { languageLabel } from '../language.js'
 import { Icons } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
+import { notifications } from '../notifications.js'
 import { NotificationBell } from '../NotificationCenter.js'
 import type { OpenTab } from './TabBar.js'
 import { encodingLabel, type TextEncoding } from './encoding.js'
@@ -46,8 +47,13 @@ interface StatusBarProps {
   cwd?: string
   /** Toggle the bottom terminal panel open/closed. */
   onToggleTerminal?: () => void
-  /** Whether the terminal panel is currently open (drives the button active state). */
+  /** Whether the terminal panel is currently open. */
   terminalOpen?: boolean
+  /** Active bottom-panel tab. The terminal button must only light up when the
+   *  TERMINAL tab is showing: the panel's open flag is shared with the Problems
+   *  tab, so keying the highlight on terminalOpen alone painted the terminal
+   *  icon blue while the Problems view was open. */
+  bottomTab?: 'terminal' | 'problems'
   /** Current model language id of the active editor tab. */
   language?: string
   /** Switch the active model's language (setModelLanguage). */
@@ -69,7 +75,7 @@ interface StatusBarProps {
 const LANGUAGE_OPTIONS = ['typescript', 'javascript', 'json', 'css', 'scss', 'less', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile', 'plaintext']
 
 export function StatusBar(props: StatusBarProps) {
-  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
+  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, bottomTab, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
 
   const menuAt = (el: HTMLElement | null, items: Parameters<typeof showContextMenu>[2]) => {
     const rect = el?.getBoundingClientRect()
@@ -102,10 +108,56 @@ export function StatusBar(props: StatusBarProps) {
     })))
   }
 
+  /** Copy a value to the clipboard and acknowledge it with a toast. Falls
+   *  back to execCommand when the async Clipboard API is unavailable (the DSH
+   *  web page can be served over plain HTTP on a non-loopback host, where
+   *  navigator.clipboard is undefined) so the click never fails silently. */
+  const copyToClipboard = async (value: string, what: string): Promise<void> => {
+    let ok = false
+    try {
+      if (navigator.clipboard !== undefined) {
+        await navigator.clipboard.writeText(value)
+        ok = true
+      }
+    } catch {
+      ok = false
+    }
+    if (!ok) {
+      try {
+        const area = document.createElement('textarea')
+        area.value = value
+        area.setAttribute('readonly', '')
+        area.style.position = 'fixed'
+        area.style.left = '-9999px'
+        area.style.top = '0'
+        document.body.appendChild(area)
+        area.select()
+        ok = document.execCommand('copy')
+        area.remove()
+      } catch {
+        ok = false
+      }
+    }
+    if (ok) notifications.info(t('status.copied', { what, value }))
+    else notifications.error(t('status.copyFailed', { what }))
+  }
+
   const openRemoteMenu = (e: React.MouseEvent) => {
+    // The workspace path row is clickable (copies the full project path);
+    // name and session id stay informational.
+    const pathRow = cwd !== undefined && cwd.length > 0
+      ? {
+          id: 'cwd',
+          label: cwd,
+          // The copy affordance sits at the RIGHT end of the row; the whole row
+          // (path text or icon) copies, so no explanatory text is needed.
+          actionIcon: Icons.copy,
+          onClick: () => { void copyToClipboard(cwd, t('status.pathWhat')) },
+        }
+      : { id: 'cwd', label: cwd ?? '—', disabled: true }
     showContextMenu(e.clientX, e.clientY - 4, [
       { id: 'ws', label: workspaceName ?? '—', disabled: true },
-      { id: 'cwd', label: cwd ?? '—', disabled: true },
+      pathRow,
       { id: 'sid', label: (sessionId ?? '').slice(0, 18), disabled: true },
     ])
   }
@@ -149,10 +201,21 @@ export function StatusBar(props: StatusBarProps) {
             )}
           </span>
         )}
+        {onToggleTerminal && (
+          <button
+            type="button"
+            className="ide-statusbar-item ide-statusbar-terminal"
+            data-active={(terminalOpen && (bottomTab === undefined || bottomTab === 'terminal')) || undefined}
+            title={t('panel.toggleBottom')}
+            aria-label={t('panel.toggleBottom')}
+            onClick={onToggleTerminal}
+          >{Icons.terminal}</button>
+        )}
         {problems && onOpenProblems && (
           <button
             type="button"
             className="ide-statusbar-item ide-statusbar-problems"
+            data-active={(terminalOpen && bottomTab === 'problems') || undefined}
             title={t('status.problemsCounts', { errors: problems.errors, warnings: problems.warnings })}
             data-testid="ide-statusbar-problems"
             onClick={onOpenProblems}
@@ -160,16 +223,6 @@ export function StatusBar(props: StatusBarProps) {
             <span className="ide-statusbar-prob-icon ide-statusbar-prob-error">{Icons.close}</span>{problems.errors}
             <span className="ide-statusbar-prob-icon ide-statusbar-prob-warn">{Icons.warning}</span>{problems.warnings}
           </button>
-        )}
-        {onToggleTerminal && (
-          <button
-            type="button"
-            className="ide-statusbar-item ide-statusbar-terminal"
-            data-active={terminalOpen || undefined}
-            title={t('panel.toggleBottom')}
-            aria-label={t('panel.toggleBottom')}
-            onClick={onToggleTerminal}
-          >{Icons.terminal}</button>
         )}
         {saveState === 'saving' ? (
           <span className="ide-statusbar-item">{t('status.saving')}</span>

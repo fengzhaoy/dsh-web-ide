@@ -530,6 +530,13 @@ export function IdeView(props: IdeViewInjected & {
   const [paletteOpen, setPaletteOpen] = useState(false)
   /** Bottom panel tab: 'terminal' | 'problems'. */
   const [bottomTab, setBottomTab] = useState<'terminal' | 'problems'>('terminal')
+  /** Mount point at the right end of the bottom tab row; TerminalPanel portals
+   *  its action buttons into it so they live at the top-right of the bottom
+   *  panel (same row as the 问题/终端 tabs) rather than in the terminal toolbar.
+   *  Portal targets must be real DOM nodes and the ref is only populated after
+   *  the first commit, so the ref callback mirrors the node into state to
+   *  trigger the re-render that creates the portal. */
+  const [bottomTabsActions, setBottomTabsActions] = useState<HTMLDivElement | null>(null)
   /** Monaco marker snapshot for the problems indicator + panel. */
   const [problems, setProblems] = useState<ProblemItem[]>([])
   const problemCounts = useMemo(() => {
@@ -2011,6 +2018,10 @@ export function IdeView(props: IdeViewInjected & {
             <div className="ide-bottomtabs">
               <button className="ide-bottomtab" data-active={bottomTab === 'problems' || undefined} onClick={() => setBottomTab('problems')} data-testid="ide-bottomtab-problems">{t('problems.title')}{problems.length > 0 && <span className="ide-bottomtab-count">{problems.length}</span>}</button>
               <button className="ide-bottomtab" data-active={bottomTab === 'terminal' || undefined} onClick={() => setBottomTab('terminal')} data-testid="ide-bottomtab-terminal">{t('terminal.title')}</button>
+              {/* Right end of the tab row: the terminal panel portals its action
+                  buttons in here, so they sit at the top-right of the bottom
+                  panel instead of in the terminal's own toolbar. */}
+              <div ref={setBottomTabsActions} className="ide-bottomtabs-actions" data-testid="ide-bottomtabs-actions" />
             </div>
             {bottomTab === 'problems' && (
               <div className="ide-bottom-problems">
@@ -2028,6 +2039,7 @@ export function IdeView(props: IdeViewInjected & {
             onTerminalClosed={handleTerminalClosed}
             onClose={handleTerminalClose}
             tabVisible={props.tabVisible}
+            actionsHost={bottomTabsActions}
             t={t}
           />
             )}
@@ -2053,6 +2065,7 @@ export function IdeView(props: IdeViewInjected & {
           cwd={cwd}
           onToggleTerminal={() => { setTerminalOpen((v) => !v); setBottomTab('terminal') }}
           terminalOpen={terminalOpen}
+          bottomTab={bottomTab}
           language={modelLanguage}
           onSetLanguage={(lang) => { const model = editorRef.current?.getModel(); if (model) { Monaco.editor.setModelLanguage(model, lang); syncModelMeta(); setTabs((prev) => prev.map((tab) => tab.path === activePath ? { ...tab, language: lang } : tab)) } }}
           indent={modelIndent}

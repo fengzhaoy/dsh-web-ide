@@ -508,6 +508,56 @@ interface TerminalEntry {
 /** Cap the replay log at ~512 KiB per terminal, dropping the oldest chunks. */
 const MAX_LOG_BYTES = 512 * 1024
 
+/** Final byte of a CSI sequence (ESC [ ... final): 0x40–0x7e. */
+function isCsiFinal(code: number): boolean {
+  return code >= 0x40 && code <= 0x7e
+}
+
+/**
+ * Detect the tail of an escape sequence that lost its introducer to the log
+ * trim and return the index just past it (0 = no leftover found).
+ *
+ * A real sequence BODY is unambiguous because its parameter bytes are
+ * constrained: CSI parameters are digits and ';' / '?' / ':' / '<' / '=',
+ * an OSC numeric body is "code;...", and a DCS body runs to ST. Ordinary text
+ * that merely looks similar ('[INFO] build', '1;2 fixed') has a byte outside
+ * that parameter set inside the candidate, so it is left untouched.
+ */
+function orphanedSequenceEnd(text: string): number {
+  // OSC body left over from `ESC ]`: "<number>;...<BEL|ST>".
+  if (/^[0-9]+;/.test(text)) {
+    for (let i = 0; i < text.length; i += 1) {
+      const c = text.charCodeAt(i)
+      if (c === 0x07) return i + 1
+      if (c === 0x1b && text.charCodeAt(i + 1) === 0x5c) return i + 2
+      if (c < 0x20) return 0
+    }
+    return 0
+  }
+  // CSI body left over from `ESC [`: "[" then parameters then ONE final byte.
+  if (text.charCodeAt(0) === 0x5b) {
+    let j = 1
+    while (j < text.length) {
+      const c = text.charCodeAt(j)
+      if (c >= 0x30 && c <= 0x3f) { j += 1; continue }
+      if (c >= 0x20 && c <= 0x2f) { j += 1; continue }
+      if (isCsiFinal(c)) {
+        // '[INFO] build' would match here too — reject when the "final" is
+        // followed by more plain letters, which no single CSI produces.
+        const after = text.charCodeAt(j + 1)
+        if (after >= 0x41 && after <= 0x7a) return 0
+        return j + 1
+      }
+      return 0
+    }
+    return 0
+  }
+  // DCS body left over from `ESC P` ('Pq#...' or 'q#...' when 'P' was cut).
+  const st = text.indexOf('\x1b\\')
+  if (st > 0 && /^[A-Za-z0-9#{}; ]*$/.test(text.slice(0, st))) return st + 2
+  return 0
+}
+
 /**
  * Find the first index in `text` at which replaying is SAFE, i.e. not in the
  * middle of a terminal escape sequence. Used when the replay log is trimmed
@@ -515,13 +565,29 @@ const MAX_LOG_BYTES = 512 * 1024
  * that opened in the dropped chunk, and replaying that tail makes xterm print
  * stray bytes (classically `%`, the leftover of a zsh prompt escape).
  *
+ * TWO shapes of leftover have to be handled:
+ *  1. The chunk still starts with the ESC (or a C1 control) of the sequence.
+ *  2. The cut fell INSIDE the sequence, so the introducer itself was dropped
+ *     and the chunk starts with the sequence BODY — `0;title\x07` after
+ *     `ESC ]`, `[0m` after `ESC`, `Pq#...` after `ESC P`. Trimming removed
+ *     the ESC but left the payload, and xterm prints that payload verbatim.
+ *     The old code only looked at shape 1, so shape 2 slipped through and
+ *     leaked text like `%` or `[0m` into the first line after a switch.
+ *
  * Returns 0 when the chunk already starts on a clean boundary.
  */
-function findSafeReplayStart(text: string): number {
+export function findSafeReplayStart(text: string): number {
   if (text.length === 0) return 0
   const first = text.charCodeAt(0)
-  // Not a control character: already safe.
-  if (first !== 0x1b && first !== 0x07 && first !== 0x9d && first !== 0x90 && first !== 0x9b) return 0
+  const startsWithEsc = first === 0x1b
+  // Not a control character: the chunk may still be the BODY of a sequence
+  // whose introducer was trimmed away (shape 2), so look for a terminator that
+  // can only belong to an escape sequence before declaring the start safe.
+  if (!startsWithEsc && first !== 0x07 && first !== 0x9d && first !== 0x90 && first !== 0x9b) {
+    const bodyCut = orphanedSequenceEnd(text)
+    if (bodyCut > 0) return bodyCut
+    return 0
+  }
   // ESC / BEL: scan forward for the end of the sequence that started earlier.
   const esc = 0x1b
   for (let i = 0; i < text.length; i += 1) {
@@ -537,11 +603,20 @@ function findSafeReplayStart(text: string): number {
       }
       return text.length
     }
-    // CSI (ESC [): parameter/intermediate bytes then a final byte 0x40-0x7e.
+    // CSI (ESC [): parameter bytes 0x30-0x3f, then intermediates 0x20-0x2f,
+    // then one final byte 0x40-0x7e. Scanning for "any 0x40-0x7e" was too
+    // loose: a stray '[' or '?' inside the parameters terminated the sequence
+    // early and replayed the rest as text. Only a byte in the FINAL range
+    // closes it; anything else is skipped as part of the sequence.
     if (next === 0x5b) {
-      for (let j = i + 2; j < text.length; j += 1) {
+      let j = i + 2
+      while (j < text.length) {
         const c = text.charCodeAt(j)
-        if (c >= 0x40 && c <= 0x7e) return j + 1
+        if (c >= 0x20 && c <= 0x3f) { j += 1; continue }
+        if (isCsiFinal(c)) return j + 1
+        // A control byte or ordinary text inside a CSI means the sequence was
+        // cut off; retry from here so the text itself is kept.
+        return j
       }
       return text.length
     }
@@ -551,6 +626,20 @@ function findSafeReplayStart(text: string): number {
         if (text.charCodeAt(j) === esc && text.charCodeAt(j + 1) === 0x5c) return j + 2
       }
       return text.length
+    }
+    // ESC followed by a digit: the ']' of an OSC lost to the trim, so the tail
+    // is the OSC body ('<code>;...<BEL|ST>'). Handled before the generic body
+    // scanner, which would otherwise read '0' as a one-byte CSI-ish escape.
+    if (next >= 0x30 && next <= 0x39) {
+      const oscEnd = orphanedSequenceEnd(text.slice(i))
+      if (oscEnd > 0) return i + oscEnd
+    }
+    // ESC followed by a sequence BODY rather than the introducer itself:
+    // `ESC 0;title` (the ']' of ESC ] was trimmed) or `ESC q#...`
+    // (the 'P' of ESC P was cut). Delegate to the body scanner on the tail.
+    if ((next >= 0x30 && next <= 0x3f) || (next >= 0x41 && next <= 0x5a)) {
+      const bodyEnd = orphanedSequenceEnd(text.slice(i + 1))
+      if (bodyEnd > 0) return i + 1 + bodyEnd
     }
     // Any other escape: a single byte of payload is usually enough; skip it.
     return Math.min(i + 2, text.length)

@@ -22,6 +22,11 @@ export const IDE_CSS_VARS: Record<string, string> = {
   '--ide-tab-border': '#252526',
   '--ide-statusbar-bg': '#1e1e1e',
   '--ide-statusbar-fg': '#cccccc',
+  // Light gray highlight for a selected status-bar toggle (terminal icon):
+  // on the dark bar a translucent white reads as VS Code's gray selection.
+  '--ide-statusbar-active-bg': 'rgba(255,255,255,.16)',
+  '--ide-statusbar-active-hover-bg': 'rgba(255,255,255,.24)',
+  '--ide-statusbar-active-fg': '#ffffff',
   '--ide-border': '#2b2b2b',
   '--ide-tree-hover': '#2a2d2e',
   '--ide-tree-active': '#37373d',
@@ -52,6 +57,10 @@ export const IDE_CSS_VARS_LIGHT: Record<string, string> = {
   '--ide-tab-border': '#e5e5e5',
   '--ide-statusbar-bg': '#f8f8f8',
   '--ide-statusbar-fg': '#3b3b3b',
+  // Same idea on the light bar: a gray wash that still contrasts with white.
+  '--ide-statusbar-active-bg': 'rgba(0,0,0,.12)',
+  '--ide-statusbar-active-hover-bg': 'rgba(0,0,0,.18)',
+  '--ide-statusbar-active-fg': '#1f1f1f',
   '--ide-border': '#e5e5e5',
   '--ide-tree-hover': '#e8e8e8',
   '--ide-tree-active': '#e4e6f1',
@@ -194,8 +203,9 @@ export const IDE_STYLES = `
 .ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding-left:6px;border-left:2px solid var(--ide-accent,#007acc);display:flex;align-items:center;gap:4px}
 .ide-statusbar-branch-icon{display:flex;align-items:center;flex:none}
 .ide-statusbar-branch-icon svg{width:13px;height:13px}
-.ide-statusbar-terminal{padding:0 6px}
-.ide-statusbar-terminal[data-active='true']{background:var(--ide-accent,#007acc)}
+.ide-statusbar-terminal{padding:0 6px;height:18px}
+.ide-statusbar-terminal[data-active='true']{background:var(--ide-statusbar-active-bg,rgba(255,255,255,.16));color:var(--ide-statusbar-active-fg,#ffffff);border-radius:3px}
+.ide-statusbar button.ide-statusbar-terminal[data-active='true']:hover{background:var(--ide-statusbar-active-hover-bg,rgba(255,255,255,.24))}
 .ide-statusbar-terminal svg{width:14px;height:14px}
 .ide-tree-row{display:flex;align-items:center;gap:4px;height:22px;padding:0 8px;cursor:pointer;user-select:none;color:var(--ide-fg);font-size:13px;white-space:nowrap}
 .ide-tree-row:hover{background:var(--ide-tree-hover)}
@@ -498,7 +508,8 @@ export const IDE_STYLES = `
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
 .ide-bottompanel:has(.ide-terminal-panel[data-state='maximized']){height:60vh}
 .ide-bottompanel:has(.ide-terminal-panel[data-state='minimized']){height:35px}
-.ide-terminal-toolbar{display:flex;align-items:center;gap:4px;padding:0 4px 0 12px;border-bottom:1px solid var(--ide-border,#2b2b2b);flex:none;background:#1e1e1e;height:35px}.ide-terminal-toolbar-label{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted,#9d9d9d);flex:none;margin-right:auto;padding-left:2px}
+/* The terminal panel has no toolbar: its action buttons live in the bottom
+   panel's tab row (see .ide-bottomtabs-actions). */
 /* ── Terminal body: hosts (left) + sidebar list (right) ─────────────── */
 .ide-terminal-body{display:flex;flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-terminal-body[data-hidden]{display:none}
@@ -529,7 +540,9 @@ export const IDE_STYLES = `
 .ide-terminal-context-item:hover{background:var(--ide-accent,#04395e);color:#fff}
 .ide-terminal-context-icon{display:flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none}
 .ide-terminal-context-icon svg{width:14px;height:14px}
-.ide-terminal-actions{display:flex;align-items:center;gap:1px;flex:none;padding-left:4px}
+.ide-terminal-actions{display:flex;align-items:center;gap:1px;flex:none}
+.ide-terminal-actions .ide-terminal-action{height:22px;padding:2px 5px}
+.ide-terminal-actions .ide-terminal-action svg{width:14px;height:14px}
 .ide-terminal-action{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:flex;align-items:center;justify-content:center}
 .ide-terminal-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
 .ide-terminal-action svg{width:16px;height:16px}
@@ -546,6 +559,16 @@ export const IDE_STYLES = `
 .ide-context-menu-item{display:flex;align-items:center;gap:8px;padding:0 12px 0 28px;height:26px;cursor:default;user-select:none;white-space:nowrap;position:relative}
 .ide-context-menu-item:hover:not([data-disabled='true']){background:var(--ide-accent);color:#fff}
 .ide-context-menu-item[data-disabled='true']{color:var(--ide-fg-dim);cursor:default}
+/* Informational rows that copy on click: label truncates, muted hint pinned right. */
+.ide-context-menu-item:not([data-disabled='true']) .ide-context-menu-item-label,.ide-context-menu-item .ide-context-menu-item-hint{white-space:nowrap}
+.ide-context-menu-item .ide-context-menu-item-label{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ide-context-menu-item-hint{flex:none;margin-left:12px;padding-left:12px;border-left:1px solid #454545;font-size:11px;color:var(--ide-fg-dim,#9d9d9d)}
+/* Right-aligned action affordance (e.g. the copy icon on the project path row):
+   keeps the label at full width and only lights up on row hover. */
+.ide-context-menu-item-action{flex:none;display:flex;align-items:center;margin-left:12px;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-context-menu-item-action svg{width:14px;height:14px}
+.ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-action{color:#fff}
+.ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-hint{color:#d8d8d8;border-left-color:#5a5a5a}
 .ide-context-menu-item-icon{position:absolute;left:6px;display:flex;align-items:center;color:inherit}
 .ide-context-menu-item-icon svg{width:14px;height:14px}
 .ide-context-menu-item-label{flex:1;overflow:hidden;text-overflow:ellipsis}
@@ -632,7 +655,9 @@ export const IDE_STYLES = `
 .ide-toast-close svg{width:12px;height:12px}
 /* ── Problems panel + bottom tabs ──────────────────────────────────── */
 .ide-bottompanel{display:flex;flex-direction:column;flex:none;min-height:0;overflow:hidden;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f}
-.ide-bottomtabs{display:flex;gap:2px;padding:0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-sidebar-bg)}
+.ide-bottomtabs{display:flex;align-items:stretch;gap:2px;padding:0 4px 0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-sidebar-bg)}
+/* Right end of the tab row: the terminal's action buttons are portaled here. */
+.ide-bottomtabs-actions{display:flex;align-items:center;margin-left:auto;padding-left:8px;flex:none}
 .ide-bottomtab{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;letter-spacing:.5px;text-transform:uppercase;padding:6px 10px;cursor:pointer;border-bottom:1px solid transparent;display:flex;align-items:center;gap:6px}
 .ide-bottomtab[data-active='true']{color:var(--ide-fg);border-bottom-color:var(--ide-fg)}
 .ide-bottomtab-count{background:#f14c4c;color:#fff;border-radius:8px;font-size:10px;padding:0 5px;min-width:14px;text-align:center}
@@ -668,6 +693,7 @@ export const IDE_STYLES = `
 .ide-statusbar-sync svg{width:12px;height:12px}
 .ide-statusbar-sync-count{margin-left:5px;font-size:11px;color:var(--ide-fg-muted)}
 .ide-statusbar-problems{gap:4px}
+.ide-statusbar-problems[data-active='true']{background:var(--ide-accent,#007acc)}
 .ide-statusbar-prob-icon{display:inline-flex;margin:0 1px 0 4px}
 .ide-statusbar-prob-icon svg{width:12px;height:12px}
 .ide-statusbar-prob-error{color:#f14c4c}
