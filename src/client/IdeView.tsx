@@ -1792,12 +1792,22 @@ export function IdeView(props: IdeViewInjected & {
                     // VS Code "Open in Integrated Terminal": spawn a shell already
                     // inside the chosen directory and focus the terminal dock.
                     if (!sessionId || !ideTools || !cwd) return
-                    const rel = absDir === cwd || absDir === cwd.replace(/[/\\]+$/, '') ? '' : absDir.replace(cwd.replace(/[/\\]+$/, '') + '/', '')
+                    const root = cwd.replace(/[/\\]+$/, '')
+                    const dir = absDir.replace(/[/\\]+$/, '')
+                    const rel = dir === root ? '' : (dir.startsWith(root + '/') ? dir.slice(root.length + 1) : dir)
                     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24, cwd: rel }).then((res) => {
                       if (!res.ok) { notifications.error(res.error.message ?? res.error.code); return }
                       setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
                       setTerminalOpen(true)
-                      setActiveTerminalIdx((prev) => prev + 1)
+                      setBottomTab('terminal')
+                      setActiveTerminalIdx(terminalIds.length)
+                      const cdLine = 'cd ' + ("'" + absDir.replace(/'/g, "'\\''") + "'") + '\r'
+                      window.setTimeout(() => {
+                        const bytes = new TextEncoder().encode(cdLine)
+                        let bin = ''
+                        for (const byte of bytes) bin += String.fromCharCode(byte)
+                        void ideTools.terminalWrite(sessionId, res.value.terminalId, btoa(bin))
+                      }, 600)
                     }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
                   }}
                 />

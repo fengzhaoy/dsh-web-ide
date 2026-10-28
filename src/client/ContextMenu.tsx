@@ -150,9 +150,11 @@ export function ContextMenuHost() {
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation() }}
     >
       {state.items.map((item) => (
-        <div key={item.id}>
-          {item.separator && <div className="ide-context-menu-separator" />}
+        item.separator ? (
+          <div key={item.id} className="ide-context-menu-separator" />
+        ) : (
           <div
+            key={item.id}
             className="ide-context-menu-item"
             data-disabled={item.disabled || undefined}
             onClick={() => {
@@ -164,7 +166,7 @@ export function ContextMenuHost() {
             {item.icon && <span className="ide-context-menu-item-icon">{item.icon}</span>}
             <span className="ide-context-menu-item-label">{item.label}</span>
           </div>
-        </div>
+        )
       ))}
     </div>
   )
