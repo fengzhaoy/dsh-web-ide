@@ -180,6 +180,7 @@ const stubIdeTools = {
   fileDelete: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileCreate: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   writeFile: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  writeFileBytes: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   fileReveal: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   hostPlatform: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitSync: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),

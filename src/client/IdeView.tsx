@@ -11,6 +11,7 @@ import { TabBar } from './editor/TabBar.js'
 import { StatusBar } from './editor/StatusBar.js'
 import { MarkdownPreview } from './editor/MarkdownPreview.js'
 import { isMarkdownPath } from './editor/markdown.js'
+import { decodeFile, encodeText, type TextEncoding } from './editor/encoding.js'
 import { ContextMenuHost } from './ContextMenu.js'
 import { showContextMenu } from './ContextMenu.js'
 import { SettingsDialog, AboutDialog, KeybindingsDialog, SnippetsDialog, displayChord } from './SettingsDialogs.js'
@@ -289,8 +290,20 @@ interface OpenFileResult {
   truncated: boolean
   lines: number
   error: string | null
-  /** Data URI when the path is an image (text/truncated fields stay empty). */
+  /** Data URI when the path is an image or PDF (text/truncated fields stay empty). */
   imageSrc?: string
+  /** Detected encoding of a text file, for the status bar. */
+  encoding?: TextEncoding
+  /** False when the editor cannot re-encode this file faithfully. */
+  encodingLossless?: boolean
+}
+
+/** Binary preview formats: images render in <img>, PDF in an <iframe>. */
+function binaryMimeOf(path: string): { mime: string; kind: 'image' | 'pdf' } | null {
+  const image = imageMimeOf(path)
+  if (image !== null) return { mime: image, kind: 'image' }
+  if (path.toLowerCase().endsWith('.pdf')) return { mime: 'application/pdf', kind: 'pdf' }
+  return null
 }
 
 /** Read one file, picking readAll for small files and a truncated page for large. */
@@ -303,23 +316,30 @@ async function loadFileContent(
   const statRes: RemoteResult<WorkspaceFileStat> = await wf.stat(sessionId, path, signal)
   if (!statRes.ok) return { text: '', version: '', truncated: false, lines: 0, error: resultError(statRes) }
   const stat = statRes.value
-  // Images render as <img>, not Monaco text. readBytes returns raw bytes
-  // (Uint8Array) with no text/binary rejection, so it doubles as the image reader.
-  const mime = imageMimeOf(path)
-  if (mime) {
+  // Images render as <img>, PDFs in an <iframe>, never as Monaco text.
+  // readBytes returns raw bytes (Uint8Array) with no text/binary rejection, so
+  // it doubles as the binary reader.
+  const binary = binaryMimeOf(path)
+  if (binary !== null) {
     const imgRes: RemoteResult<WorkspaceFileBytes> = await wf.readBytes(sessionId, path, {}, signal)
     if (!imgRes.ok) return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(imgRes) }
     return {
       text: '', version: imgRes.value.version, truncated: false, lines: 0, error: null,
-      imageSrc: `data:${mime};base64,${bytesToBase64(imgRes.value.data)}`,
+      imageSrc: `data:${binary.mime};base64,${bytesToBase64(imgRes.value.data)}`,
     }
   }
   if (stat.bytes !== undefined && stat.bytes > LARGE_FILE_BYTES) {
     const readRes: RemoteResult<WorkspaceFileText> = await wf.read(sessionId, path, { offset: 1, limit: TRUNCATED_LINES }, signal)
     if (!readRes.ok) return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(readRes) }
     const page = readRes.value
-    const tail = page.eof ? '' : `\n\n[... ${TRUNCATED_LINES} lines shown, file truncated ...]`
-    return { text: page.text + tail, version: stat.version, truncated: true, lines: page.lines, error: null }
+    // Do NOT append a marker into the text: it used to be written straight
+    // into the Monaco model, so the buffer held a line that does not exist in
+    // the file and selecting all + copy carried it along. The tab is marked
+    // `truncated` instead, which makes it read-only and shows a banner.
+    return {
+      text: page.text, version: stat.version, truncated: !page.eof, lines: page.lines, error: null,
+      encoding: 'utf-8', encodingLossless: false,
+    }
   }
   const allRes: RemoteResult<WorkspaceFileBytes> = await wf.readBytes(sessionId, path, {}, signal)
   if (!allRes.ok) {
@@ -329,9 +349,15 @@ async function loadFileContent(
     }
     return { text: '', version: stat.version, truncated: false, lines: 0, error: resultError(allRes) }
   }
-  const text = decodeText(allRes.value.data)
-  const lines = text === '' ? 0 : text.split('\n').length
-  return { text, version: stat.version, truncated: false, lines, error: null }
+  // Detect the real encoding instead of assuming UTF-8. A GBK/Latin-1 file
+  // decoded as UTF-8 turns into mojibake AND, because that decode is lossy,
+  // saving wrote the damaged text back and destroyed the original.
+  const decoded = decodeFile(allRes.value.data)
+  const lines = decoded.text === '' ? 0 : decoded.text.split('\n').length
+  return {
+    text: decoded.text, version: stat.version, truncated: false, lines, error: null,
+    encoding: decoded.encoding, encodingLossless: decoded.lossless,
+  }
 }
 
 export function IdeView(props: IdeViewInjected & {
@@ -697,9 +723,14 @@ export function IdeView(props: IdeViewInjected & {
       setTabs((prev) => prev.map((t) => t.path === path ? errTab : t))
       return
     }
-    // Image tab: keep the data URI on the tab and let the <img> overlay render it.
+    // Image / PDF tab: keep the data URI on the tab and let the overlay
+    // render it (<img> for images, <iframe> for PDF).
     if (result.imageSrc) {
-      const imageTab: OpenTab = { path, name, language: 'image', version: result.version, truncated: false, lines: 0, status: 'ready', error: null, dirty: false, kind: 'image', imageSrc: result.imageSrc }
+      const isPdf = path.toLowerCase().endsWith('.pdf')
+      const imageTab: OpenTab = {
+        path, name, language: isPdf ? 'pdf' : 'image', version: result.version, truncated: false, lines: 0,
+        status: 'ready', error: null, dirty: false, kind: 'image', imageSrc: result.imageSrc,
+      }
       setTabs((prev) => prev.map((t) => t.path === path ? imageTab : t))
       return
     }
@@ -709,7 +740,11 @@ export function IdeView(props: IdeViewInjected & {
     ideEditor.models.set(path, model)
     ideEditor.saved.set(path, result.text)
     dirtyRef.current.delete(path)
-    const readyTab: OpenTab = { path, name, language, version: result.version, truncated: result.truncated, lines: result.lines, status: 'ready', error: null, dirty: false, kind: 'text' }
+    const readyTab: OpenTab = {
+      path, name, language, version: result.version, truncated: result.truncated, lines: result.lines,
+      status: 'ready', error: null, dirty: false, kind: 'text',
+      encoding: result.encoding, encodingLossless: result.encodingLossless,
+    }
     setTabs((prev) => prev.map((t) => t.path === path ? readyTab : t))
     // openFile always activates the opened tab, so attach the model right away.
     // (Do NOT test activePath here: the closure captured it before the click's
@@ -755,7 +790,11 @@ export function IdeView(props: IdeViewInjected & {
     if (activePath === undefined || tab?.kind === 'image') { editorRef.current.setModel(null); return }
     const model = ideEditor.models.get(activePath)
     if (model) editorRef.current.setModel(model)
-    editorRef.current.updateOptions({ readOnly: tab?.truncated === true })
+    // Read-only when the view is truncated (saving it would drop the tail) or
+    // when the file's encoding cannot be reproduced (a UTF-8 write-back would
+    // corrupt every non-ASCII byte). Disabling save alone was not enough: the
+    // user could still edit and then hit the interlock only at save time.
+    editorRef.current.updateOptions({ readOnly: tab?.truncated === true || tab?.encodingLossless === false })
   }, [activePath, monacoReady, tabs])
 
   // Keep the preview feed in step with the open flag / active markdown tab.
@@ -873,12 +912,21 @@ export function IdeView(props: IdeViewInjected & {
             const victim = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))?.path
               ?? (diffPathRef.current !== undefined && matchesPath(diffPathRef.current.path, absPath, cwd) ? diffPathRef.current.path : undefined)
             if (victim !== undefined) {
-              ideEditor.models.get(victim)?.dispose()
-              ideEditor.models.delete(victim)
-              ideEditor.saved.delete(victim)
-              dirtyRef.current.delete(victim)
-              setTabs((prev) => prev.filter((t) => t.path !== victim))
               setDiffPath((d) => (d?.path === victim ? undefined : d))
+              // A tab with UNSAVED edits is not silently discarded: disposing
+              // the model here threw the user's work away with no undo. Keep
+              // it open and marked, so the edits survive and the next save
+              // recreates the file (the version guard turns into a create).
+              if (dirtyRef.current.has(victim)) {
+                setTabs((prev) => prev.map((t) => t.path === victim ? { ...t, version: '', deletedOnDisk: true } : t))
+                notifications.warning(t('editor.deletedOnDisk', { name: victim.split('/').pop() ?? victim }))
+              } else {
+                ideEditor.models.get(victim)?.dispose()
+                ideEditor.models.delete(victim)
+                ideEditor.saved.delete(victim)
+                dirtyRef.current.delete(victim)
+                setTabs((prev) => prev.filter((t) => t.path !== victim))
+              }
             }
             continue
           }
@@ -1319,12 +1367,23 @@ export function IdeView(props: IdeViewInjected & {
     const tab = tabsRef.current.find((t) => t.path === path)
     const model = ideEditor.models.get(path)
     if (!tab || !model || tab.status !== 'ready' || tab.truncated) return false
+    // Safety interlock: a file whose encoding this editor cannot reproduce
+    // (e.g. GBK — no encoder exists in the platform) must never be written
+    // back, because the write path is UTF-8 only and would replace the whole
+    // file with mangled bytes. The tab is read-only for that reason; state it
+    // explicitly instead of failing silently.
+    if (tab.encodingLossless === false) {
+      setError(t('save.encodingReadOnly', { encoding: tab.encoding ?? 'UTF-8' }))
+      return false
+    }
     // One write per path at a time: the follow-up press is a no-op rather than
     // a second write racing the first one's (now obsolete) version token.
     if (savingRef.current.has(path)) return false
     savingRef.current.add(path)
     const content = model.getValue()
     setSaveState('saving')
+    // A tab whose file was deleted underneath it (version reset to '') saves
+    // as a fresh create, so the preserved edits can be recovered.
     const intent = tab.version ? { kind: 'replaceIfVersion' as const, version: tab.version } : { kind: 'createIfAbsent' as const }
     let res
     try {
@@ -1673,7 +1732,12 @@ export function IdeView(props: IdeViewInjected & {
           <div className="ide-editor-container" ref={containerRef} data-md-split={mdPreviewOpen && !diffPath && activeIsMd ? 'true' : undefined} />
           {activeImageSrc && (
             <div className="ide-editor-image">
-              <img src={activeImageSrc} alt={activeTab?.name ?? ''} />
+              {/* PDFs render in the browser's built-in viewer via an iframe.
+                  The data URI is what the read path already produces, so no
+                  extra round-trip or PDF.js dependency is needed. */}
+              {activeTab?.language === 'pdf'
+                ? <iframe className="ide-editor-pdf" src={activeImageSrc} title={activeTab?.name ?? 'PDF'} />
+                : <img src={activeImageSrc} alt={activeTab?.name ?? ''} />}
             </div>
           )}
           {/* Markdown split preview (VS Code "Open Preview to the Side"):
@@ -1824,6 +1888,7 @@ export function IdeView(props: IdeViewInjected & {
         )}
         <StatusBar
           activeTab={activeTab}
+          encoding={activeTab?.encoding}
           cursor={cursor}
           t={t}
           saveState={saveState}

@@ -572,9 +572,19 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     setUploadError(null)
     try {
       for (const file of Array.from(files)) {
-        const text = await file.text()
+        // Read the blob as BYTES, not text: File.text() decodes as UTF-8 and
+        // replaces every invalid byte with U+FFFD, so uploading a PNG, zip or
+        // PDF silently produced a corrupted file. writeFileBytes carries the
+        // bytes end-to-end.
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        let bin = ''
+        const CHUNK = 0x8000
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+        }
+        const base64 = btoa(bin)
         const targetRel = (uploadTarget === rootDir ? '' : relPathOf(rootDir, uploadTarget)) + (uploadTarget === rootDir || uploadTarget === '' ? '' : '/') + file.name
-        const result = await ideToolsFull.writeFile(sessionId, targetRel, text, { kind: 'createIfAbsent' })
+        const result = await ideToolsFull.writeFileBytes(sessionId, targetRel, base64, { kind: 'createIfAbsent' })
         if (!result.ok) {
           setUploadError(t('context.uploadFailed', { name: file.name, message: result.error.message }))
           break

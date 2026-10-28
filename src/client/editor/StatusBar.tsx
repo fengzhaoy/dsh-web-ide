@@ -1,7 +1,7 @@
 /**
  * Status bar (VS Code parity): left = remote indicator, branch + sync
  * (ahead/behind), problems, workspace, terminal toggle, save state; right =
- * model, cursor, lines, indentation + EOL pickers, language picker, UTF-8,
+ * model, cursor, lines, indentation + EOL pickers, language picker, encoding,
  * layout buttons, notification bell. All pickers reuse the ContextMenu.
  */
 import { languageLabel } from '../language.js'
@@ -9,9 +9,12 @@ import { Icons } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { NotificationBell } from '../NotificationCenter.js'
 import type { OpenTab } from './TabBar.js'
+import { encodingLabel, type TextEncoding } from './encoding.js'
 
 interface StatusBarProps {
   activeTab: OpenTab | undefined
+  /** Detected encoding of the active tab (status-bar label). */
+  encoding?: TextEncoding
   cursor: { line: number; column: number }
   t: (key: string, params?: Record<string, string | number>) => string
   /** Save state of the active tab. */
@@ -66,7 +69,7 @@ interface StatusBarProps {
 const LANGUAGE_OPTIONS = ['typescript', 'javascript', 'json', 'css', 'scss', 'less', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile', 'plaintext']
 
 export function StatusBar(props: StatusBarProps) {
-  const { activeTab, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
+  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
 
   const menuAt = (el: HTMLElement | null, items: Parameters<typeof showContextMenu>[2]) => {
     const rect = el?.getBoundingClientRect()
@@ -205,7 +208,15 @@ export function StatusBar(props: StatusBarProps) {
             )}
           </>
         )}
-        <span className="ide-statusbar-item">{t('status.utf8')}</span>
+        {/* The real detected encoding. It used to say UTF-8 unconditionally,
+            which was actively misleading for GBK / Latin-1 files. */}
+        <span
+          className="ide-statusbar-item"
+          title={encoding !== undefined ? encodingLabel(encoding) : t('status.utf8')}
+          data-testid="ide-statusbar-encoding"
+        >
+          {encoding !== undefined ? encodingLabel(encoding) : t('status.utf8')}
+        </span>
         <NotificationBell t={t} />
         {/* Layout buttons (VS Code bottom-right layout controls). */}
         {onToggleSidebar && (

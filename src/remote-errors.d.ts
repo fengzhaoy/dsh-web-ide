@@ -33,6 +33,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/git-branch-failed': { readonly [key: string]: unknown }
     /** git fetch failed. */
     'ide-tools/git-fetch-failed': { readonly [key: string]: unknown }
+    /** A git invocation exceeded the host's hard time budget and was
+     *  terminated (huge repo, network filesystem, stale index.lock). */
+    'ide-tools/git-timeout': { readonly [key: string]: unknown }
     /** git add / stage failed. */
     'ide-tools/git-stage-failed': { readonly [key: string]: unknown }
     /** git reset HEAD (unstage) failed. */

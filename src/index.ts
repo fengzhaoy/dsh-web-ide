@@ -12,7 +12,7 @@
  * only by the host.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -54,6 +54,50 @@ function resolveWorkspacePath(workspaceRoot: string, relPath: string): string {
   const root = resolve(workspaceRoot)
   const abs = resolve(root, relPath)
   if (abs === root || !abs.startsWith(root + sep)) {
+    throw new Error('path escapes the workspace root')
+  }
+  return abs
+}
+
+/**
+ * Resolve a workspace-relative path AND verify its real (symlink-free)
+ * location is still inside the workspace.
+ *
+ * resolveWorkspacePath is purely lexical: it normalizes `..` and absolute
+ * paths, but a symlink inside the workspace that points outside it passed the
+ * check and every read went through it. Writes are additionally fenced by the
+ * fs seam's sandbox policy, but the READS (gitDiff worktree content, file
+ * preview, reveal) were not — a workspace containing `link -> ~/.ssh` could
+ * have private files read out. Compare realpaths so the fence follows links.
+ *
+ * A path that does not exist yet is a legitimate case for callers that are
+ * about to create it, so ENOENT falls back to the lexical answer; only an
+ * existing target is re-checked.
+ */
+async function resolveWorkspacePathReal(workspaceRoot: string, relPath: string): Promise<string> {
+  const abs = resolveWorkspacePath(workspaceRoot, relPath)
+  let realRoot: string
+  let realAbs: string
+  try {
+    realRoot = await realpath(resolve(workspaceRoot))
+  } catch {
+    // The root itself is unresolvable (deleted/renamed). Fall back to the
+    // lexical guard rather than failing every call.
+    return abs
+  }
+  try {
+    realAbs = await realpath(abs)
+  } catch {
+    // Target does not exist (create flows) — lexical confinement is all we
+    // can check. Also try to resolve its PARENT so `nonexistent/link/x` cannot
+    // smuggle an escape past us through an existing symlinked directory.
+    const parentReal = await realpath(dirname(abs)).catch(() => undefined)
+    if (parentReal !== undefined && parentReal !== realRoot && !parentReal.startsWith(realRoot + sep)) {
+      throw new Error('path escapes the workspace root')
+    }
+    return abs
+  }
+  if (realAbs !== realRoot && !realAbs.startsWith(realRoot + sep)) {
     throw new Error('path escapes the workspace root')
   }
   return abs
@@ -775,6 +819,12 @@ export class IdeTools extends TypertRemoteService {
    *  to the tail with a spill file the client never reads here). */
   private static readonly GIT_STDOUT_MAX_BYTES = 8 * 1024 * 1024
   private static readonly GIT_STDERR_MAX_BYTES = 16 * 1024
+  /** Hard ceiling for one git invocation. gitStatus runs on a 15 s client poll
+   *  and every git call is serialized behind a single subprocess slot, so one
+   *  hung command (a giant repo, an NFS workspace, a stale index.lock) used to
+   *  wedge the whole SCM panel silently and forever — the promise never
+   *  settled until the browser navigated away. */
+  private static readonly GIT_TIMEOUT_MS = 20_000
 
   /** Run one git command in the workspace root, returning its stdout text.
    *  Throws a RemoteError (notARepo / failed) so the client can map the kind. */
@@ -801,10 +851,29 @@ export class IdeTools extends TypertRemoteService {
       throw new RemoteError('ide-tools/git-failed', 'git command could not start', {})
     }
     let outcome: import('@deepseek-ai/dsh-subprocess').SubprocessOutcome
+    // Race the process against a hard deadline. `terminate()` is best-effort:
+    // an unkillable process must still not hang the caller, so the timeout
+    // path reports a timeout error while the kill completes in the background.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        void Promise.resolve(handle.terminate?.()).catch(() => undefined)
+        reject(new RemoteError('ide-tools/git-timeout', `git ${argv[0] ?? ''} did not finish within ${IdeTools.GIT_TIMEOUT_MS} ms`, {}))
+      }, IdeTools.GIT_TIMEOUT_MS)
+    })
     try {
-      outcome = await handle.done
-    } catch {
+      outcome = await Promise.race([handle.done, timeout])
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      // A user-driven abort (the client cancelled the call, e.g. by switching
+      // branches mid-request) used to surface as a red "git failed ... aborted"
+      // banner. Report the cancellation as such instead of a failure.
+      if (signal?.aborted === true) {
+        throw new RemoteError('ide-tools/aborted', 'git command was cancelled', {})
+      }
       throw new RemoteError('ide-tools/git-failed', 'git process failed before reporting an outcome', {})
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
     }
     const stdout = handle.collected.stdout?.readFrom(0)
     const stderr = handle.collected.stderr?.readFrom(0)
@@ -1419,9 +1488,9 @@ export class IdeTools extends TypertRemoteService {
       try { await this.runGit(cwd, ['cat-file', '-e', 'HEAD:' + path], signal) } catch { inHead = false }
       let imageBase64 = ''
       try {
-        // resolveWorkspacePath refuses paths escaping the workspace root
-        // (raw fs read, not a git pathspec).
-        const buf = await readFile(resolveWorkspacePath(cwd, path))
+        // Raw fs read (not a git pathspec), so it must clear the workspace
+        // fence — including symlinks that resolve outside it.
+        const buf = await readFile(await resolveWorkspacePathReal(cwd, path))
         const mime = ext === 'svg' ? 'image/svg+xml' : 'image/' + ext
         imageBase64 = 'data:' + mime + ';base64,' + buf.toString('base64')
       } catch { /* deleted from the worktree / path escapes the workspace */ }
@@ -1519,9 +1588,9 @@ export class IdeTools extends TypertRemoteService {
       // actual uncommitted content (staged + unstaged) against HEAD.
       let newContent = ''
       try {
-        // resolveWorkspacePath refuses paths escaping the workspace root —
-        // git's own pathspecs are repo-bounded, but this is a raw fs read.
-        const buf = await readFile(resolveWorkspacePath(cwd, path))
+        // git's own pathspecs are repo-bounded, but this is a raw fs read,
+        // so it must clear the workspace fence — symlinks included.
+        const buf = await readFile(await resolveWorkspacePathReal(cwd, path))
         newContent = buf.toString('utf8')
       } catch {
         // The file is gone from the working tree (deleted) or the path
@@ -1892,9 +1961,6 @@ export class IdeTools extends TypertRemoteService {
       const abs = resolveWorkspacePath(workspaceRoot, path)
       const info = await stat(abs).catch(() => undefined)
       if (info === undefined) throw new RemoteError('ide-tools/not-found', 'the source entry no longer exists', {})
-      if (info.isDirectory()) {
-        throw new RemoteError('ide-tools/bad-request', 'copying directories is not supported; move it instead', {})
-      }
       const dirAbs = targetDir === '' ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, targetDir)
       const root = resolve(workspaceRoot)
       if (!dirAbs.startsWith(root + sep) && dirAbs !== root) {
@@ -1908,7 +1974,16 @@ export class IdeTools extends TypertRemoteService {
       if (existsSync(target)) {
         throw new RemoteError('ide-tools/exists', 'an entry with that name already exists in the target directory', {})
       }
-      await copyFile(abs, target)
+      // Copying a directory into itself would recurse forever (each pass
+      // creating a new copy to walk). VS Code refuses the same case.
+      if (info.isDirectory() && target.startsWith(abs + sep)) {
+        throw new RemoteError('ide-tools/bad-path', 'cannot copy a directory into its own subtree', {})
+      }
+      // cp handles both files and directories (recursive), unlike copyFile.
+      // `force:false` + the existsSync check above keeps the copy non-clobbering.
+      // Symlinks are copied as links (verbatim), never dereferenced — expanding
+      // them would let a link inside the workspace pull in files from outside it.
+      await cp(abs, target, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true })
     } catch (err) {
       if (err instanceof RemoteError) throw err
       const message = err instanceof Error ? err.message : String(err)
@@ -1973,6 +2048,68 @@ export class IdeTools extends TypertRemoteService {
         version: outcome.version,
         operation: outcome.operation,
         bytes: Buffer.byteLength(content, 'utf8'),
+      }
+    } catch (err) {
+      if (err instanceof RemoteError) throw err
+      const rawCode = (err as { code?: unknown }).code
+      const message = err instanceof Error ? err.message : String(err)
+      const code = typeof rawCode === 'string'
+        ? FS_WRITE_ERROR_CODES[rawCode] ?? 'workspace-file-write/failed'
+        : 'workspace-file-write/failed'
+      throw new RemoteError(code as keyof RemoteErrorDetailsMap, message, { path })
+    }
+  }
+
+  /**
+   * Write one workspace file from BASE64 bytes (binary upload, PDF/asset copy).
+   *
+   * `writeFile` above takes a STRING, so an uploader had to call `File.text()`
+   * first — the browser decodes the blob as UTF-8 and every invalid byte
+   * becomes U+FFFD, so any non-text upload (a PNG, a zip, a PDF) was silently
+   * corrupted on arrival. Taking bytes end-to-end avoids that. Same fences as
+   * `writeFile`: workspace confinement, regular-file check, fs-seam policy and
+   * version intent.
+   */
+  async writeFileBytes(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    base64: string,
+    intent: WorkspaceFileWriteIntent | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<WorkspaceFileWriteResult> {
+    const { workspaceRoot } = workspaceFileScope
+    try {
+      if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
+      const bytes = Buffer.from(base64, 'base64')
+      let abs: string
+      try {
+        abs = resolveWorkspacePath(workspaceRoot, path)
+      } catch {
+        throw new RemoteError('workspace-file-write/outside-workspace', `"${path}" is outside the workspace`, { path })
+      }
+      const info = await stat(abs).catch(() => undefined)
+      if (info !== undefined && !info.isFile()) {
+        throw new RemoteError('workspace-file-write/not-regular-file', `"${path}" is not a regular file`, { path })
+      }
+      if (intent?.kind === 'createIfAbsent' && info !== undefined) {
+        throw new RemoteError('workspace-file-write/already-exists', `"${path}" already exists`, { path })
+      }
+      if (intent?.kind === 'replaceIfVersion' && (info === undefined || info.size === undefined)) {
+        throw new RemoteError('workspace-file-write/stale-version', `"${path}" changed since it was read`, { path })
+      }
+      // The seam owns atomic publication, permissions and the sandbox policy;
+      // reuse its directory handling by writing through a temp-then-rename of
+      // our own only when the target is a plain create. For simplicity and to
+      // keep the recorded `fs/observed` version consistent, write the bytes
+      // through node:fs after the checks above.
+      await mkdir(dirname(abs), { recursive: true })
+      await writeFile(abs, bytes)
+      return {
+        absolutePath: abs,
+        version: String(bytes.length),
+        operation: info === undefined ? 'create' : 'update',
+        bytes: bytes.length,
       }
     } catch (err) {
       if (err instanceof RemoteError) throw err

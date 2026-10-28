@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Icons } from '../icons.js'
+import type { TextEncoding } from './encoding.js'
 
 export interface OpenTab {
   /** Workspace-relative path, also the unique key. */
@@ -20,10 +21,18 @@ export interface OpenTab {
   error: string | null
   /** Whether the editor holds unsaved edits for this tab. */
   dirty: boolean
-  /** Render mode: Monaco text, or an <img> preview for binary images. */
+  /** Render mode: Monaco text, or an <img>/<iframe> preview for binary files. */
   kind: 'text' | 'image'
-  /** Data URI backing an image tab (kind === 'image'). */
+  /** Data URI backing an image/PDF tab (kind === 'image'). */
   imageSrc?: string
+  /** Detected text encoding, shown in the status bar. */
+  encoding?: TextEncoding
+  /** False when this editor cannot reproduce the file's encoding, so writing
+   *  it back would corrupt the bytes (e.g. GBK). The tab is read-only. */
+  encodingLossless?: boolean
+  /** The file vanished from disk while this tab held unsaved edits. The buffer
+   *  is kept so the work is not lost; saving it recreates the file. */
+  deletedOnDisk?: boolean
 }
 
 interface TabBarProps {

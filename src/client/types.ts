@@ -353,8 +353,8 @@ export interface IdeToolsRemote {
    *  directory — Explorer drag & drop. Refuses targets escaping the workspace,
    *  a move into itself/its own subtree, and an existing target. */
   fileMove(sessionId: SessionId, path: string, targetDir: string, opts?: { newName?: string }, signal?: AbortSignal): Promise<RemoteResult<void>>
-  /** Copy one FILE into a target directory (directories are refused; move
-   *  them instead). An existing target is refused unless opts.newName is set. */
+  /** Copy one file OR directory tree into a target directory (recursive).
+   *  An existing target is refused unless opts.newName is set. */
   fileCopy(sessionId: SessionId, path: string, targetDir: string, opts?: { newName?: string }, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Write one file's whole content through the host fs seam (bounded write
    *  with an optimistic version guard). Backs the editor save and the diff
@@ -363,6 +363,16 @@ export interface IdeToolsRemote {
     sessionId: SessionId,
     path: string,
     content: string,
+    intent: WorkspaceFileWriteIntent | undefined,
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<WorkspaceFileWriteResult>>
+  /** Write one file from BASE64 bytes (binary upload). Text-based writeFile
+   *  forced callers through File.text(), which lossily UTF-8-decoded the blob
+   *  and corrupted every non-text upload. */
+  writeFileBytes(
+    sessionId: SessionId,
+    path: string,
+    base64: string,
     intent: WorkspaceFileWriteIntent | undefined,
     signal?: AbortSignal,
   ): Promise<RemoteResult<WorkspaceFileWriteResult>>

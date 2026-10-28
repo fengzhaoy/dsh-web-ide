@@ -138,6 +138,10 @@ export const IDE_STYLES = `
 .ide-monaco-host{position:absolute;inset:0}
 .ide-editor-image{position:absolute;inset:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
 .ide-editor-image img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+/* PDF preview: fill the pane (no padding/centering — an iframe is a page, not
+   an object to letterbox). */
+.ide-editor-image:has(> .ide-editor-pdf){padding:0;display:block}
+.ide-editor-pdf{width:100%;height:100%;border:0;background:#fff;display:block}
 /* ── Markdown split preview (VS Code Open-Preview-to-the-Side parity) ── */
 .ide-editor-container[data-md-split='true']{inset:0 50% 0 0}
 .ide-md-pane{position:absolute;top:0;bottom:0;right:0;width:50%;display:flex;flex-direction:column;background:var(--ide-bg);border-left:1px solid var(--ide-tab-border);z-index:1}
