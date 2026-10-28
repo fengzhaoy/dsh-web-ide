@@ -146,6 +146,13 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
               visible={rowVisible(t('settings.editor.smoothScrolling'))} onChange={(v) => set('editor.smoothScrolling', v)} />
           </SettingsSection>
 
+          <SettingsSection title={t('settings.section.fim')} visible={sectionVisible(t('settings.section.fim'), [t('settings.fim.enabled'), t('settings.fim.debounceMs')])}>
+            <ToggleRow label={t('settings.fim.enabled')} value={settings['fim.enabled']} testid="ide-settings-fim"
+              visible={rowVisible(t('settings.fim.enabled'))} onChange={(v) => set('fim.enabled', v)} />
+            <NumberRow label={t('settings.fim.debounceMs')} value={settings['fim.debounceMs']} min={100} max={2000} testid="ide-settings-fimdebounce"
+              visible={rowVisible(t('settings.fim.debounceMs'))} onChange={(v) => set('fim.debounceMs', v)} />
+          </SettingsSection>
+
           <SettingsSection title={t('settings.section.terminal')} visible={sectionVisible(t('settings.section.terminal'), [t('settings.terminal.fontSize'), t('settings.terminal.cursorBlink'), t('settings.terminal.scrollback')])}>
             <NumberRow label={t('settings.terminal.fontSize')} value={settings['terminal.fontSize']} min={6} max={40} testid="ide-settings-termfontsize"
               visible={rowVisible(t('settings.terminal.fontSize'))} onChange={(v) => set('terminal.fontSize', v)} />

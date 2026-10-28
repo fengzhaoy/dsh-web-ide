@@ -247,6 +247,35 @@ const _ide_tools_ideTools_fileCopy_parameter_1$schema = z.string()
 const _ide_tools_ideTools_fileCopy_parameter_2$schema = z.string()
 const _ide_tools_ideTools_fileCopy_parameter_3$schema = z.object({ newName: z.string().optional() })
 const _ide_tools_ideTools_fileCopy_result$schema = z.void()
+const _ide_tools_ideTools_completeInline_parameter_1$schema = z.object({
+  path: z.string(),
+  before: z.string(),
+  after: z.string(),
+  language: z.string().optional(),
+})
+const _ide_tools_ideTools_completeInline_result$schema = z.object({
+  text: z.string(),
+  model: z.string(),
+})
+const _ide_tools_ideTools_pushDirtyBuffers_parameter_1$schema = z.array(z.object({
+  path: z.string(),
+  text: z.string(),
+}))
+const _ide_tools_ideTools_pushDirtyBuffers_result$schema = z.object({
+  accepted: z.number(),
+})
+const _ide_tools_ideTools_dirtyBuffers_parameter_1$schema = z.union([z.void(), z.string()])
+const _ide_tools_ideTools_dirtyBuffers_result$schema = z.object({
+  entries: z.array(z.object({
+    path: z.string(),
+    text: z.string(),
+    truncated: z.boolean(),
+    totalChars: z.number(),
+    revision: z.number(),
+    updatedAt: z.number(),
+  })),
+})
+
 const _ide_tools_ideTools_writeFileBytes_parameter_1$schema = z.string()
 const _ide_tools_ideTools_writeFileBytes_parameter_2$schema = z.string()
 const _ide_tools_ideTools_writeFileBytes_parameter_3$schema = z.union([
@@ -1308,6 +1337,87 @@ export const TYPERT = {
         create: () => _ide_tools_ideTools_writeFileBytes_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 2050, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/completeInline',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'completeInline',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('completeInline', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'params',
+          wire: 'params',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/completeInline:params',
+            create: () => _ide_tools_ideTools_completeInline_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#completeInlineResult',
+        create: () => _ide_tools_ideTools_completeInline_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 2265, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/pushDirtyBuffers',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'pushDirtyBuffers',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('pushDirtyBuffers', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'buffers',
+          wire: 'buffers',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/pushDirtyBuffers:buffers',
+            create: () => _ide_tools_ideTools_pushDirtyBuffers_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#pushDirtyBuffersResult',
+        create: () => _ide_tools_ideTools_pushDirtyBuffers_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 2260, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/dirtyBuffers',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'dirtyBuffers',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('dirtyBuffers', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/dirtyBuffers:path',
+            create: () => _ide_tools_ideTools_dirtyBuffers_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#dirtyBuffersResult',
+        create: () => _ide_tools_ideTools_dirtyBuffers_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 2286, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/fileReveal',

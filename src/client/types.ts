@@ -73,6 +73,18 @@ export interface WorkspaceFileWriteResult {
   readonly bytes: number
 }
 
+/** One unsaved editor buffer as cached by the host (mirrors the host's
+ *  DirtyBufferEntry). `truncated` means `text` is a clipped prefix, not the
+ *  whole buffer. */
+export interface DirtyBufferEntry {
+  readonly path: string
+  readonly text: string
+  readonly truncated: boolean
+  readonly totalChars: number
+  readonly revision: number
+  readonly updatedAt: number
+}
+
 /** Write intent forwarded to the fs seam's writeText. */
 export type WorkspaceFileWriteIntent =
   | { readonly kind: 'createIfAbsent' }
@@ -376,6 +388,27 @@ export interface IdeToolsRemote {
     intent: WorkspaceFileWriteIntent | undefined,
     signal?: AbortSignal,
   ): Promise<RemoteResult<WorkspaceFileWriteResult>>
+  /** Push the editor's CURRENT unsaved buffers so the agent can see work that
+   *  has not been written to disk yet. Replaces this session's set wholesale. */
+  pushDirtyBuffers(
+    sessionId: SessionId,
+    buffers: ReadonlyArray<{ path: string; text: string }>,
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<{ accepted: number }>>
+  /** Ask the host's model for an inline (FIM) completion at the cursor. The
+   *  host windows the two sides and sanitizes the answer; an empty `text`
+   *  means "nothing to suggest", which is not an error. */
+  completeInline(
+    sessionId: SessionId,
+    params: { path: string; before: string; after: string; language?: string },
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<{ text: string; model: string }>>
+  /** Read unsaved buffers: pass a path for one file, or nothing for all. */
+  dirtyBuffers(
+    sessionId: SessionId,
+    path: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<{ entries: ReadonlyArray<DirtyBufferEntry> }>>
   /** Reveal one workspace entry in the OS file manager (VS Code parity:
    *  Reveal in Finder / Reveal in File Explorer / Open Containing Folder).
    *  Pass '' to reveal the workspace root itself. */

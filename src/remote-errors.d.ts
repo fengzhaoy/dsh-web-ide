@@ -36,6 +36,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     /** A git invocation exceeded the host's hard time budget and was
      *  terminated (huge repo, network filesystem, stale index.lock). */
     'ide-tools/git-timeout': { readonly [key: string]: unknown }
+    /** An inline completion exceeded its (short) deadline. Expected under load;
+     *  the client simply shows no ghost text. */
+    'ide-tools/inline-timeout': { readonly [key: string]: unknown }
+    /** The model call behind an inline completion failed. */
+    'ide-tools/llm-failed': { readonly [key: string]: unknown }
+    /** The model returned no usable text. */
+    'ide-tools/llm-empty': { readonly [key: string]: unknown }
     /** git add / stage failed. */
     'ide-tools/git-stage-failed': { readonly [key: string]: unknown }
     /** git reset HEAD (unstage) failed. */

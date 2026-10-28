@@ -180,6 +180,49 @@ export interface WorkspaceFileWriteResult {
 }
 
 /**
+ * One unsaved editor buffer, as last reported by the browser.
+ *
+ * The agent reads files from DISK (`workspaceFiles.read`), so a file the user
+ * has edited but not saved is invisible to it: the agent answers from stale
+ * content and may then overwrite the user's work. This cache closes that gap —
+ * the client pushes every dirty buffer (debounced) and the host can answer
+ * "what does the editor actually hold right now?".
+ */
+export interface DirtyBufferEntry {
+  /** Workspace-relative path. */
+  readonly path: string
+  /** Full current buffer text (bounded — see DIRTY_BUFFER_MAX_CHARS). */
+  readonly text: string
+  /** True when `text` was clipped and is NOT the complete buffer. */
+  readonly truncated: boolean
+  /** Total length of the real buffer, so a clipped entry is still diagnosable. */
+  readonly totalChars: number
+  /** Bumped on every push, so a reader can tell a fresh report from a stale one. */
+  readonly revision: number
+  /** Date.now() at the host when the report arrived. */
+  readonly updatedAt: number
+}
+
+/** Per-buffer cap for the dirty cache. A 5 MB minified bundle held open and
+ *  edited would otherwise sit in host memory forever; 1 MB covers every real
+ *  source file while keeping the whole cache bounded by file count. */
+const DIRTY_BUFFER_MAX_CHARS = 1024 * 1024
+
+/** Cap on how many dirty buffers the host retains. Browsers cap open tabs far
+ *  below this; exceeding it evicts the least-recently-reported entry. */
+const DIRTY_BUFFER_MAX_ENTRIES = 64
+
+/** Inline-completion bounds. This runs on a keystroke pause, so every axis is
+ *  capped: a huge window, a long answer or a slow model would each turn typing
+ *  into a stall. */
+const INLINE_MAX_BEFORE_CHARS = 6000
+const INLINE_MAX_AFTER_CHARS = 2000
+const INLINE_MAX_OUTPUT_TOKENS = 256
+const INLINE_MAX_OUTPUT_CHARS = 2000
+const INLINE_TIMEOUT_MS = 8000
+
+
+/**
  * The write face of the host `fs` seam (dsh-fs), declared structurally: this
  * package deliberately takes no dependency on dsh-fs, but a content write must
  * still go through the seam so the deployment's sandbox policy fences it and
@@ -525,6 +568,11 @@ export class IdeTools extends TypertRemoteService {
 
   private readonly terminals = new Map<string, TerminalEntry>()
   private counter = 0
+  /** Session id → (workspace-relative path → latest unsaved buffer report).
+   *  Keyed by session so two browser sessions on the same workspace cannot
+   *  read each other's editor state. */
+  private readonly dirtyStore = new Map<string, Map<string, DirtyBufferEntry>>()
+  private dirtyRevision = 0
 
   constructor(ctx: Context, _config: Record<string, never>) {
     super(ctx, 'ideTools')
@@ -542,6 +590,9 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'terminalSignal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalResize', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'pushDirtyBuffers', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'completeInline', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'dirtyBuffers', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalOutput', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitStatus', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -2190,6 +2241,210 @@ export class IdeTools extends TypertRemoteService {
     }
   }
 
+
+
+  /**
+   * Inline (FIM) completion at one cursor position.
+   *
+   * The buffer is split into a prefix (everything before the cursor) and a
+   * suffix (everything after it); the model is asked to fill the gap. Both
+   * sides are WINDOWED — a 5 MB file would otherwise blow the context — and
+   * the split is reported back with the completion so the caller can reject a
+   * result that does not join the two halves cleanly.
+   *
+   * Bounded on every axis because this runs on a keystroke pause: window
+   * sizes, output length, and a hard timeout. Returns an empty completion (not
+   * an error) when the model produces nothing usable — an inline hint that
+   * cannot be produced is not a failure the user needs to see.
+   */
+  async completeInline(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    params: {
+      path: string
+      before: string
+      after: string
+      language?: string
+    },
+    signal: AbortSignal | undefined,
+  ): Promise<{ text: string; model: string }> {
+    const ctx = this.ctx as Context & {
+      llm?: { stream(options: never): AsyncIterable<{ type: string; text?: string }> }
+      agentDefaultModel?: { currentSelection(): { provider: string; model: string; reasoningEffort?: string } }
+    }
+    if (!ctx.llm) throw new RemoteError('ide-tools/llm-unavailable', 'LLM service is not available', {})
+    const selection = ctx.agentDefaultModel?.currentSelection()
+    if (!selection || !selection.provider || !selection.model) {
+      throw new RemoteError('ide-tools/no-model', 'no model is configured', {})
+    }
+
+    const before = this.windowTail(params.before, INLINE_MAX_BEFORE_CHARS)
+    const after = this.windowHead(params.after, INLINE_MAX_AFTER_CHARS)
+
+    const systemPrompt = [
+      'You are a code completion engine inside an editor.',
+      'You receive the text immediately BEFORE the cursor and immediately AFTER it.',
+      'Output ONLY the characters to insert at the cursor so the two sides join',
+      'into natural, compiling code. Rules:',
+      '- No explanations, no markdown fences, no backticks around the code.',
+      '- Do not repeat text that already appears before or after the cursor.',
+      '- Prefer a SHORT completion (a few lines at most); return nothing rather than guessing.',
+      '- If nothing sensible fits, output an empty response.',
+    ].join('\n')
+
+    const userText = [
+      'File: ' + params.path + (params.language ? ' (' + params.language + ')' : ''),
+      '',
+      '<<<BEFORE>>>',
+      before,
+      '<<<CURSOR>>>',
+      '<<<AFTER>>>',
+      after,
+    ].join('\n')
+
+    const messages = [createUserMessage({
+      content: [{ type: 'text', text: userText }],
+      source: { kind: 'user' },
+    })]
+
+    const options = deepFreeze({
+      provider: selection.provider,
+      model: selection.model,
+      // Inline completion must be fast and deterministic; the default
+      // reasoning path burns seconds per keystroke pause for no benefit.
+      reasoningEffort: undefined as never,
+      system: systemPrompt,
+      messages,
+      temperature: 0,
+      maxTokens: INLINE_MAX_OUTPUT_TOKENS,
+      signal,
+    } as never)
+
+    const assembler = new BlockAssembler()
+    let finish: { kind?: string; failure?: { code?: string; message?: string } } | undefined
+    const timeout = new Promise<void>((resolveTimeout) => {
+      setTimeout(resolveTimeout, INLINE_TIMEOUT_MS).unref?.()
+    })
+    let timedOut = false
+    const iterate = async () => {
+      for await (const chunk of ctx.llm!.stream(options)) {
+        if (signal?.aborted) break
+        if ((chunk as { type?: string }).type === 'finish') {
+          finish = (chunk as { reason?: { kind?: string; failure?: { code?: string; message?: string } } }).reason
+          continue
+        }
+        assembler.push(chunk as never)
+      }
+    }
+    await Promise.race([
+      iterate(),
+      timeout.then(() => { timedOut = true }),
+    ])
+
+    if (timedOut) throw new RemoteError('ide-tools/inline-timeout', 'inline completion timed out', {})
+    if (finish?.kind === 'error') {
+      const cause = finish.failure?.message ?? finish.failure?.code ?? 'unknown adapter failure'
+      throw new RemoteError('ide-tools/llm-failed', cause, {})
+    }
+
+    const raw = assembler
+      .blocks()
+      .filter((b) => b.type === 'text')
+      .map((b) => ('text' in b ? b.text ?? '' : ''))
+      .join('')
+    const text = this.sanitizeInlineCompletion(raw)
+    return { text, model: selection.model }
+  }
+
+  /** Keep the LAST n chars (the part nearest the cursor). */
+  private windowTail(text: string, maxChars: number): string {
+    return text.length <= maxChars ? text : text.slice(text.length - maxChars)
+  }
+
+  /** Keep the FIRST n chars (the part nearest the cursor). */
+  private windowHead(text: string, maxChars: number): string {
+    return text.length <= maxChars ? text : text.slice(0, maxChars)
+  }
+
+  /**
+   * Clean a raw model completion into insertable text.
+   *
+   * Models leak markdown fences into code even when told not to, echo the
+   * marker lines back, or emit a lone trailing newline that would re-indent
+   * the line. Everything here is about turning a noisy answer into something
+   * Monaco can insert verbatim.
+   */
+  private sanitizeInlineCompletion(raw: string): string {
+    if (raw.length === 0) return ''
+    let text = raw
+    // Strip a wrapping ``` fence (and any language tag on it).
+    const fence = text.match(/^\s*```[\w+-]*\n([\s\S]*?)\n?```\s*$/)
+    if (fence !== null) text = fence[1]
+    // Drop echoed envelope markers.
+    text = text.split('<<<BEFORE>>>').join('').split('<<<CURSOR>>>').join('').split('<<<AFTER>>>').join('')
+    if (text.length > INLINE_MAX_OUTPUT_CHARS) text = text.slice(0, INLINE_MAX_OUTPUT_CHARS)
+    return text
+  }
+  /**
+   * Push the browser's CURRENT unsaved buffers into the host cache.
+   *
+   * The client calls this (debounced) on every dirty-state change and with an
+   * empty list when the last buffer is saved or closed, so the cache always
+   * mirrors the editor. Only the paths listed here are dirty: a path absent
+   * from the payload has no unsaved edits, so the whole session's entry set is
+   * REPLACED rather than merged (otherwise a buffer saved in the browser would
+   * linger in the host forever and be reported as dirty).
+   *
+   * `text` is clipped to DIRTY_BUFFER_MAX_CHARS but the entry records
+   * truncated/totalChars so a reader knows it is looking at a partial buffer
+   * instead of silently reasoning over a cut-off file.
+   */
+  async pushDirtyBuffers(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    buffers: ReadonlyArray<{ path: string; text: string }>,
+    signal: AbortSignal | undefined,
+  ): Promise<{ accepted: number }> {
+    const sessionId = workspaceFileScope.sessionId
+    const next = new Map<string, DirtyBufferEntry>()
+    const now = Date.now()
+    for (const buffer of buffers) {
+      if (buffer.path.length === 0) continue
+      const totalChars = buffer.text.length
+      const text = totalChars > DIRTY_BUFFER_MAX_CHARS ? buffer.text.slice(0, DIRTY_BUFFER_MAX_CHARS) : buffer.text
+      next.set(buffer.path, {
+        path: buffer.path,
+        text,
+        truncated: totalChars > DIRTY_BUFFER_MAX_CHARS,
+        totalChars,
+        revision: ++this.dirtyRevision,
+        updatedAt: now,
+      })
+      if (next.size >= DIRTY_BUFFER_MAX_ENTRIES) break
+    }
+    if (next.size === 0) this.dirtyStore.delete(sessionId)
+    else this.dirtyStore.set(sessionId, next)
+    return { accepted: next.size }
+  }
+
+  /**
+   * Read the unsaved buffers for one session.
+   *
+   * Pass a path to ask "what does the editor hold for THIS file?" — the
+   * answer is empty when that file has no unsaved edits, which is the common
+   * case and must be cheap. Pass nothing to list every dirty buffer.
+   */
+  async dirtyBuffers(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<{ entries: ReadonlyArray<DirtyBufferEntry> }> {
+    const store = this.dirtyStore.get(workspaceFileScope.sessionId)
+    if (store === undefined) return { entries: [] }
+    if (path !== undefined && path.length > 0) {
+      const entry = store.get(path)
+      return { entries: entry === undefined ? [] : [entry] }
+    }
+    return { entries: [...store.values()] }
+  }
   /**
    * Reveal one workspace entry in the OS file manager (Explorer context menu →
    * Reveal in Finder / Reveal in File Explorer / Open Containing Folder, per

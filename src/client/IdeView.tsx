@@ -509,6 +509,8 @@ export function IdeView(props: IdeViewInjected & {
     sessionId === undefined ? 0 : (sessionTerminals.get(sessionId)?.activeIdx ?? 0))
   /** Fast per-path dirty mirror so the Monaco content listener can bail before touching React state. */
   const dirtyRef = useRef<Set<string>>(new Set())
+  /** Pending debounced push of the dirty set to the host cache. */
+  const dirtyFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** Imperative handle into the explorer tree (header action buttons). */
   const explorerRef = useRef<ExplorerHandle | null>(null)
   /** Bumped by the explorer's refresh button to force an immediate git status refetch. */
@@ -582,6 +584,32 @@ export function IdeView(props: IdeViewInjected & {
   }, [settings])
   useEffect(() => ideSnippets.subscribe(() => setSnippetsVersion((v) => v + 1)), [])
 
+  /** Collect every dirty buffer straight from the Monaco models. */
+  const collectDirtyBuffers = useCallback((): Array<{ path: string; text: string }> => {
+    const out: Array<{ path: string; text: string }> = []
+    for (const path of dirtyRef.current) {
+      const model = ideEditor.models.get(path)
+      if (model !== undefined && !model.isDisposed()) out.push({ path, text: model.getValue() })
+    }
+    return out
+  }, [])
+
+  /**
+   * Push the current dirty set to the host, coalescing bursts.
+   *
+   * The agent reads files from disk, so without this an unsaved edit is
+   * invisible to it. Debounced rather than sent per keystroke, and always the
+   * COMPLETE set: the host replaces its copy wholesale, so a save that empties
+   * the set must reach it too (an empty array is a meaningful report).
+   */
+  const scheduleDirtyFlush = useCallback(() => {
+    if (dirtyFlushTimerRef.current !== null) clearTimeout(dirtyFlushTimerRef.current)
+    dirtyFlushTimerRef.current = setTimeout(() => {
+      dirtyFlushTimerRef.current = null
+      if (sessionId === undefined || ideTools === undefined) return
+      void ideTools.pushDirtyBuffers(sessionId, collectDirtyBuffers())
+    }, 400)
+  }, [sessionId, ideTools, collectDirtyBuffers])
   // Attach the singleton editor to this mount's container. The editor and its
   // models survive view-ring remounts; on unmount we only detach (leave the DOM
   // parented to the singleton) so the next mount re-attaches instantly.
@@ -615,6 +643,11 @@ export function IdeView(props: IdeViewInjected & {
         if (dirty) dirtyRef.current.add(path)
         else dirtyRef.current.delete(path)
         setTabs((prev) => prev.map((t) => t.path === path ? { ...t, dirty } : t))
+        // Mirror the change into the host's dirty-buffer cache so the agent
+        // can see edits that are not on disk yet. Debounced: this runs on the
+        // dirty TRANSITION only, but a burst of edits across several tabs still
+        // collapses into one push.
+        scheduleDirtyFlush()
       })
       // addCommand's return value is not a stable IDisposable across Monaco
       // builds; keybinding commands live with the singleton editor anyway.
@@ -684,6 +717,24 @@ export function IdeView(props: IdeViewInjected & {
     sessionTerminals.set(sessionId, { open: terminalOpen, ids: terminalIds, activeIdx: activeTerminalIdx })
   }, [sessionId, terminalOpen, terminalIds, activeTerminalIdx])
 
+  // Dirty-buffer mirror: keep the host cache in step with this session's
+  // editor. Fires on session switch (clears the previous session's stale
+  // entry by pushing this session's set) and on unmount (clears the cache so
+  // a parked IDE does not keep claiming unsaved edits).
+  useEffect(() => {
+    if (sessionId === undefined || ideTools === undefined) return
+    scheduleDirtyFlush()
+    return () => {
+      // Clear BOTH: the pending debounce must not fire after teardown, and the
+      // host must not keep a dirty report for a view that is gone. Emptying is
+      // correct — a parked IDE holds no live buffers to report.
+      if (dirtyFlushTimerRef.current !== null) {
+        clearTimeout(dirtyFlushTimerRef.current)
+        dirtyFlushTimerRef.current = null
+      }
+      void ideTools.pushDirtyBuffers(sessionId, [])
+    }
+  }, [sessionId, ideTools, scheduleDirtyFlush])
   const openFile = useCallback(async (path: string, line?: number) => {
     if (!sessionId) return
     // Already open?
@@ -1230,6 +1281,84 @@ export function IdeView(props: IdeViewInjected & {
     return () => { un(); dispose?.() }
   }, [snippetsVersion])
 
+
+  // FIM inline completion (ghost text). Registered once; the provider itself
+  // checks the live setting, so toggling it needs no re-registration.
+  //
+  // Three guards keep this off the keystroke path: the setting must be on, a
+  // debounce must elapse with no further typing, and a short host-side timeout
+  // bounds the wait. A cancelled request (the user typed again) resolves to no
+  // suggestion rather than to an error banner.
+  useEffect(() => {
+    if (sessionId === undefined || ideTools === undefined) return
+    let dispose: (() => void) | undefined
+    void loadMonaco().then((m) => {
+      const provider = (m.languages as unknown as {
+        registerInlineCompletionsProvider(
+          selector: string,
+          provider: {
+            provideInlineCompletions(
+              model: import('monaco-editor').editor.ITextModel,
+              position: import('monaco-editor').Position,
+              context: unknown,
+              token: import('monaco-editor').CancellationToken,
+            ): Promise<{ items: Array<{ insertText: string; range: import('monaco-editor').IRange }> }>
+            freeInlineCompletions(completions: unknown): void
+          },
+          groupId?: string,
+        ): { dispose(): void }
+      }).registerInlineCompletionsProvider('*', {
+        provideInlineCompletions: async (model, position, _context, token) => {
+          if (!ideSettings.getSnapshot()['fim.enabled']) return { items: [] }
+          const setting = ideSettings.getSnapshot()
+          const debounceMs = setting['fim.debounceMs'] ?? 250
+          // Wait out the typing burst before spending a model call.
+          await new Promise<void>((resolveWait) => setTimeout(resolveWait, debounceMs))
+          if (token.isCancellationRequested) return { items: [] }
+
+          const modelPath = model.uri.path.replace(/^\//, '')
+          const offset = model.getOffsetAt(position)
+          const full = model.getValue()
+          const before = full.slice(0, offset)
+          const after = full.slice(offset)
+
+          const ctrl = new AbortController()
+          token.onCancellationRequested(() => ctrl.abort())
+          try {
+            const res = await ideTools.completeInline(
+              sessionId,
+              { path: modelPath, before, after, language: model.getLanguageId() },
+              ctrl.signal,
+            )
+            if (!res.ok || res.value.text.length === 0) return { items: [] }
+            // A completion that merely repeats what is already there would
+            // shadow the user's own text as ghost output. Drop those.
+            const text = res.value.text
+            if (after.startsWith(text) && text.length > 0) return { items: [] }
+            return {
+              items: [{
+                insertText: text,
+                range: {
+                  startLineNumber: position.lineNumber,
+                  startColumn: position.column,
+                  endLineNumber: position.lineNumber,
+                  endColumn: position.column,
+                },
+              }],
+            }
+          } catch {
+            // Inline completion is best-effort: a transport hiccup, a timeout
+            // or a cancelled request must never surface as a red banner while
+            // the user is typing.
+            return { items: [] }
+          }
+        },
+        freeInlineCompletions: () => { /* no resources to release */ },
+      })
+      dispose = () => provider.dispose()
+    })
+    return () => { dispose?.() }
+  }, [sessionId, ideTools])
   /** Run a package.json script in a fresh terminal (VS Code Run Task). */
   const runBuildTask = useCallback((script: string) => {
     if (!sessionId) return
@@ -1415,6 +1544,9 @@ export function IdeView(props: IdeViewInjected & {
     ideEditor.saved.set(path, content)
     dirtyRef.current.delete(path)
     setTabs((prev) => prev.map((t2) => t2.path === path ? { ...t2, version: res.value.version, dirty: false } : t2))
+    // The buffer is no longer dirty — tell the host now rather than waiting for
+    // the debounce, so the agent stops seeing the stale copy.
+    scheduleDirtyFlush()
     setSaveState('idle')
     return true
   }, [sessionId, workspaceFilesWrite, t])
