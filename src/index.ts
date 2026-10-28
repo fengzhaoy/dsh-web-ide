@@ -104,6 +104,64 @@ async function resolveWorkspacePathReal(workspaceRoot: string, relPath: string):
 }
 
 /**
+ * Enforce the Session's sandbox policy for a workspace mutation that cannot
+ * ride the fs seam.
+ *
+ * `ctx.fs.writeText`/`editText` are the only seam entry points that fence a
+ * write, and both take strings. Everything else in this file (byte upload,
+ * create, delete, rename, copy) uses `node:fs` directly, so without this they
+ * were a policy hole: a `read-only` Session could still create, delete, move
+ * and upload, and `workspace-write` lost its realpath containment check — a
+ * symlinked parent inside the workspace could redirect the mutation anywhere.
+ *
+ * Mirrors the seam's own `checkedTarget`: `read-only` denies; `workspace-write`
+ * re-canonicalizes the deepest existing ancestor (catching a concurrently
+ * swapped link) and requires containment under the writable root;
+ * `danger-full-access` permits.
+ */
+async function assertWritable(
+  ctx: WritePolicyContext,
+  scope: { sessionId: string; workspaceRoot: string },
+  abs: string,
+  relPath: string,
+): Promise<void> {
+  const policy = writePolicyFor(ctx, scope)
+  if (policy === undefined) return
+  if (policy.mode === 'read-only') {
+    throw new RemoteError(
+      'workspace-file-write/outside-workspace',
+      `'${relPath}' is read-only (the Session's sandbox mode is read-only)`,
+      { path: relPath },
+    )
+  }
+  if (policy.mode !== 'workspace-write') return
+  const fenceRoot = await realpath(resolve(policy.workspaceRoot)).catch(() => resolve(policy.workspaceRoot))
+  // realpath the deepest existing ancestor, then re-append the missing tail,
+  // so a create into a not-yet-existing directory is still fenced by the
+  // directory that WILL hold it.
+  let probe = abs
+  let tail: string[] = []
+  for (;;) {
+    const real = await realpath(probe).catch(() => undefined)
+    if (real !== undefined) {
+      const fenced = tail.length === 0 ? real : resolve(real, ...tail)
+      if (fenced !== fenceRoot && !fenced.startsWith(fenceRoot + sep)) {
+        throw new RemoteError(
+          'workspace-file-write/outside-workspace',
+          `'${relPath}' is outside the writable workspace`,
+          { path: relPath },
+        )
+      }
+      return
+    }
+    const parent = dirname(probe)
+    if (parent === probe) return
+    tail = [basename(probe), ...tail]
+    probe = parent
+  }
+}
+
+/**
  * Guarded write intent, mirroring the host fs seam's own union: `createIfAbsent`
  * refuses an existing target, `replaceIfVersion` refuses a version mismatch.
  * An omitted intent means unconditional create-or-overwrite.
@@ -1851,6 +1909,7 @@ export class IdeTools extends TypertRemoteService {
       if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
       if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
       const abs = resolveWorkspacePath(workspaceRoot, path)
+      await assertWritable(this.ctx as unknown as WritePolicyContext, workspaceFileScope, abs, path)
       await rm(abs, { recursive: kind === 'directory', force: true })
     } catch (err) {
       if (err instanceof RemoteError) throw err
@@ -1880,6 +1939,7 @@ export class IdeTools extends TypertRemoteService {
       if (existsSync(abs)) {
         throw new RemoteError('ide-tools/exists', 'an entry with that name already exists', {})
       }
+      await assertWritable(this.ctx as unknown as WritePolicyContext, workspaceFileScope, abs, path)
       if (kind === 'directory') {
         await mkdir(abs, { recursive: true })
       } else {
@@ -1934,6 +1994,10 @@ export class IdeTools extends TypertRemoteService {
       if (existsSync(target)) {
         throw new RemoteError('ide-tools/exists', 'an entry with that name already exists in the target directory', {})
       }
+      // A move mutates BOTH ends: the source disappears and the target appears.
+      const policyCtx = this.ctx as unknown as WritePolicyContext
+      await assertWritable(policyCtx, workspaceFileScope, abs, path)
+      await assertWritable(policyCtx, workspaceFileScope, target, relative(root, target))
       await rename(abs, target)
     } catch (err) {
       if (err instanceof RemoteError) throw err
@@ -1983,6 +2047,7 @@ export class IdeTools extends TypertRemoteService {
       // `force:false` + the existsSync check above keeps the copy non-clobbering.
       // Symlinks are copied as links (verbatim), never dereferenced — expanding
       // them would let a link inside the workspace pull in files from outside it.
+      await assertWritable(this.ctx as unknown as WritePolicyContext, workspaceFileScope, target, relative(root, target))
       await cp(abs, target, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true })
     } catch (err) {
       if (err instanceof RemoteError) throw err
@@ -2098,11 +2163,14 @@ export class IdeTools extends TypertRemoteService {
       if (intent?.kind === 'replaceIfVersion' && (info === undefined || info.size === undefined)) {
         throw new RemoteError('workspace-file-write/stale-version', `"${path}" changed since it was read`, { path })
       }
-      // The seam owns atomic publication, permissions and the sandbox policy;
-      // reuse its directory handling by writing through a temp-then-rename of
-      // our own only when the target is a plain create. For simplicity and to
-      // keep the recorded `fs/observed` version consistent, write the bytes
-      // through node:fs after the checks above.
+      // The seam only exposes writeText (string), so bytes cannot ride it —
+      // but its sandbox fence MUST still apply, or this path silently became a
+      // hole: a `read-only` Session could write here while every other save
+      // was denied, and `workspace-write` lost its realpath containment check
+      // (a symlinked parent inside the workspace points anywhere). Resolve the
+      // policy ourselves and enforce the same two rules, re-canonicalizing the
+      // deepest existing ancestor so a concurrently swapped link is seen.
+      await assertWritable(this.ctx as unknown as WritePolicyContext, workspaceFileScope, abs, path)
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, bytes)
       return {
