@@ -700,9 +700,14 @@ export function IdeView(props: IdeViewInjected & {
       return
     }
     const name = path.split('/').pop() ?? path
-    const isImage = imageMimeOf(path) !== null
-    const language = isImage ? 'image' : detectLanguage(path)
-    const loadingTab: OpenTab = { path, name, language, version: '', truncated: false, lines: 0, status: 'loading', error: null, dirty: false, kind: isImage ? 'image' : 'text' }
+    // PDFs are binary previews too: they must be classified as such from the
+    // very first render. Treating the placeholder as text mounted an empty
+    // Monaco model that covered the pane, so a PDF opened to a blank panel
+    // until (and unless) the ready tab replaced it.
+    const binary = binaryMimeOf(path)
+    const isImage = binary?.kind === 'image'
+    const language = binary === null ? detectLanguage(path) : (isImage ? 'image' : 'pdf')
+    const loadingTab: OpenTab = { path, name, language, version: '', truncated: false, lines: 0, status: 'loading', error: null, dirty: false, kind: binary === null ? 'text' : 'image' }
     setTabs((prev) => {
       const next = prev.some((t) => t.path === path) ? prev.map((t) => t.path === path ? loadingTab : t) : [...prev, loadingTab]
       return next
