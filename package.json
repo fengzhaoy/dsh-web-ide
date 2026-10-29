@@ -1,6 +1,6 @@
 {
   "name": "@zhaoyang10/dsh-web-ide",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "IDE tab for the dsh web client: a VSCode-style read-only code viewer with the Dark Modern theme, registered into the conversation view ring.",
   "type": "module",
   "main": "lib/index.js",
