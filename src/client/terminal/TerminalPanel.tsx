@@ -1,5 +1,4 @@
 /**
- * Bottom-dock interactive terminal panel with multi-terminal support.
  *
  * Architecture (mirrors VSCode's terminal tabbed view at a high level):
  * - The parent (IdeView) owns the list of terminal IDs and the active index.
@@ -17,7 +16,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
-import { ideSettings, terminalXtermOptions } from '../settingsStore.js'
+import { ideSettings, terminalXtermOptions, xtermThemeFor } from '../settingsStore.js'
+import { buildWrapRepaint, detectWrapRepaint } from './wrapRepaint.js'
+import type { WrapRepaintPlan } from './wrapRepaint.js'
 // xterm.js core styles: hides the helper textarea (the IME/keyboard capture
 // element that otherwise shows as a stray input box), sizes the viewport/
 // screen/rows layers, and sets the canvas/DOM renderer stacking. Without this
@@ -90,6 +91,71 @@ function loadXterm(): Promise<{ Terminal: TerminalModule['Terminal']; FitAddon: 
   return xtermLoader
 }
 
+/**
+ * Feed shell output to xterm, repairing zle's wrapped-line repaint.
+ *
+ * zsh repaints an edit by rewriting only the columns it believes it owns. On a
+ * command long enough to wrap, a deletion shortens the text by a column and
+ * the tail must reflow onto the previous row; zle never does that, so the cells
+ * the old text occupied stay on screen and the deleted text appears to survive
+ * (see wrapRepaint.ts for the measured byte stream). The shell's model is
+ * right, only the drawing is wrong, so we let xterm consume the chunk and then
+ * repaint the affected rows from the text the chunk itself carried.
+ *
+ * Chunks that do not look like a wrapped line edit are written untouched, so
+ * ordinary output, full-screen applications, and shells other than zsh keep
+ * exactly the behaviour they had before.
+ */
+function writeWithWrapRepair(term: InstanceType<TerminalModule['Terminal']>, data: Uint8Array): void {
+  const text = new TextDecoder().decode(data)
+  const plan = detectWrapRepaint(text, term.cols)
+  if (plan === null) {
+    term.write(data)
+    return
+  }
+  // The cursor's current position is the end of the line zsh just repainted.
+  // The chunk carries only the typed text, so the prompt is whatever the
+  // line's first row already held; the repair walks up past the re-wrap.
+  const buffer = term.buffer.active
+  const curRow = buffer.cursorY
+  const curCol = buffer.cursorX
+  term.write(data, () => {
+    const after = term.buffer.active
+    const repair = buildWrapRepaint(
+      readPrompt(term, plan, Math.max(0, curRow - plan.up)),
+      plan,
+      term.cols,
+      term.rows,
+      curRow,
+      curCol,
+      after.cursorY,
+      after.cursorX,
+    )
+    if (repair !== null) term.write(repair)
+  })
+}
+
+/**
+ * The text already sitting in front of the typed line on its first row, i.e.
+ * the prompt. Read AFTER the chunk so the row holds the repainted text: the
+ * cells to the left of where that text begins are the prompt.
+ */
+function readPrompt(
+  term: InstanceType<TerminalModule['Terminal']>,
+  plan: WrapRepaintPlan,
+  startRow: number,
+): string {
+  const cols = term.cols
+  const buffer = term.buffer.active
+  const line = buffer.getLine(buffer.baseY + startRow)
+  if (line === undefined) return ''
+  const text = line.translateToString(false, 0, cols)
+  // The chunk's text begins at the line's start, so on a single-row line the
+  // prompt is whatever sits left of it; on a wrapped line the first row was
+  // never touched by the chunk and is prompt + the first part of the text.
+  const keep = Math.max(0, text.length - Math.min(plan.text.length, cols))
+  return text.slice(0, keep).replace(/\s+$/, '')
+}
 /** Base64 → bytes; tolerates padding issues by re-encoding via Buffer-style
  * chunking. atob throws on strings with interior padding (=) that arise when
  * replay frames are accidentally joined; this variant strips and re-pads. */
@@ -221,6 +287,10 @@ export function TerminalPanel({
   const echoBackRefs = useRef<Map<string, { enabled: boolean }>>(new Map())
   // Track active abort controllers per terminal for stream cancellation.
   const abortsRef = useRef<Map<string, AbortController>>(new Map())
+  // Per-terminal input dispatcher (base64 chunk → ordered host write). Lets
+  // the clipboard-paste handler below inject text without racing the
+  // keystroke writes that term.onData issues.
+  const termsDispatchRef = useRef<Map<string, (text: string) => void>>(new Map())
   // Latch for the "panel opened with no terminals" auto-spawn. The effect that
   // owns it re-runs on every parent re-render (onTerminalOpened is a fresh
   // closure each render) while terminalOpen is an async round-trip, so without
@@ -305,31 +375,7 @@ export function TerminalPanel({
           // Full ANSI 16-color palette matching VSCode Dark+ so zsh prompts,
           // ls colors, syntax highlighters, and truecolor output render exactly
           // as they do in VSCode's integrated terminal.
-          theme: {
-            background: '#1f1f1f',
-            foreground: '#cccccc',
-            cursor: '#aeafad',
-            cursorAccent: '#1f1f1f',
-            selectionBackground: '#264f78',
-            selectionForeground: '#ffffff',
-            // Standard ANSI 16-color palette (Dark+ variant).
-            black: '#000000',
-            red: '#cd3131',
-            green: '#0dbc79',
-            yellow: '#e5e510',
-            blue: '#2472c8',
-            magenta: '#bc3fbc',
-            cyan: '#11a8cd',
-            white: '#e5e5e5',
-            brightBlack: '#666666',
-            brightRed: '#f14c4c',
-            brightGreen: '#23d18b',
-            brightYellow: '#f5f543',
-            brightBlue: '#3b8eea',
-            brightMagenta: '#d670d6',
-            brightCyan: '#29b8db',
-            brightWhite: '#e5e5e5',
-          },
+          theme: xtermThemeFor(ideSettings.getSnapshot().theme),
         })
         const fit = new FitAddon()
         term.loadAddon(fit)
@@ -363,9 +409,30 @@ export function TerminalPanel({
         // frame from the host re-enables echo-back for live input.
         const echoBack = { enabled: false }
         echoBackRefs.current.set(id, echoBack)
+        // Per-terminal queue + in-flight flag so input reaches the PTY in the
+        // exact order it was typed.
+        const pendingWrites: string[] = []
+        let writing = false
+        const flushWrites = async (): Promise<void> => {
+          if (writing) return
+          writing = true
+          try {
+            while (pendingWrites.length > 0 && !cancelled) {
+              const text = pendingWrites.shift()!
+              await ideTools.terminalWrite(sessionId, id, text).catch(() => undefined)
+            }
+          } finally {
+            writing = false
+          }
+        }
+        termsDispatchRef.current.set(id, (text: string) => {
+          if (text.length === 0) return
+          pendingWrites.push(btoa(unescape(encodeURIComponent(text))))
+          void flushWrites()
+        })
         term.onData((data) => {
           if (!echoBack.enabled) return
-          void ideTools.terminalWrite(sessionId, id, btoa(unescape(encodeURIComponent(data))))
+          termsDispatchRef.current.get(id)?.(data)
         })
 
         setStatuses((prev) => ({ ...prev, [id]: 'ready' }))
@@ -381,7 +448,10 @@ export function TerminalPanel({
                 echoBackRefs.current.get(id)!.enabled = true
                 continue
               }
-              if (frame.data.length > 0) termsRef.current.get(id)?.term.write(decodeBase64(frame.data))
+              if (frame.data.length > 0) {
+                const entry = termsRef.current.get(id)
+                if (entry !== undefined) writeWithWrapRepair(entry.term, decodeBase64(frame.data))
+              }
               if (frame.exit) {
                 setStatuses((prev) => ({ ...prev, [id]: 'exited' }))
                 setExitCodes((prev) => ({ ...prev, [id]: frame.exitCode ?? null }))
@@ -408,6 +478,7 @@ export function TerminalPanel({
         hostsRef.current.delete(id)
         attachedRef.current.delete(id)
         echoBackRefs.current.delete(id)
+        termsDispatchRef.current.delete(id)
         abortsRef.current.get(id)?.abort()
         abortsRef.current.delete(id)
       }
@@ -437,13 +508,20 @@ export function TerminalPanel({
   // Live-apply terminal settings (Settings → Terminal) to every open xterm.
   // Font size changes the cell box, so each terminal is refitted afterwards —
   // without the refit the PTY keeps the old cols/rows and wrapping breaks.
+  // The colour theme is re-applied too: switching IDE → Light used to leave
+  // the terminal on the dark palette, so the shell's default-foreground text
+  // (and any repainted line) became near-white on a white panel — read by
+  // users as grey/faded leftovers of the previous command.
   useEffect(() => {
     return ideSettings.subscribe(() => {
-      const opts = terminalXtermOptions(ideSettings.getSnapshot())
+      const snapshot = ideSettings.getSnapshot()
+      const opts = terminalXtermOptions(snapshot)
+      const theme = xtermThemeFor(snapshot.theme)
       for (const [id, entry] of termsRef.current) {
         entry.term.options.fontSize = opts.fontSize
         entry.term.options.cursorBlink = opts.cursorBlink
         entry.term.options.scrollback = opts.scrollback
+        entry.term.options.theme = theme
         fitAndResize(id)
       }
     })
@@ -452,6 +530,61 @@ export function TerminalPanel({
   // --- Ref callback: register each terminal's host div ---
   const setHostRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
     if (el !== null) hostsRef.current.set(id, el)
+  }, [])
+
+  // --- Clipboard paste (VS Code-style, replaces xterm's clipboard addon) ---
+  // xterm's default Ctrl/Cmd+V path forwards the helper textarea's input event
+  // and then resets the textarea. On macOS the Cmd+V keydown is NOT prevented
+  // by the browser, so the native "paste" runs too: a second input event
+  // arrives — often after the textarea was reset — and further input events
+  // pile up while the pasteboard is being read. The accumulated text is
+  // forwarded to the PTY again on the next keystroke, so characters the user
+  // already deleted (the leading letter left on screen, or a character in the
+  // middle of the line) get re-inserted into the shell's line editor. The
+  // shell is then out of sync with what xterm shows, and the only visible
+  // repair redraw paints those re-inserted characters with the wrong SGR
+  // attributes — the grey leftovers.
+  //
+  // Handling the paste ourselves keeps ONE source of truth: the text goes
+  // through the same ordered dispatcher as keystrokes, with bracketed-paste
+  // wrapping when the shell asked for it (DECSET 2004, zsh does by default).
+  useEffect(() => {
+    const el = panelRef.current
+    if (el === null) return
+    const wrapped = (term: import('@xterm/xterm').Terminal, text: string): string => {
+      const cr = text.replace(/\r?\n/g, '\r')
+      // DECSET 2004 has no public getter; read the private mode state the
+      // same way xterm's own paste path does, falling back to plain text.
+      const modes = (term as unknown as { modes?: { bracketedPasteMode?: boolean } }).modes
+      return modes?.bracketedPasteMode === true && !term.options.ignoreBracketedPasteMode
+        ? '\x1b[200~' + cr + '\x1b[201~'
+        : cr
+    }
+    // Capture phase on the panel runs BEFORE xterm's own bubble-phase paste
+    // listener and stopImmediatePropagation() keeps that listener from firing,
+    // so the clipboard text can never be delivered a second time through
+    // xterm's helper-textarea path.
+    const onPaste = (ev: ClipboardEvent): void => {
+      const target = ev.target as HTMLElement | null
+      const xtermEl = target?.closest('.xterm') as HTMLElement | null
+      if (xtermEl === null) return
+      const id = Array.from(hostsRef.current.entries()).find(([, host]) => host.contains(xtermEl))?.[0]
+      if (id === undefined) return
+      const entry = termsRef.current.get(id)
+      const dispatch = termsDispatchRef.current.get(id)
+      if (entry === undefined || dispatch === undefined) return
+      const echoBack = echoBackRefs.current.get(id)
+      // During replay echo-back is suppressed, exactly like keystrokes.
+      if (echoBack !== undefined && !echoBack.enabled) return
+      ev.preventDefault()
+      ev.stopImmediatePropagation()
+      entry.term.focus()
+      const text = ev.clipboardData?.getData('text/plain') ?? ''
+      if (text.length === 0) return
+      dispatch(wrapped(entry.term, text))
+    }
+    el.addEventListener('paste', onPaste, true)
+    return () => { el.removeEventListener('paste', onPaste, true) }
   }, [])
 
   // Re-fit the active terminal when it becomes visible (tab switch unhides
@@ -560,6 +693,7 @@ export function TerminalPanel({
     // Detach the dead xterm now so its slot is free for the new stream.
     termsRef.current.get(deadId)?.dispose()
     attachedRef.current.delete(deadId)
+    termsDispatchRef.current.delete(deadId)
     abortsRef.current.get(deadId)?.abort()
     abortsRef.current.delete(deadId)
     setStatuses((prev) => ({ ...prev, [deadId]: 'connecting' }))

@@ -170,6 +170,41 @@ export function terminalXtermOptions(s: IdeSettings): {
   }
 }
 
+/** xterm.js colour theme for an IDE theme id. The terminal panel used to
+ *  hardcode the dark palette regardless of the active theme: on the light
+ *  theme the shell's own default-foreground output (and anything it repainted)
+ *  came out as near-white-on-white, which is what users read as "grey/faded
+ *  leftover history" text. */
+export function xtermThemeFor(theme: IdeSettings['theme']): Record<string, string> {
+  const light = theme === 'light-modern'
+  const background = light ? '#ffffff' : '#1f1f1f'
+  return {
+    background,
+    foreground: light ? '#3b3b3b' : '#cccccc',
+    cursor: light ? '#000000' : '#aeafad',
+    cursorAccent: background,
+    selectionBackground: light ? 'rgba(0,0,0,0.18)' : '#264f78',
+    selectionForeground: light ? '#1f1f1f' : '#ffffff',
+    // Standard ANSI 16-color palette (Dark+ / Light+ variants).
+    black: light ? '#000000' : '#000000',
+    red: light ? '#cd3131' : '#cd3131',
+    green: light ? '#0dbc79' : '#0dbc79',
+    yellow: light ? '#949800' : '#e5e510',
+    blue: light ? '#0451a5' : '#2472c8',
+    magenta: light ? '#bc05bc' : '#bc3fbc',
+    cyan: light ? '#0598bc' : '#11a8cd',
+    white: light ? '#555555' : '#e5e5e5',
+    brightBlack: light ? '#666666' : '#666666',
+    brightRed: light ? '#cd3131' : '#f14c4c',
+    brightGreen: light ? '#14ce14' : '#23d18b',
+    brightYellow: light ? '#b5ba00' : '#f5f543',
+    brightBlue: light ? '#0451a5' : '#3b8eea',
+    brightMagenta: light ? '#bc05bc' : '#d670d6',
+    brightCyan: light ? '#0598bc' : '#29b8db',
+    brightWhite: light ? '#a5a5a5' : '#e5e5e5',
+  }
+}
+
 /**
  * ── Keybindings (VS Code Keyboard Shortcuts parity) ─────────────────────
  * Command ids match the command registry (commands.ts). Defaults mirror the

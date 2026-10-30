@@ -555,6 +555,13 @@ export const IDE_STYLES = `
 .ide-terminal-resizer{flex:none;height:4px;cursor:row-resize;background:transparent;position:relative;z-index:2}.ide-terminal-resizer:hover{background:var(--ide-border,#3b3b3b)}.ide-terminal-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;border-radius:1px;background:#424242}.ide-terminal-panel[data-resizing]{transition:none;user-select:none}.ide-terminal-panel[data-resizing] *{user-select:none}.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}.ide-terminal-hosts[data-hidden]{display:none}.ide-terminal-hosts[data-split]{display:flex;flex-direction:row;gap:0}.ide-terminal-hosts[data-split] .ide-terminal-host{flex:1 1 0;min-width:0}.ide-terminal-hosts[data-split] .ide-terminal-host+.ide-terminal-host{border-left:1px solid var(--ide-border,#2b2b2b)}
 .ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
+/* xterm paints its own themed selection on its rows/canvas. The browser's
+   native selection (an opaque system grey over the canvas) would otherwise
+   be stacked on top of it, which reads as "grey leftover text" over the
+   history — suppress it everywhere in the terminal; xterm's selection
+   colours come from the terminal theme (updateTheme). */
+.ide-terminal-host .xterm ::selection{background:transparent}
+.ide-terminal-host .xterm canvas{background:transparent}
 .ide-terminal-error{padding:10px;font-size:12px;color:#f48771;overflow:auto}
 .ide-terminal-error[data-testid=ide-terminal-exited]{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ide-fg-dim,#cccccc)}
 .ide-terminal-error[data-testid=ide-terminal-exited] .ide-dialog-button{flex:none;height:22px;padding:0 10px;font-size:11px}
