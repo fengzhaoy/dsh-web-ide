@@ -69,7 +69,8 @@
   "files": [
     "lib",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "screenshots.json"
   ],
   "scripts": {
     "build:worker": "node scripts/build-monaco-worker.mjs",
