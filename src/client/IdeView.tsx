@@ -11,6 +11,12 @@ import { TabBar } from './editor/TabBar.js'
 import { StatusBar } from './editor/StatusBar.js'
 import { MarkdownPreview } from './editor/MarkdownPreview.js'
 import { isMarkdownPath } from './editor/markdown.js'
+import {
+  hasLanguageService, searchIncludeFor, symbolAt, definitionsFromHits,
+  supportsDefinition, languageOfPath, type DefinitionTarget,
+} from './editor/definition.js'
+import { lookupDefinitions, pathFromModelUri, configureTypeScriptDefaults } from './editor/monaco-definitions.js'
+import { pathReferenceAt, pythonDottedAt, candidatesFor, type PathCandidate } from './editor/path-resolve.js'
 import { decodeFile, encodeText, type TextEncoding } from './editor/encoding.js'
 import { ContextMenuHost } from './ContextMenu.js'
 import { showContextMenu } from './ContextMenu.js'
@@ -42,6 +48,7 @@ const TRUNCATED_LINES = 5000
 // without language web-workers. The codicon .ttf it pulls is neutralized by
 // the tsdown loader config (we ship our own SVG icons).
 import * as Monaco from 'monaco-editor'
+import { copyTextOrNotify, copyFailureNotifier } from './clipboard.js'
 type MonacoNS = typeof Monaco
 type MonacoTextModel = import('monaco-editor').editor.ITextModel
 let monacoLoaded = false
@@ -65,6 +72,9 @@ function configureMonacoWorkers(): void {
 function loadMonaco(): Promise<MonacoNS> {
   if (!monacoLoaded) {
     configureMonacoWorkers()
+    // The TS worker needs JSX + node module resolution, otherwise .tsx/.mjs
+    // navigation silently degrades. Must run before any model is created.
+    configureTypeScriptDefaults(Monaco as never)
     defineIdeThemes(Monaco)
     monacoLoaded = true
   }
@@ -150,9 +160,13 @@ const workspaceTabs = new Map<string, {
   activePath: string | undefined
   /** Open git-diff target, so the diff overlay survives a remount like the tabs. */
   diffPath: IdeDiffTarget | undefined
-  /** Whether the markdown split preview is open for this workspace. */
-  mdPreview: boolean
+  /** Which markdown preview mode this workspace was last left in. */
+  mdPreviewMode: MdPreviewMode
 }>()
+
+/** Middle-editor markdown presentation: source only, source + preview, or
+ *  preview over the whole area. */
+type MdPreviewMode = 'off' | 'split' | 'full'
 
 /**
  * Session-scoped terminal-dock persistence: the dock's open flag, the live
@@ -368,6 +382,14 @@ export function IdeView(props: IdeViewInjected & {
 }) {
   const { sessionId, cwd, workspaceFiles, workspaceFilesWrite, model } = props
   // Lazy namespace getter resolved at render (after boot settles); see types.
+  // Reopening the IDE (especially the maximized right sidebar) briefly reports
+  // no cwd while the panel's session attribute re-attaches. Rendering the
+  // explorer off that transient undefined would unmount the whole tree and
+  // blink it back through "Loading…", so latch the last real root: the tree
+  // only unmounts when the session itself goes away.
+  const lastCwdRef = useRef<string | undefined>(cwd)
+  if (cwd !== undefined && cwd.length > 0) lastCwdRef.current = cwd
+  const lastCwd = lastCwdRef.current
   const ideTools = props.ideTools()
   const viewRequest = props.viewRequest ?? null
   const openView = props.openView
@@ -457,12 +479,25 @@ export function IdeView(props: IdeViewInjected & {
    *  and the Ctrl/Cmd+F fallback — actions Monaco only binds while the editor
    *  itself has DOM focus. */
   const diffEditorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
-  /** Markdown split preview: open flag (parked per workspace), the live
-   *  content feed from the Monaco model, and a manual-refresh nonce. */
-  const [mdPreviewOpen, setMdPreviewOpen] = useState<boolean>(() => {
+  /** Markdown preview mode — the middle editor area shows exactly one of:
+   *   'off'    the source in Monaco (no preview),
+   *   'split'  source on the left, preview on the right,
+   *   'full'   the preview over the whole editor area.
+   *  The two preview buttons are independent toggles onto this one axis: each
+   *  one turns ITS mode on and, pressed again, turns the preview off entirely
+   *  (back to source). Parked per workspace so a reopen restores the reading
+   *  layout, and the live content feed + manual-refresh nonce ride along. */
+  const [mdPreviewMode, setMdPreviewMode] = useState<MdPreviewMode>(() => {
     const key = storeKeyOf(cwd)
-    return key !== null && workspaceTabs.get(key)?.mdPreview === true
+    const parked = key !== null ? workspaceTabs.get(key)?.mdPreviewMode : undefined
+    return parked ?? 'off'
   })
+  const mdPreviewOpen = mdPreviewMode !== 'off'
+  const mdPreviewFull = mdPreviewMode === 'full'
+  /** Turn a preview mode on, or — when it is already on — go back to source. */
+  const togglePreviewMode = useCallback((mode: Exclude<MdPreviewMode, 'off'>) => {
+    setMdPreviewMode((prev) => (prev === mode ? 'off' : mode))
+  }, [])
   const [previewContent, setPreviewContent] = useState('')
   const [previewNonce, setPreviewNonce] = useState(0)
   const previewOpenRef = useRef(mdPreviewOpen)
@@ -671,6 +706,15 @@ export function IdeView(props: IdeViewInjected & {
         const p = activePathRef.current
         if (p !== undefined) void saveRef.current(p)
       })
+      // Go to Definition (F12). The editor's own Ctrl/Cmd+click link handling
+      // is registered below; both funnel into the same command.
+      editor.addCommand(Monaco.KeyCode.F12, () => { void goToDefinitionRef.current() })
+      // Ctrl/Cmd+Click on a symbol goes to its definition, like VS Code.
+      editor.onMouseDown((e) => {
+        if (e.event.leftButton && (e.event.ctrlKey || e.event.metaKey) && e.target.position !== null) {
+          void goToDefinitionRef.current()
+        }
+      })
       setMonacoReady(true)
     }).catch((e) => {
       setError(`Monaco load failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -688,6 +732,8 @@ export function IdeView(props: IdeViewInjected & {
   const activeImageSrc = activeTab?.kind === 'image' ? activeTab.imageSrc : undefined
   /** The active tab is a fully-loaded markdown document → preview available. */
   const activeIsMd = activeTab !== undefined && activeTab.status === 'ready' && activeTab.kind === 'text' && isMarkdownPath(activeTab.path)
+  /** The preview pane is open AND blown up over the whole editor area. */
+  const previewFullscreen = mdPreviewOpen && !diffPath && activeIsMd && mdPreviewFull
 
   // Workspace-scoped switching: when the workspace root (cwd) changes, park
   // the current tabs under the old key and restore the new workspace's tabs.
@@ -700,7 +746,7 @@ export function IdeView(props: IdeViewInjected & {
     setTabs(parked?.tabs ?? [])
     setActivePath(parked?.activePath)
     setDiffPath(parked?.diffPath)
-    setMdPreviewOpen(parked?.mdPreview === true)
+    setMdPreviewMode(parked?.mdPreviewMode ?? 'off')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd])
 
@@ -709,9 +755,9 @@ export function IdeView(props: IdeViewInjected & {
   useEffect(() => {
     const key = storeKeyOf(cwd)
     if (key === null) return
-    workspaceTabs.set(key, { tabs, activePath, diffPath, mdPreview: mdPreviewOpen })
+    workspaceTabs.set(key, { tabs, activePath, diffPath, mdPreviewMode })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, tabs, activePath, diffPath, mdPreviewOpen])
+  }, [cwd, tabs, activePath, diffPath, mdPreviewMode])
 
   // Terminal dock restore: re-apply this session's parked dock state on mount
   // and after a session switch. Declared BEFORE the park effect so a session
@@ -751,7 +797,7 @@ export function IdeView(props: IdeViewInjected & {
       void ideTools.pushDirtyBuffers(sessionId, [])
     }
   }, [sessionId, ideTools, scheduleDirtyFlush])
-  const openFile = useCallback(async (path: string, line?: number) => {
+  const openFile = useCallback(async (path: string, line?: number, column?: number, endColumn?: number) => {
     if (!sessionId) return
     // Already open?
     const existing = tabs.find((t) => t.path === path)
@@ -762,7 +808,7 @@ export function IdeView(props: IdeViewInjected & {
       const model = ideEditor.models.get(path)
       if (model && editorRef.current) {
         editorRef.current.setModel(model)
-        revealLine(editorRef.current, line)
+        revealLine(editorRef.current, line, column, endColumn)
       }
       return
     }
@@ -822,8 +868,84 @@ export function IdeView(props: IdeViewInjected & {
     // (Do NOT test activePath here: the closure captured it before the click's
     // setActivePath re-render, so it would be stale and skip the setModel.)
     editorRef.current?.setModel(model)
-    revealLine(editorRef.current, line)
+    revealLine(editorRef.current, line, column, endColumn)
   }, [sessionId, tabs, workspaceFiles, activePath])
+
+  /** Everything a Go-to-Definition request needs, captured from the caret. */
+  const definitionRequestAt = useCallback((path: string, line: number, column: number): {
+    language: string
+    name: string
+    position: { lineNumber: number; column: number }
+  } | null => {
+    const model = ideEditor.models.get(path)
+    if (!model) return null
+    const language = model.getLanguageId()
+    // A path reference (import/mod/include) is a jump target too, so the
+    // context menu must offer Go to Definition for it.
+    const lineText = model.getLineContent(line)
+    const onPath = pathReferenceAt(lineText, column, language) !== null
+      || (language === 'python' && pythonDottedAt(lineText, column) !== null)
+    if (!supportsDefinition(language) && !onPath) return null
+    // A path reference is often INSIDE a string, where symbolAt finds
+    // nothing — use the quoted text as the display name.
+    const symbol = symbolAt(lineText, column)
+    const name = symbol?.name ?? (onPath ? lineText.slice(Math.max(column - 1, 0)).trim().slice(0, 60) : null)
+    if (name === null) return null
+    return { language, name, position: { lineNumber: line, column } }
+  }, [])
+
+  /** Resolve the symbol at the caret to concrete definition sites.
+   *
+   *  Tier 1 (TypeScript/JavaScript): Monaco's TS worker — resolves imports,
+   *  path aliases and node_modules, exactly like VS Code.
+   *  Tier 2 (Go, Rust, Java, Python, …): grep the workspace for the name, then
+   *  keep only the hits that are DECLARATIONS per that language's grammar.
+   *
+   *  Never throws: a failed lookup resolves to [], so the caller just reports
+   *  "no definition found". */
+  const resolveDefinitions = useCallback(async (path: string, line: number, column: number): Promise<DefinitionTarget[]> => {
+    if (!sessionId || !cwd) return []
+    const model = ideEditor.models.get(path)
+    if (!model) return []
+    const language = model.getLanguageId()
+    const symbol = symbolAt(model.getLineContent(line), column)
+    if (symbol === null) return []
+
+    // ── Tier 1: the language service ──
+    if (hasLanguageService(language)) {
+      try {
+        const editor = editorRef.current
+        if (editor !== null) {
+          const locations = await lookupDefinitions(editor, model, { lineNumber: line, column })
+          const targets: DefinitionTarget[] = []
+          for (const loc of locations) {
+            const target = pathFromModelUri(loc.uri)
+            if (target === null) continue
+            const targetModel = ideEditor.models.get(target)
+            const preview = targetModel?.getLineContent(Math.min(loc.line, targetModel.getLineCount())) ?? ''
+            targets.push({ path: target, line: loc.line, column: loc.column, endColumn: loc.endColumn, preview: preview.trim().slice(0, 512) })
+          }
+          if (targets.length > 0) return targets
+        }
+      } catch {
+        // The worker can be unavailable (disposed, still starting). The index
+        // below still answers, just less precisely.
+      }
+    }
+
+    // ── Tier 2: the declaration index ──
+    try {
+      const result = await ideTools.search(sessionId, {
+        pattern: wordPattern(symbol.name),
+        include: searchIncludeFor(language),
+        caseSensitive: true,
+      })
+      if (!result.ok) return []
+      return definitionsFromHits(result.value.matches, symbol.name, language, cwd)
+    } catch {
+      return []
+    }
+  }, [sessionId, cwd, ideTools])
 
   /**
    * A source-control discard reverted one or more paths on disk. Close the diff
@@ -1187,6 +1309,8 @@ export function IdeView(props: IdeViewInjected & {
   const activePathRef = useRef(activePath)
   useEffect(() => { activePathRef.current = activePath }, [activePath])
   const saveRef = useRef<(path: string) => Promise<boolean>>(async () => false)
+  /** Go-to-Definition, exposed to Monaco keybindings and mouse gestures. */
+  const goToDefinitionRef = useRef<() => Promise<void>>(async () => {})
   useEffect(() => { saveRef.current = saveFile })
   const reopenRef = useRef<(path: string) => Promise<void>>(async () => {})
   useEffect(() => { reopenRef.current = reopenFile })
@@ -1216,6 +1340,23 @@ export function IdeView(props: IdeViewInjected & {
   // Global Ctrl/Cmd+F fallback while focus is OUTSIDE the editors (sidebar,
   // toolbar, terminal): let Monaco's own keybinding win when an editor has
   // focus, so the widget opens exactly once either way.
+  // Escape leaves full-screen preview — the same muscle memory as VS Code's
+  // full-screen readers. Capture phase so it wins before Monaco eats the key.
+  useEffect(() => {
+    if (!previewFullscreen) return
+    const onKeydown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.altKey || e.metaKey || e.ctrlKey) return
+      // Let an open dialog / rename box / context menu keep its own Escape.
+      if (document.querySelector('.ide-dialog-backdrop, .ide-context-menu, .ide-filter-box') !== null) return
+      e.preventDefault()
+      e.stopPropagation()
+      // Escape from full screen returns to the source, exactly like pressing
+      // the full-screen button again.
+      setMdPreviewMode('off')
+    }
+    window.addEventListener('keydown', onKeydown, true)
+    return () => { window.removeEventListener('keydown', onKeydown, true) }
+  }, [previewFullscreen])
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
@@ -1389,6 +1530,197 @@ export function IdeView(props: IdeViewInjected & {
       }, 400)
     }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
   }, [sessionId, ideTools])
+
+
+  /** Jump to a resolved definition: open the file, scroll to the line and
+   *  select the identifier so the eye lands on it. */
+  const goToTarget = useCallback((target: DefinitionTarget) => {
+    void openFile(target.path, target.line, target.column, target.endColumn)
+  }, [openFile])
+
+  /** Resolve a FILE reference under the caret (import/mod/include/require).
+   *  Stats the candidates in order and returns the first that exists, or null
+   *  when the caret is not on a path or nothing resolves. */
+  const resolvePathReference = useCallback(async (path: string, line: number, column: number): Promise<PathCandidate | null> => {
+    if (!sessionId || !cwd) return null
+    const model = ideEditor.models.get(path)
+    if (!model) return null
+    const lineText = model.getLineContent(line)
+    const language = model.getLanguageId()
+    const ref = pathReferenceAt(lineText, column, language)
+      ?? (language === 'python' ? pythonDottedAt(lineText, column) : null)
+    if (ref === null) return null
+    const candidates = candidatesFor(ref, path, cwd)
+    for (const candidate of candidates.slice(0, 12)) {
+      try {
+        const stat = await workspaceFiles.stat(sessionId, candidate.path)
+        if (stat.ok && stat.value.absolutePath) return { ...candidate, path: stat.value.absolutePath }
+      } catch {
+        // A transient stat failure must not abort the whole chain.
+      }
+    }
+    return null
+  }, [sessionId, cwd, workspaceFiles])
+  /** The user-facing Go-to-Definition command. Resolves the symbol under the
+   *  caret, then either jumps straight there (one hit) or offers a picker
+   *  (several hits, as with an untyped `obj.Method()` in a language with no
+   *  language server). */
+  const goToDefinition = useCallback(async () => {
+    const editor = editorRef.current
+    const path = activePathRef.current
+    if (editor === null || path === undefined) return
+    const position = editor.getPosition()
+    if (position === null) return
+    // A path under the caret wins over a symbol: imports and includes are the
+    // most common jump target, and their text is unambiguous.
+    const pathRef = await resolvePathReference(path, position.lineNumber, position.column)
+    if (pathRef !== null) {
+      void openFile(pathRef.path, pathRef.line, pathRef.column)
+      return
+    }
+    const targets = await resolveDefinitions(path, position.lineNumber, position.column)
+    if (targets.length === 0) {
+      notifications.info(t('nav.noDefinition'))
+      return
+    }
+    if (targets.length === 1) {
+      const only = targets[0]
+      if (only !== undefined) goToTarget(only)
+      return
+    }
+    // Several declarations share the name: let the user choose. Rendered from
+    // the caret's screen position so the menu appears where the eye is.
+    const coords = editor.getScrolledVisiblePosition(position)
+    const rect = containerRef.current?.getBoundingClientRect()
+    const x = (rect?.left ?? 0) + (coords?.left ?? 40)
+    const y = (rect?.top ?? 0) + (coords?.top ?? 40) + 20
+    showContextMenu(x, y, targets.slice(0, 20).map((target, i) => ({
+      id: 'def-' + String(i),
+      label: relativePath(target.path, cwd),
+      hint: ':' + String(target.line),
+      onClick: () => goToTarget(target),
+    })))
+  }, [resolveDefinitions, resolvePathReference, goToTarget, cwd, t])
+  goToDefinitionRef.current = goToDefinition
+  /** Right-click on the editor: offer Go to Definition alongside clipboard
+   *  actions. Monaco owns its own context menu, so this listens on the host
+   *  element in the CAPTURE phase — it runs first, and only when the caret is
+   *  on a symbol this build can resolve.
+   */
+  useEffect(() => {
+    const host = containerRef.current
+    if (host === null || !monacoReady) return
+    const onContextMenu = (e: MouseEvent): void => {
+      const editor = editorRef.current
+      const path = activePathRef.current
+      if (editor === null || path === undefined) return
+      const target = editor.getTargetAtClientPoint(e.clientX, e.clientY)
+      const position = target?.position ?? editor.getPosition()
+      if (position === null || position === undefined) return
+      const request = definitionRequestAt(path, position.lineNumber, position.column)
+      if (request === null) return
+      e.preventDefault()
+      e.stopPropagation()
+      showContextMenu(e.clientX, e.clientY, [
+        { id: 'def', label: t('nav.goToDefinition'), hint: 'F12', onClick: () => { void goToDefinitionRef.current() } },
+        { id: 'sep', label: '', separator: true },
+        { id: 'copy', label: t('nav.copySymbol'), onClick: () => { void copyTextOrNotify(request.name, copyFailureNotifier(t, t('nav.copySymbol'))) } },
+      ])
+    }
+    host.addEventListener('contextmenu', onContextMenu, true)
+    return () => { host.removeEventListener('contextmenu', onContextMenu, true) }
+  }, [monacoReady, definitionRequestAt, t])
+
+  /** Reveal a tab's file in the explorer: switch the sidebar to Explorer,
+   *  make sure the sidebar is open, then let the tree expand and scroll. */
+  // A reveal requested while another sidebar view is showing cannot run yet:
+  // the FileTree only mounts inside the Explorer branch, so explorerRef is
+  // still null on this tick. Park the request and let the ref callback drain
+  // it the moment the tree attaches (a timeout would fire before React
+  // commits and silently do nothing).
+  const [pendingReveal, setPendingReveal] = useState<string | null>(null)
+  /** Reveal a file in the tree. \`activateView\` forces the Explorer onto the
+   *  sidebar; without it the reveal is a no-op unless the Explorer is already
+   *  showing, so a single click on a tab does not yank the user away from
+   *  Source Control / Extensions. */
+  const revealInExplorer = useCallback((path: string, activateView = true) => {
+    // Already showing the tree: reveal straight away, no re-render needed.
+    if (explorerRef.current !== null) {
+      void explorerRef.current.revealPath(path)
+      return
+    }
+    // The tree is not mounted. An explicit 'Reveal in Explorer' switches the
+    // sidebar over; clicking a tab is only a side effect, so it must not yank
+    // the user away from Source Control or Extensions. When the Explorer IS
+    // the current view the tree is simply mid-mount, so park the request and
+    // let the ref callback drain it.
+    if (!activateView && sidebarView !== 'explorer') return
+    setPendingReveal(path)
+    setSidebarView('explorer')
+  }, [setSidebarView, sidebarView])
+
+  /** Drained once the tree attaches, so a reveal issued from another view
+   *  still lands. Stable identity keeps React from detaching the ref. */
+  const attachExplorer = useCallback((node: ExplorerHandle | null) => {
+    explorerRef.current = node
+    if (node === null) return
+    setPendingReveal((path) => {
+      if (path !== null) void node.revealPath(path)
+      return null
+    })
+  }, [])
+
+  /** Go to Definition from inside the SCM diff overlay. The diff's models
+   *  carry dsh-git-diff-* URIs, so they are invisible to the language
+   *  service lookup used for normal tabs; this resolves against the file's
+   *  own language and, for a jump, opens the REAL file rather than the diff
+   *  model. */
+  const goToDefinitionFromDiff = useCallback(async (line: number, column: number) => {
+    if (!sessionId || !cwd || !diffPath) return
+    const filePath = diffPath.path.includes('/') ? diffPath.path : (cwd + '/' + diffPath.path)
+    // Read the working-tree text so the caret's line is known even though the
+    // diff's models are transient.
+    const ctrl = new AbortController()
+    const loaded = await loadFileContent(workspaceFiles, sessionId, filePath, ctrl.signal)
+    const lineText = (loaded.text ?? '').split('\n')[line - 1] ?? ''
+    const language = detectLanguage(filePath)
+    // A path reference (import/include) wins, exactly like a normal tab.
+    const ref = pathReferenceAt(lineText, column, language)
+      ?? (language === 'python' ? pythonDottedAt(lineText, column) : null)
+    if (ref !== null) {
+      const candidates = candidatesFor(ref, filePath, cwd)
+      for (const candidate of candidates.slice(0, 12)) {
+        try {
+          const stat = await workspaceFiles.stat(sessionId, candidate.path)
+          if (stat.ok && stat.value.absolutePath) {
+            setDiffPath(undefined)
+            void openFile(stat.value.absolutePath, candidate.line, candidate.column)
+            return
+          }
+        } catch { /* keep trying */ }
+      }
+    }
+    const symbol = symbolAt(lineText, column)
+    if (symbol === null) {
+      notifications.info(t('nav.noDefinition'))
+      return
+    }
+    try {
+      const result = await ideTools.search(sessionId, {
+        pattern: wordPattern(symbol.name),
+        include: searchIncludeFor(language),
+        caseSensitive: true,
+      })
+      if (!result.ok) { notifications.info(t('nav.noDefinition')); return }
+      const targets = definitionsFromHits(result.value.matches, symbol.name, language, cwd)
+      if (targets.length === 0) { notifications.info(t('nav.noDefinition')); return }
+      const only = targets[0]
+      if (only !== undefined) {
+        setDiffPath(undefined)
+        void openFile(only.path, only.line, only.column, only.endColumn)
+      }
+    } catch { notifications.info(t('nav.noDefinition')) }
+  }, [sessionId, cwd, diffPath, workspaceFiles, ideTools, openFile, t])
 
   /** The Manage gear menu (VS Code Manage menu). */
   const gearRef = useRef<HTMLDivElement>(null)
@@ -1719,6 +2051,7 @@ export function IdeView(props: IdeViewInjected & {
                   setDiffPath(undefined)
                   void openFile(path)
                 }}
+                onRevealFile={(path) => { revealInExplorer(path) }}
                 onOpenCommitDiff={(sha, path, oldPath) => {
                   // One file inside one commit (source control graph details).
                   setDiffPath({ path, oldPath, sha })
@@ -1765,6 +2098,7 @@ export function IdeView(props: IdeViewInjected & {
                   setDiffPath(undefined)
                   void openFile(path, line)
                 }}
+                onRevealFile={(path) => { revealInExplorer(path) }}
                 t={t}
               />
             ) : (
@@ -1806,11 +2140,11 @@ export function IdeView(props: IdeViewInjected & {
                   >{Icons.chevronDown}</button>
                 </div>
               </div>
-              {sessionId && cwd ? (
+              {sessionId && (cwd ?? lastCwd) ? (
                 <FileTree
-                  ref={explorerRef}
+                  ref={attachExplorer}
                   sessionId={sessionId}
-                  rootDir={cwd}
+                  rootDir={(cwd ?? lastCwd) as string}
                   workspaceFiles={workspaceFiles}
                   activePath={activePath}
                   onOpenFile={(path) => {
@@ -1888,16 +2222,32 @@ export function IdeView(props: IdeViewInjected & {
               onClick={() => setRightSidebarOpen((v) => !v)}
             >{Icons.splitEditor}</button>
           </div>
-          <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} t={t}
+          <TabBar tabs={tabs} active={activePath} onSelect={setActivePath} onClose={closeTab} onReveal={(path) => revealInExplorer(path, false)} t={t}
             actions={!diffPath && activeIsMd ? (
-              <button
-                className="ide-tabbar-action"
-                data-active={mdPreviewOpen || undefined}
-                title={mdPreviewOpen ? t('md.closePreview') : t('md.openPreview')}
-                aria-label={mdPreviewOpen ? t('md.closePreview') : t('md.openPreview')}
-                data-testid="ide-md-preview-toggle"
-                onClick={() => setMdPreviewOpen((v) => !v)}
-              >{Icons.openPreview}</button>
+              <>
+                {/* Two independent entry points onto the same axis. Each press
+                    turns ITS mode on directly from source, and pressing the
+                    active one again goes back to source (never to the other
+                    mode). Full screen comes first. */}
+                <button
+                  className="ide-tabbar-action"
+                  data-testid="ide-md-preview-fullscreen"
+                  data-active={previewFullscreen || undefined}
+                  title={previewFullscreen ? t('md.exitFullscreen') : t('md.fullscreen')}
+                  aria-label={previewFullscreen ? t('md.exitFullscreen') : t('md.fullscreen')}
+                  aria-pressed={previewFullscreen}
+                  onClick={() => togglePreviewMode('full')}
+                >{previewFullscreen ? Icons.restore : Icons.screenFull}</button>
+                <button
+                  className="ide-tabbar-action"
+                  data-testid="ide-md-preview-toggle"
+                  data-active={(mdPreviewMode === 'split') || undefined}
+                  title={mdPreviewMode === 'split' ? t('md.closePreview') : t('md.openPreview')}
+                  aria-label={mdPreviewMode === 'split' ? t('md.closePreview') : t('md.openPreview')}
+                  aria-pressed={mdPreviewMode === 'split'}
+                  onClick={() => togglePreviewMode('split')}
+                >{Icons.openPreview}</button>
+              </>
             ) : undefined}
           />
           {/* The stack spans exactly the editor region (tab bar → panel dock →
@@ -1911,7 +2261,9 @@ export function IdeView(props: IdeViewInjected & {
               mounted at all times — the diff and image views are overlays — so
               the singleton editor host is never detached from a dead node (which
               is what made files stop opening after a diff was shown). */}
-          <div className="ide-editor-container" ref={containerRef} data-md-split={mdPreviewOpen && !diffPath && activeIsMd ? 'true' : undefined} />
+          <div className="ide-editor-container" ref={containerRef}
+            data-md-split={mdPreviewOpen && !diffPath && activeIsMd && !previewFullscreen ? 'true' : undefined}
+            data-md-covered={previewFullscreen ? 'true' : undefined} />
           {activeImageSrc && (
             <div className="ide-editor-image">
               {/* PDFs render in the browser's built-in viewer via an iframe.
@@ -1924,10 +2276,13 @@ export function IdeView(props: IdeViewInjected & {
           )}
           {/* Markdown split preview (VS Code "Open Preview to the Side"):
               the Monaco container narrows via data-md-split while this pane
-              owns the right half. Hidden while a git diff overlay is open. */}
+              owns the right half. Hidden while a git diff overlay is open.
+              Full screen ("Show Preview Full Screen"): the pane covers the
+              whole editor area and Monaco is only covered, never unmounted,
+              so leaving full screen restores the editor exactly as it was. */}
           {mdPreviewOpen && !diffPath && activeIsMd && (
-            <div className="ide-md-pane" data-testid="ide-md-preview">
-              <div className="ide-md-pane-header">
+            <div className="ide-md-pane" data-testid="ide-md-preview" data-fullscreen={previewFullscreen || undefined}>
+              <div className="ide-md-pane-header" data-fullscreen={previewFullscreen || undefined}>
                 <span className="ide-md-pane-title">{activeTab?.name ?? ''}</span>
                 <button
                   className="ide-tabbar-action"
@@ -1943,7 +2298,7 @@ export function IdeView(props: IdeViewInjected & {
                   className="ide-tabbar-action"
                   title={t('md.closePreview')}
                   aria-label={t('md.closePreview')}
-                  onClick={() => setMdPreviewOpen(false)}
+                  onClick={() => setMdPreviewMode('off')}
                 >{Icons.close}</button>
               </div>
               <MarkdownPreview
@@ -2010,6 +2365,7 @@ export function IdeView(props: IdeViewInjected & {
               name={diffPath.path.split('/').pop() ?? diffPath.path}
               commit={diffPath.sha !== undefined ? { sha: diffPath.sha, path: diffPath.path, oldPath: diffPath.oldPath } : undefined}
               diffKind={diffPath.diffKind}
+              onGoToDefinition={(line, column) => { void goToDefinitionFromDiff(line, column) }}
               onSaved={(savedPath) => {
                 // A save from the editable diff pane changed the worktree: sync
                 // the matching normal tab (its model + saved baseline are stale
@@ -2121,9 +2477,36 @@ function matchesPath(tabPath: string, absolutePath: string, _cwd: string | undef
 }
 
 /** Reveal and center one 1-based line, placing the cursor there. */
-function revealLine(editor: import('monaco-editor').editor.ICodeEditor | null, line: number | undefined): void {
+/** A ripgrep pattern matching `name` as a whole word. Bounded by a non-word
+ *  lookaround rather than \b so CJK/Unicode identifiers match too. */
+/** Workspace-relative form of an absolute path, for compact menu labels. */
+function relativePath(path: string, root: string | undefined): string {
+  if (root === undefined || root === '') return path
+  const prefix = root.endsWith('/') ? root : root + '/'
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path
+}
+
+function wordPattern(name: string): string {
+  const escaped = name.replace(/[.*+?^$()|[\]\\]/g, '\\$&')
+  return '(?<![A-Za-z0-9_$])' + escaped + '(?![A-Za-z0-9_$])'
+}
+
+function revealLine(
+  editor: import('monaco-editor').editor.ICodeEditor | null,
+  line: number | undefined,
+  column?: number,
+  endColumn?: number,
+): void {
   if (editor === null || line === undefined || !Number.isFinite(line) || line < 1) return
-  const position = { lineNumber: Math.floor(line), column: 1 }
+  const lineNumber = Math.floor(line)
+  const col = column !== undefined && Number.isFinite(column) && column > 0 ? Math.floor(column) : 1
+  const position = { lineNumber, column: col }
   editor.setPosition(position)
-  editor.revealLineInCenter(position.lineNumber)
+  editor.revealLineInCenter(lineNumber)
+  // A definition jump also flashes the identifier so the eye lands on it
+  // instead of merely on the right line.
+  if (endColumn !== undefined && endColumn > col) {
+    const model = editor.getModel()
+    if (model !== null) editor.setSelection({ startLineNumber: lineNumber, startColumn: col, endLineNumber: lineNumber, endColumn: Math.floor(endColumn) })
+  }
 }

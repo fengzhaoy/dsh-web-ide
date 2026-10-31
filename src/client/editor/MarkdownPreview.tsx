@@ -61,8 +61,8 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
     const probe = document.createElement('div')
     probe.innerHTML = html
     void (async () => {
-      for (const img of Array.from(probe.querySelectorAll('img[data-md-img]'))) {
-        const rel = img.getAttribute('data-md-img') ?? ''
+      for (const img of Array.from(probe.querySelectorAll('img[data-md-src]'))) {
+        const rel = img.getAttribute('data-md-src') ?? ''
         if (rel === '' || resolvedRef.current.has(rel)) continue
         if (rel.startsWith('http://') || rel.startsWith('https://') || rel.startsWith('data:')) {
           resolvedRef.current.set(rel, rel)
@@ -88,8 +88,8 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
   useEffect(() => {
     const host = bodyRef.current
     if (host === null) return
-    for (const img of Array.from(host.querySelectorAll('img[data-md-img]'))) {
-      const rel = img.getAttribute('data-md-img') ?? ''
+    for (const img of Array.from(host.querySelectorAll('img[data-md-src]'))) {
+      const rel = img.getAttribute('data-md-src') ?? ''
       const resolved = resolvedRef.current.get(rel)
       if (resolved !== undefined && resolved !== '') img.setAttribute('src', resolved)
     }

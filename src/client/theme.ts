@@ -154,6 +154,11 @@ export const IDE_STYLES = `
 /* ── Markdown split preview (VS Code Open-Preview-to-the-Side parity) ── */
 .ide-editor-container[data-md-split='true']{inset:0 50% 0 0}
 .ide-md-pane{position:absolute;top:0;bottom:0;right:0;width:50%;display:flex;flex-direction:column;background:var(--ide-bg);border-left:1px solid var(--ide-tab-border);z-index:1}
+/* Full screen ("Show Preview Full Screen"): the pane owns the whole editor
+   area and the split divider goes away. Monaco keeps its node (only covered),
+   so the editor is intact the moment full screen is left. */
+.ide-md-pane[data-fullscreen]{width:auto;left:0;border-left:none}
+.ide-editor-container[data-md-covered='true']{visibility:hidden}
 .ide-md-pane-header{height:28px;flex:none;display:flex;align-items:center;gap:4px;padding:0 8px 0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px;color:var(--ide-fg)}
 .ide-md-pane-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .ide-tabbar-action{flex:none;width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--ide-fg-muted);cursor:pointer;border-radius:4px}
@@ -190,6 +195,31 @@ export const IDE_STYLES = `
 .ide-md-body th{background:rgba(255,255,255,.05);font-weight:600}
 .ide-md-body hr{border:none;border-top:1px solid #3c3c3c;margin:20px 0}
 .ide-md-body img{max-width:100%}
+/* Raw README markup. GitHub renders a centred banner as <p align="center">
+   holding an <img>; the browser's default UA stylesheet for align= is long
+   gone, and a lone <img> is an inline box on a text baseline, so it needs
+   both an explicit centring rule and block layout (otherwise the line box
+   adds descender space under the image). */
+.ide-md-body [align='center'],.ide-md-body [align='middle']{text-align:center}
+.ide-md-body [align='right']{text-align:right}
+.ide-md-body p>img:only-child,.ide-md-body p>a:only-child>img:only-child{display:inline-block;vertical-align:middle;margin:4px 0}
+.ide-md-body details{border:1px solid #3c3c3c;border-radius:4px;padding:0 12px;margin:0 0 16px}
+.ide-md-body summary{cursor:pointer;padding:8px 0;font-weight:600}
+.ide-md-body details[open]>summary{margin-bottom:8px;border-bottom:1px solid #3c3c3c}
+.ide-md-body kbd{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:11px;border:1px solid #3c3c3c;border-bottom-width:2px;border-radius:3px;padding:1px 5px;background:rgba(255,255,255,.06)}
+.ide-md-body sub,.ide-md-body sup{font-size:75%;line-height:0}
+.ide-md-body .ide-md-image-alt{color:var(--ide-fg-muted);font-style:italic}
+/* GitHub alerts (> [!NOTE] …). */
+.ide-md-alert{margin:0 0 16px;padding:8px 16px;border-left:3px solid #4daafc;border-radius:4px;background:rgba(77,170,252,.08)}
+.ide-md-alert-title{margin:0 0 6px;font-weight:600;color:#4daafc}
+.ide-md-alert-tip{border-left-color:#3fb950;background:rgba(63,185,80,.08)}
+.ide-md-alert-tip .ide-md-alert-title{color:#3fb950}
+.ide-md-alert-important{border-left-color:#a371f7;background:rgba(163,113,247,.08)}
+.ide-md-alert-important .ide-md-alert-title{color:#a371f7}
+.ide-md-alert-warning{border-left-color:#d29922;background:rgba(210,153,34,.08)}
+.ide-md-alert-warning .ide-md-alert-title{color:#d29922}
+.ide-md-alert-caution{border-left-color:#f85149;background:rgba(248,81,73,.08)}
+.ide-md-alert-caution .ide-md-alert-title{color:#f85149}
 .ide-md-body .ide-md-link{cursor:pointer}
 .ide-md-empty{display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-style:italic}
 .ide-editor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-size:13px;flex-direction:column;gap:8px}

@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitStatusEntry, GitStatusResult, IdeToolsRemote, SessionId } from '../types.js'
 import { Icons, fileIcon } from '../icons.js'
+import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
+import { relPathOf } from '../explorer/copy-name.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { GraphView } from './GraphView.js'
 import { BranchesView } from './BranchesView.js'
@@ -24,6 +26,9 @@ export interface SourceControlPanelProps {
   /** Open the working-tree file itself in the editor (context menu → Open
    *  File, VS Code parity). The path is workspace-relative. */
   onOpenFile?: (path: string) => void
+
+  /** Reveal a change's file in the Explorer (switches the sidebar view). */
+  onRevealFile?: (path: string) => void
   /** Open one file of one commit as a diff in the editor area (graph view). */
   onOpenCommitDiff: (sha: string, path: string, oldPath: string | undefined) => void
   /** Bumped by the owner whenever external activity may have changed git
@@ -105,7 +110,7 @@ function sameStatus(a: GitStatusResult | null, b: GitStatusResult): boolean {
   return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind && a.detached === b.detached
 }
 
-export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenFile, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, openViewsRequest, onOpenViewsChanged, t }: SourceControlPanelProps) {
+export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpenFile, onRevealFile, onOpenCommitDiff, onChangesDiscarded, refreshKey, onStatusChanged, commitMessage: commitMessageProp, onCommitMessageChange, openViewsRequest, onOpenViewsChanged, t }: SourceControlPanelProps) {
   const [openViews, setOpenViews] = useState<ScmOpenViews>({ changes: true, graph: false, branches: false })
   // External "open this view" requests (status-bar branch button). Keyed on
   // object identity so the SAME view can be re-opened after the user
@@ -127,6 +132,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   }
   const [committing, setCommitting] = useState(false)
   /** Sync/Publish action button in flight (pull+push / push -u). */
+  const notifyCopyFailed = copyFailureNotifier(t, t('context.copyPath'))
   const [syncing, setSyncing] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
   const [result, setResult] = useState<GitStatusResult | null>(null)
@@ -561,6 +567,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               showContextMenu(e.clientX, e.clientY, [
                 { id: 'open-change', label: t('git.openDiff'), icon: Icons.diff, onClick: () => handleClick(entry, staged) },
                 { id: 'open-file', label: t('git.openFile'), icon: Icons.goToFile, disabled: !onOpenFile, onClick: () => { onOpenFile?.(entry.path) } },
+                { id: 'reveal', label: t('context.revealInExplorer'), icon: Icons.explorer, disabled: !onRevealFile, onClick: () => { onRevealFile?.(entry.path) } },
                 { id: 'sep1', label: '', separator: true },
                 // Conflicted entries stage instead of unstaging: git add on an
                 // unmerged path marks the conflict resolved (VS Code parity),
@@ -570,8 +577,8 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                   : [{ id: 'stage', label: t('git.stage'), icon: Icons.plus, onClick: () => { void handleStage(entry) } }]),
                 { id: 'discard', label: t('git.discard'), icon: Icons.discard, onClick: () => { setDiscardError(null); setConfirmDiscard(entry) } },
                 { id: 'sep2', label: '', separator: true },
-                { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(entry.path) } },
-                { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(cwd ? entry.path.replace(cwd.replace(/[\/\\]+$/, '') + '/', '') : entry.path) } },
+                { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(entry.path, notifyCopyFailed) } },
+                { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(cwd ? relPathOf(cwd, entry.path) : entry.path, notifyCopyFailed) } },
               ])
             }}
           >

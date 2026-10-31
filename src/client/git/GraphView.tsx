@@ -11,6 +11,7 @@ import type { GitCommitDetailsResult, GitLogEntry, IdeToolsRemote, SessionId } f
 import { Icons, fileIcon } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { computeGraphModels, graphCellGeometry, graphPlaceholderLanes, SWIMLANE_HEIGHT, SWIMLANE_WIDTH } from './ScmGraph.js'
+import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
 
 export interface GraphViewProps {
   sessionId: SessionId
@@ -47,6 +48,7 @@ function relativeAge(unixSeconds: number): string {
 }
 
 export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutated, t }: GraphViewProps) {
+  const notifyCopyFailed = copyFailureNotifier(t, t('git.graphCopySha'))
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [commits, setCommits] = useState<readonly GitLogEntry[]>([])
@@ -238,8 +240,8 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
   const openCommitMenu = useCallback((commit: GitLogEntry, x: number, y: number) => {
     const isHead = commit.hash === head
     const items: Parameters<typeof showContextMenu>[2] = [
-      { id: 'copy-sha', label: t('git.graphCopySha'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(commit.hash) } },
-      { id: 'copy-subject', label: t('git.graphCopySubject'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(commit.subject) } },
+      { id: 'copy-sha', label: t('git.graphCopySha'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(commit.hash, notifyCopyFailed) } },
+      { id: 'copy-subject', label: t('git.graphCopySubject'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(commit.subject, notifyCopyFailed) } },
       { id: 'sep1', label: '', separator: true },
       {
         id: 'branch',

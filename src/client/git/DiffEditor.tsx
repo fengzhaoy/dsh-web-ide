@@ -43,6 +43,9 @@ export interface DiffEditorProps {
    *  owner can drive it — e.g. trigger the in-file find widget from the
    *  toolbar or a global Ctrl/Cmd+F while focus is outside the editor. */
   onEditorReady?: (editor: Monaco.editor.IDiffEditor | null) => void
+  /** F12 / Ctrl+Click on a symbol: the owner resolves it against the real
+   *  workspace files (the diff models are not in the editor's registry). */
+  onGoToDefinition?: (line: number, column: number) => void
   /** The right side was saved through the write Remote: the owner reopens the
    *  matching normal tab (sync its model + saved baseline) and refreshes git. */
   onSaved?: (path: string) => void
@@ -112,9 +115,11 @@ function applyUnifiedDiff(original: string, patch: string): string {
   return out.join('\n')
 }
 
-export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, diffKind, onClose, onEditorReady, onSaved, onExternalChange, t }: DiffEditorProps) {
+export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspaceFilesWrite, path, name, commit, diffKind, onClose, onEditorReady, onGoToDefinition, onSaved, onExternalChange, t }: DiffEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Monaco.editor.IDiffEditor | null>(null)
+  const onGoToDefinitionRef = useRef<((line: number, column: number) => void) | null>(null)
+  onGoToDefinitionRef.current = onGoToDefinition ?? null
   /** Whether the one-time auto-jump to the first diff hunk has run for the
    *  current mount. The external-change watch reloads models in place and
    *  re-runs the diff; jumping on every update would fight the user's scroll,
@@ -431,6 +436,24 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       if (canEdit) {
         editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { void saveEdits.current() })
       }
+      // ── Go to Definition inside the diff ──
+      // The diff owns models with their own `dsh-git-diff-*` URIs, so the main
+      // editor's language-service lookup cannot see them. Resolution is
+      // delegated to the owner (which runs the same two-tier engine used for
+      // normal tabs); this component only reports WHERE the user asked.
+      const modifiedEditor = editor.getModifiedEditor()
+      const requestDef = (): void => {
+        const pos = modifiedEditor.getPosition()
+        if (pos === null) return
+        onGoToDefinitionRef.current?.(pos.lineNumber, pos.column)
+      }
+      editor.addCommand(Monaco.KeyCode.F12, requestDef)
+      modifiedEditor.onMouseDown((e) => {
+        if (!e.event.leftButton) return
+        if (!e.event.ctrlKey && !e.event.metaKey) return
+        if (e.target.position === null) return
+        onGoToDefinitionRef.current?.(e.target.position.lineNumber, e.target.position.column)
+      })
       editorRef.current = editor
       onEditorReadyRef.current?.(editor)
       setStats({ old: oldModel.getLineCount(), new: newModel.getLineCount(), source })

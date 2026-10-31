@@ -39,6 +39,9 @@ interface TabBarProps {
   tabs: OpenTab[]
   active: string | undefined
   onSelect: (path: string) => void
+  /** Single click a tab: select it AND reveal its file in the explorer, so a
+   *  collapsed directory opens on the way to the file. */
+  onReveal?: (path: string) => void
   onClose: (path: string) => void
   /** Editor-title actions rendered in the tab bar's right zone (VS Code
    *  parity: the markdown preview toggle lives there for .md tabs). */
@@ -46,7 +49,7 @@ interface TabBarProps {
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
-export function TabBar({ tabs, active, onSelect, onClose, actions, t }: TabBarProps) {
+export function TabBar({ tabs, active, onSelect, onClose, onReveal, actions, t }: TabBarProps) {
   if (tabs.length === 0) return null
   return (
     <div className="ide-tabbar" role="tablist">
@@ -57,8 +60,14 @@ export function TabBar({ tabs, active, onSelect, onClose, actions, t }: TabBarPr
           className="ide-tab"
           role="tab"
           data-active={tab.path === active || undefined}
-          onClick={() => onSelect(tab.path)}
-          title={tab.path}
+          onClick={() => {
+            // Select first (instant tab switch), then reveal: revealing expands
+            // collapsed ancestors and scrolls the row into view, so one click
+            // opens the tree on the way to the file too.
+            onSelect(tab.path)
+            onReveal?.(tab.path)
+          }}
+          title={onReveal !== undefined ? t('tab.revealHint', { path: tab.path }) : tab.path}
         >
           <span className="ide-tab-name">{tab.name}</span>
           {tab.dirty && <span className="ide-tab-dirty" title={t('status.dirty')}>&#9679;</span>}

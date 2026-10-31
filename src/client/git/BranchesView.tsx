@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { GitBranch, IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
+import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
 
 export interface BranchesViewProps {
   sessionId: SessionId
@@ -24,6 +25,7 @@ export interface BranchesViewProps {
 type LoadState = 'loading' | 'ready' | 'error'
 
 export function BranchesView({ sessionId, cwd, ideTools, onMutated, t }: BranchesViewProps) {
+  const notifyCopyFailed = copyFailureNotifier(t, t('git.branch'))
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [branches, setBranches] = useState<readonly GitBranch[]>([])
@@ -176,7 +178,7 @@ export function BranchesView({ sessionId, cwd, ideTools, onMutated, t }: Branche
         id: 'copy-name',
         label: t('git.branchCopyName'),
         icon: Icons.copy,
-        onClick: () => { void navigator.clipboard.writeText(branch.name) },
+        onClick: () => { void copyTextOrNotify(branch.name, notifyCopyFailed) },
       },
     ])
   }, [t, handleCheckout])
@@ -197,7 +199,7 @@ export function BranchesView({ sessionId, cwd, ideTools, onMutated, t }: Branche
         id: 'copy-name',
         label: t('git.branchCopyName'),
         icon: Icons.copy,
-        onClick: () => { void navigator.clipboard.writeText(name) },
+        onClick: () => { void copyTextOrNotify(name, notifyCopyFailed) },
       },
     ])
   }, [t, current, handleCheckout])

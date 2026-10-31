@@ -5,6 +5,7 @@
  * layout buttons, notification bell. All pickers reuse the ContextMenu.
  */
 import { languageLabel } from '../language.js'
+import { copyText } from '../clipboard.js'
 import { Icons } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { notifications } from '../notifications.js'
@@ -116,37 +117,11 @@ export function StatusBar(props: StatusBarProps) {
     })))
   }
 
-  /** Copy a value to the clipboard and acknowledge it with a toast. Falls
-   *  back to execCommand when the async Clipboard API is unavailable (the DSH
-   *  web page can be served over plain HTTP on a non-loopback host, where
-   *  navigator.clipboard is undefined) so the click never fails silently. */
+  /** Copy a value to the clipboard and acknowledge it with a toast. The
+   *  fallback chain lives in ../clipboard.ts so every panel behaves the same
+   *  on insecure origins, where the async Clipboard API is unavailable. */
   const copyToClipboard = async (value: string, what: string): Promise<void> => {
-    let ok = false
-    try {
-      if (navigator.clipboard !== undefined) {
-        await navigator.clipboard.writeText(value)
-        ok = true
-      }
-    } catch {
-      ok = false
-    }
-    if (!ok) {
-      try {
-        const area = document.createElement('textarea')
-        area.value = value
-        area.setAttribute('readonly', '')
-        area.style.position = 'fixed'
-        area.style.left = '-9999px'
-        area.style.top = '0'
-        document.body.appendChild(area)
-        area.select()
-        ok = document.execCommand('copy')
-        area.remove()
-      } catch {
-        ok = false
-      }
-    }
-    if (ok) notifications.info(t('status.copied', { what, value }))
+    if (await copyText(value)) notifications.info(t('status.copied', { what, value }))
     else notifications.error(t('status.copyFailed', { what }))
   }
 

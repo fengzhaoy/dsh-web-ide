@@ -3,8 +3,10 @@
  * reuses dsh-tool-fs-search's ripgrep argv builder, runner, and --json
  * parser). Results group by file; clicking a hit opens the file at the line.
  */
+import { showContextMenu } from '../ContextMenu.js'
 import { useCallback, useRef, useState } from 'react'
 import type { IdeSearchMatch, IdeToolsRemote, SessionId } from '../types.js'
+import { Icons } from '../icons.js'
 
 export interface SearchPanelProps {
   sessionId: SessionId
@@ -12,6 +14,9 @@ export interface SearchPanelProps {
   ideTools: IdeToolsRemote
   /** Open one absolute path in the editor. */
   onOpenFile: (path: string, line?: number) => void
+
+  /** Reveal a hit's file in the Explorer, switching the sidebar view. */
+  onRevealFile?: (path: string) => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
@@ -25,7 +30,7 @@ interface SearchState {
 
 const IDLE: SearchState = { status: 'idle', matches: [], truncated: false, totalMatches: 0, error: null }
 
-export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, t }: SearchPanelProps) {
+export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, onRevealFile, t }: SearchPanelProps) {
   const [pattern, setPattern] = useState('')
   const [include, setInclude] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(true)
@@ -112,7 +117,17 @@ export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, t }: SearchP
             </div>
             {[...groups.entries()].map(([path, hits]) => (
               <div key={path} className="ide-search-file">
-                <div className="ide-search-file-name" title={path}>
+                <div
+                  className="ide-search-file-name"
+                  title={path}
+                  onContextMenu={(e) => {
+                    if (onRevealFile === undefined) return
+                    e.preventDefault()
+                    showContextMenu(e.clientX, e.clientY, [
+                      { id: 'reveal', label: t('context.revealInExplorer'), icon: Icons.explorer, onClick: () => onRevealFile(absolutize(path, cwd)) },
+                    ])
+                  }}
+                >
                   {path.split('/').pop()}
                   <span className="ide-search-file-dir">{dirLabel(path, cwd)}</span>
                 </div>
@@ -121,6 +136,14 @@ export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, t }: SearchP
                     key={hit.lineNumber + ':' + hit.line.slice(0, 32)}
                     className="ide-search-hit"
                     onClick={() => onOpenFile(absolutize(hit.path, cwd), hit.lineNumber)}
+                    onContextMenu={(e) => {
+                      if (onRevealFile === undefined) return
+                      e.preventDefault()
+                      showContextMenu(e.clientX, e.clientY, [
+                        { id: 'open', label: t('search.openHit'), icon: Icons.goToFile, onClick: () => onOpenFile(absolutize(hit.path, cwd), hit.lineNumber) },
+                        { id: 'reveal', label: t('context.revealInExplorer'), icon: Icons.explorer, onClick: () => onRevealFile(absolutize(hit.path, cwd)) },
+                      ])
+                    }}
                   >
                     <span className="ide-search-hit-line">{hit.lineNumber}</span>
                     <span className="ide-search-hit-text">{hit.line.trim().slice(0, 200)}</span>

@@ -45,13 +45,18 @@ function createNoopWorker(): Worker {
 // 'toUrl')" back to the main thread. That uncaught error can interrupt a
 // concurrent React render and leave the editor blank.
 //
-// Fix: route ONLY the editor worker (label 'editorWorkerService') to the real
-// embedded worker; every language-service worker request gets the no-op worker,
-// so $loadForeignModule is never issued against a worker that cannot satisfy it.
-// Monarch tokenization (syntax highlighting) runs on the main thread and is
-// unaffected; only language IntelliSense (completion, diagnostics) is absent —
-// which was already the case since no language worker was ever bundled.
-const EDITOR_WORKER_LABEL = 'editorWorkerService'
+// Fix: route ONLY the worker labels the embedded bundle actually provides —
+// the editor worker and the TypeScript language service — to the real worker.
+// Every OTHER language label (json, css, html, markdown, …) gets the no-op
+// worker, so $loadForeignModule is never issued for a module that is not
+// there. Monarch tokenization (syntax highlighting) runs on the main thread
+// and is unaffected.
+//
+// The TypeScript entry is load-bearing for Go-to-Definition: without a real
+// ts.worker the language service never answers, and every .ts/.tsx/.mjs/.jsx
+// jump silently degraded to the grep index (declaration-level, unable to
+// follow imports). See src/client/monaco-worker.ts.
+const SUPPORTED_WORKER_LABELS = new Set(['editorWorkerService', 'typescript'])
 
 export function installMonacoWorker(): void {
   if (installed) return
@@ -61,7 +66,7 @@ export function installMonacoWorker(): void {
     const url = URL.createObjectURL(new Blob([monacoWorkerSource], { type: 'text/javascript' }))
     const env: MonacoEnv = host.MonacoEnvironment ?? {}
     env.getWorker = (_workerId: string, label: string) => {
-      if (label !== EDITOR_WORKER_LABEL) return createNoopWorker()
+      if (!SUPPORTED_WORKER_LABELS.has(label)) return createNoopWorker()
       try {
         return new Worker(url, { name: 'monaco-editor-worker' })
       } catch {
@@ -69,7 +74,7 @@ export function installMonacoWorker(): void {
       }
     }
     env.getWorkerUrl = (workerId: string, label: string) => {
-      if (label !== EDITOR_WORKER_LABEL) return noopWorkerUrl ?? (noopWorkerUrl = URL.createObjectURL(new Blob(['self.onmessage = () => {}'], { type: 'application/javascript' })))
+      if (!SUPPORTED_WORKER_LABELS.has(label)) return noopWorkerUrl ?? (noopWorkerUrl = URL.createObjectURL(new Blob(['self.onmessage = () => {}'], { type: 'application/javascript' })))
       return url
     }
     host.MonacoEnvironment = env

@@ -2,6 +2,10 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { GitStatusEntry, IdeToolsRemote, SessionId, WorkspaceDirectoryEntry, WorkspaceDirectoryListing, WorkspaceFilesRemote } from '../types.js'
 import { Icons, fileIcon } from '../icons.js'
 import { showContextMenu } from '../ContextMenu.js'
+import { revealChain } from './reveal-path.js'
+import { nonCollidingName, relPathOf } from './copy-name.js'
+import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
+import { DirLoadRegistry } from './dir-load-registry.js'
 
 interface FileTreeProps {
   sessionId: SessionId
@@ -26,6 +30,8 @@ interface FileTreeProps {
   onOpenInTerminal?: (absDir: string) => void
 }
 
+
+
 /** Imperative API for the Explorer header actions (new file / new folder /
  *  refresh / collapse-all), called by IdeView's header buttons. */
 export interface ExplorerHandle {
@@ -35,6 +41,10 @@ export interface ExplorerHandle {
   collapseAll(): void
   /** Start an inline create input: at the root when parentAbs is omitted. */
   startCreate(kind: 'file' | 'directory', parentAbs?: string): void
+  /** Expand ancestors and scroll this file into view (Reveal in Explorer). */
+  /** Resolves once the row is revealed (or the target turned out to be
+   *  unreachable); never rejects. */
+  revealPath(absolutePath: string): Promise<void>
 }
 
 interface DirState {
@@ -43,6 +53,7 @@ interface DirState {
   loading: boolean
   error: string | null
 }
+
 
 /** Join a parent absolute path and a child name with `/`. The Host resolves mixed separators. */
 function joinPath(parent: string, name: string): string {
@@ -55,24 +66,6 @@ function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
-/** Strip the workspace-root prefix from an absolute path → workspace-relative (git-style).
- *
- *  This is a real PREFIX test, not a String.replace: replace() treats the root
- *  as a pattern and strips its FIRST occurrence anywhere in the string, so a
- *  root of `/` turned `/a/b` into `a/b`, and a Windows root (`C:\\w`) never
- *  matched the forward-slash child paths produced by joinPath — both leaked an
- *  absolute path to the host, which then refused it as "escapes the workspace
- *  root" (breaking create / rename / delete / drag for those workspaces). */
-function relPathOf(rootDir: string, absPath: string): string {
-  const root = normalizePath(rootDir)
-  const abs = normalizePath(absPath)
-  if (abs === root) return ''
-  // Root '/' normalizes to '' — every absolute path is then already relative
-  // once its leading slash is dropped.
-  if (root === '') return abs.replace(/^\/+/, '')
-  const prefix = root + '/'
-  return abs.startsWith(prefix) ? abs.slice(prefix.length) : abs
-}
 
 /**
  * Best-effort host OS guess from the browser itself: the DSH GUI is a local
@@ -233,6 +226,11 @@ function buildGitIndex(
   return { fileMap, dirMap }
 }
 
+/** Query one rendered tree row by its absolute path. */
+function findRow(path: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>('.ide-tree-row[data-path="' + CSS.escape(path) + '"]')
+}
+
 export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileTree({ sessionId, rootDir, workspaceFiles, activePath, onOpenFile, t, gitEntries, ideToolsFull, onFileRenamed, onFileDeleted, onOpenInTerminal }, ref) {
   // Root directory state, listed from the absolute workspace root.
   const [rootState, setRootState] = useState<DirState>({ entries: [], truncated: false, loading: true, error: null })
@@ -247,6 +245,14 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     [rootDir, gitEntries],
   )
 
+  // Which directories have finished loading — reveal awaits these instead
+  // of polling the DOM, so a collapsed (and therefore not-yet-loaded)
+  // folder is reliably opened before the scroll happens.
+  const dirLoads = useRef<DirLoadRegistry>(new DirLoadRegistry()).current
+  /** Monotonic id so overlapping reveals cannot fight over the scroll. */
+  const revealGenerationRef = useRef(0)
+  useEffect(() => () => { dirLoads.clear() }, [dirLoads])
+
   const loadDir = useCallback(async (dirPath: string, signal: AbortSignal): Promise<DirState> => {
     try {
       const result = await workspaceFiles.list(sessionId, dirPath, signal)
@@ -259,27 +265,49 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
       const message = err instanceof Error ? err.message : String(err)
       return { entries: [], truncated: false, loading: false, error: message }
     }
-  }, [sessionId, workspaceFiles])
+  }, [sessionId, workspaceFiles, dirLoads])
 
   // Bumped after rename/delete to re-list the root; child nodes watch it too.
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Load root on mount / session change, and re-list after rename/delete.
+  //
+  // Only a genuinely new listing is blanked to "loading". A re-list of the
+  // SAME root (refresh button, rename/delete) keeps the current rows on screen
+  // and swaps them in when the new listing lands — otherwise the explorer
+  // blinks through an empty "Loading…" frame on every refresh.
+  const listedRef = useRef<string | null>(null)
   useEffect(() => {
     const ctrl = new AbortController()
-    setRootState({ entries: [], truncated: false, loading: true, error: null })
-    loadDir(rootDir, ctrl.signal).then(setRootState)
+    const sameListing = listedRef.current === rootDir
+    listedRef.current = rootDir
+    if (!sameListing) setRootState({ entries: [], truncated: false, loading: true, error: null })
+    loadDir(rootDir, ctrl.signal).then((next) => {
+      if (ctrl.signal.aborted) return
+      setRootState(next)
+      // The root is a level like any other: reveal waits on it too, so a
+      // file sitting directly in the workspace opens on first try.
+      dirLoads.markLoaded(rootDir)
+    })
     return () => ctrl.abort()
-  }, [loadDir, rootDir, refreshKey])
+  }, [loadDir, rootDir, refreshKey, dirLoads])
 
   const toggle = useCallback((dirPath: string) => {
     setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(dirPath)) next.delete(dirPath)
-      else next.add(dirPath)
+      if (next.has(dirPath)) {
+        next.delete(dirPath)
+        // Collapsing discards the children, so the mark must go with them.
+        // Done HERE rather than in an effect on `expanded`: an effect would
+        // race reveal's own setExpanded and could clear a level that is
+        // loading right now.
+        dirLoads.markUnloaded(dirPath)
+      } else {
+        next.add(dirPath)
+      }
       return next
     })
-  }, [])
+  }, [dirLoads])
 
   // In-tree rename state (analog of VS Code explorerViewer.renderInputBox).
   const [renaming, setRenaming] = useState<{ absPath: string; initial: string } | null>(null)
@@ -477,20 +505,6 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     setClip({ absPath, op: 'cut', isDir })
   }, [])
 
-  /** Derive a non-colliding name ("name - copy", "name - copy 2", ...) from
-   *  the siblings the caller passes; VS Code's copySuffix pattern. */
-  const nonCollidingName = (baseName: string, siblings: ReadonlySet<string>): string => {
-    if (!siblings.has(baseName)) return baseName
-    const dot = baseName.lastIndexOf('.')
-    const stem = dot > 0 ? baseName.slice(0, dot) : baseName
-    const ext = dot > 0 ? baseName.slice(dot) : ''
-    for (let n = 2; n < 1000; n++) {
-      const candidate = stem + ' - copy' + (n > 2 ? ' ' + String(n) : '') + ext
-      if (!siblings.has(candidate)) return candidate
-    }
-    return stem + ' - copy ' + String(Date.now()) + ext
-  }
-
   const pasteInto = useCallback(async (targetDir: string) => {
     if (!clip || pasteBusy || !ideToolsFull) return
     if (clip.absPath === targetDir || targetDir.startsWith(clip.absPath + '/')) {
@@ -645,12 +659,75 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     return () => cancelAnimationFrame(raf)
   })
 
+
+  // A rename/delete re-lists every directory; drop all loaded marks.
+
+  useEffect(() => {
+    if (refreshKey > 0) dirLoads.clear()
+  }, [refreshKey, dirLoads])
+  // Stable identity: TreeNode lists it in an effect dependency array.
+  const onDirLoaded = useCallback((dirPath: string) => { dirLoads.markLoaded(dirPath) }, [dirLoads])
+
+  /** Reveal a file in the explorer (VS Code "Reveal in Explorer").
+   *
+   *  Collapsed directories make this asynchronous: an expanded directory only
+   *  renders children AFTER its listing arrives, so the ancestors must be
+   *  opened one level at a time and each level awaited before the next can
+   *  even exist. Waiting on dirLoads (rather than polling the DOM for the final
+   *  row) is what makes a deeply-nested file inside closed folders open
+   *  reliably — a slow level no longer times out into a silent no-op. */
+  const revealPath = useCallback(async (target: string) => {
+    // Generation token: a second reveal supersedes the first, so a slow earlier
+    // request cannot scroll the tree after a newer one already landed.
+    const generation = ++revealGenerationRef.current
+    const chain = revealChain(rootDir, target)
+    if (chain === null || chain.length === 0) return
+    const dirs = chain.slice(0, -1)
+    const file = chain[chain.length - 1]
+    if (file === undefined) return
+    // An active filter hides rows; clear it so the revealed file is visible.
+    setFilterText('')
+    // Expand EVERY ancestor in one state update (cheap, and the tree renders
+    // level by level from it), then await each level's listing in order.
+    if (dirs.length > 0) {
+      setExpanded((prev) => {
+        const next = new Set(prev)
+        for (const dir of dirs) next.add(dir)
+        return next
+      })
+    }
+    setFocusPath(file)
+    for (const dir of dirs) {
+      const ok = await dirLoads.waitFor(dir, 10000)
+      if (generation !== revealGenerationRef.current) return
+      // A failed/timed-out level means the rest of the chain cannot render;
+      // stop here instead of scrolling to a row that will never appear.
+      if (!ok) return
+    }
+    // The row mounts on the commit AFTER the last listing lands.
+    await new Promise<void>((resolve) => {
+      let frames = 0
+      const step = (): void => {
+        const row = findRow(file)
+        if (row !== null || (frames += 1) > 60) { resolve(); return }
+        window.requestAnimationFrame(step)
+      }
+      window.requestAnimationFrame(step)
+    })
+    if (generation !== revealGenerationRef.current) return
+    const row = findRow(file)
+    if (row === null) return
+    row.scrollIntoView({ block: 'center' })
+    row.focus({ preventScroll: true })
+  }, [rootDir, dirLoads])
+
   // Explorer header actions (IdeView's hover buttons call into these).
   useImperativeHandle(ref, () => ({
     refresh: () => setRefreshKey((k) => k + 1),
     collapseAll: () => setExpanded(new Set()),
     startCreate,
-  }), [startCreate])
+    revealPath,
+  }), [startCreate, revealPath])
 
   const renderDir = (dirPath: string, state: DirState, depth: number) => {
     if (state.loading) {
@@ -690,6 +767,7 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
             onToggle={toggle}
             onOpenFile={onOpenFile}
             loadDir={loadDir}
+            onDirLoaded={onDirLoaded}
             t={t}
             gitFileMap={gitFileMap}
             gitDirMap={gitDirMap}
@@ -834,6 +912,9 @@ interface TreeNodeProps {
   onToggle: (dirPath: string) => void
   onOpenFile: (path: string) => void
   loadDir: (dirPath: string, signal: AbortSignal) => Promise<DirState>
+  /** Called AFTER the listing was committed to state, so anyone awaiting
+   *  this directory can rely on its children being renderable. */
+  onDirLoaded: (dirPath: string) => void
   t: (key: string, params?: Record<string, string | number>) => string
   /** Absolute-path → git status entry (files only). */
   gitFileMap?: Map<string, GitStatusEntry>
@@ -991,7 +1072,7 @@ function NewEntryRow({ kind, depth, busy, serverError, onCommit, onCancel, onDra
   )
 }
 
-function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths }: TreeNodeProps) {
+function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths, onDirLoaded }: TreeNodeProps) {
   const childPath = joinPath(dirPath, entry.name)
   const isDir = entry.type === 'directory'
   const isOpen = expanded.has(childPath)
@@ -1000,9 +1081,16 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
   useEffect(() => {
     if (!isDir || !isOpen || childState !== null) return
     const ctrl = new AbortController()
-    loadDir(childPath, ctrl.signal).then(setChildState)
+    // A listener that fires after the node unmounted (or after a refresh
+    // superseded this load) must not write state, or React logs a warning and
+    // the row can render against a stale listing.
+    loadDir(childPath, ctrl.signal).then((next) => {
+      // Marked only after the state is set: reveal awaits this mark and then
+      // scrolls, so the children must already be committed/rendering.
+      if (!ctrl.signal.aborted) { setChildState(next); onDirLoaded(childPath) }
+    })
     return () => ctrl.abort()
-  }, [isDir, isOpen, childPath, loadDir, childState])
+  }, [isDir, isOpen, childPath, loadDir, childState, onDirLoaded])
 
   // Rename/delete elsewhere in the tree invalidates this directory's cached
   // listing; nulling it makes the load effect above refetch (if open).
@@ -1154,8 +1242,8 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'upload', label: t('context.upload'), icon: Icons.upload ?? Icons.goToFile, onClick: () => onUpload?.(childPath) },
       { id: 'open-terminal', label: t('context.openInTerminal'), icon: Icons.terminal, onClick: () => onOpenInTerminal?.(childPath) },
       { id: 'sep-ut', label: '', separator: true },
-      { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
-      { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
+      { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(childPath, copyFailureNotifier(t, t('context.copyPath'))) } },
+      { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(relPathOf(rootDir, childPath), copyFailureNotifier(t, t('context.copyRelativePath'))) } },
       { id: 'sep-reveal', label: '', separator: true },
       revealItem,
       { id: 'sep2', label: '', separator: true },
@@ -1170,8 +1258,8 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       { id: 'copy-entry', label: t('context.copy'), icon: Icons.copy, onClick: () => onCopy?.(childPath, false) },
       { id: 'sep-clip', label: '', separator: true },
       { id: 'download', label: t('context.download'), icon: Icons.download ?? Icons.goToFile, onClick: () => onDownload?.(childPath) },
-      { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath) } },
-      { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void navigator.clipboard.writeText(childPath.replace(rootDir.replace(/[/\\]+$/, '') + '/', '')) } },
+      { id: 'copy-path', label: t('context.copyPath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(childPath, copyFailureNotifier(t, t('context.copyPath'))) } },
+      { id: 'copy-rel-path', label: t('context.copyRelativePath'), icon: Icons.copy, onClick: () => { void copyTextOrNotify(relPathOf(rootDir, childPath), copyFailureNotifier(t, t('context.copyRelativePath'))) } },
       { id: 'sep-reveal', label: '', separator: true },
       revealItem,
       { id: 'sep2', label: '', separator: true },
@@ -1271,6 +1359,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
             onToggle={onToggle}
             onOpenFile={onOpenFile}
             loadDir={loadDir}
+            onDirLoaded={onDirLoaded}
             t={t}
             gitFileMap={gitFileMap}
             gitDirMap={gitDirMap}
