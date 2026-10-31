@@ -116,6 +116,15 @@ export interface IdeTerminalOpenResult {
   readonly terminalId: string
   readonly pid: number
 }
+/** Result of starting a Node debug target (Scheme B). */
+export interface IdeDebugOpenResult {
+  /** Host-side id, used to terminate the process. */
+  readonly targetId: string
+  /** The inspector's WebSocket URL — the page connects to it directly. */
+  readonly wsUrl: string
+  readonly pid?: number
+}
+
 export interface IdeTerminalOutputFrame {
   readonly data: string
   readonly exit: boolean
@@ -294,6 +303,14 @@ export interface IdeToolsRemote {
     query: { pattern: string; include?: string; path?: string; caseSensitive: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchResult>>
+  /** Start a Node process under --inspect-brk (Scheme B debugging). */
+  debugOpen(
+    sessionId: SessionId,
+    spec: { path: string; args?: string[]; cwd?: string; port?: number; breakOnStart?: boolean },
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<IdeDebugOpenResult>>
+  /** Kill a debug target started by debugOpen. */
+  debugTerminate(sessionId: SessionId, targetId: string, signal?: AbortSignal): Promise<RemoteResult<void>>
   terminalOpen(
     sessionId: SessionId,
     spec: { cols: number; rows: number; command?: string; cwd?: string },

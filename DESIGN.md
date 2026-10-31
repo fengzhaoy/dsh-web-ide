@@ -596,8 +596,31 @@ src/client/sidebarBridge.ts（模块级，apply 时安装一次）：
 
 ### 10.4 剩余（未开始）
 
-- 终端面板：宿主 remote 封装 ctx.subprocess.spawnTerminal（pid/output 流/write/signal/terminate；无 resize API）+ xterm.js（@xterm/xterm + fit addon，需打包）底部面板。注意 dsh-terminal/ctx.terminals 仅 Agent 可用（TERM=dumb），不适用人类终端。
-- 全局搜索：复用 dsh-tool-fs-search 的 runRipgrep/buildGrepCommand/parseGrepMatches（需 exec shim ctx）做宿主服务，IDE 侧搜索面板。
+- ~~终端面板~~ ✅ 已完成（ctx.subprocess.spawnTerminal + xterm.js）
+- ~~全局搜索~~ ✅ 已完成（dsh-tool-fs-search 的 ripgrep 器件）
+- 调试器增强（明确**不做**）：变量树（惰性对象展开，需要真正的双向异步状态机）、完整 DAP 适配层（多语言调试器接入）、launch.json / tasks.json 配置解析。
+
+### 10.4b 运行与调试（P0–P3）✅（已完成并验证）
+
+分两套方案：**方案 A** 只给提示，**方案 B** 是真正可用的调试器。放弃**方案 C**（变量树）。
+
+**Host 端**（src/index.ts）：
+
+- `debugOpen(scope, { path, args?, cwd?, port?, breakOnStart? })`：以 `--inspect-brk=127.0.0.1:0`（或 `--inspect`）spawn Node，**stderr 用 raw pipe**（collect 模式没有 `handle.stderr`，地址根本读不到），从输出里解析 `ws://…` 返回；10s 超时。**任何失败路径都 terminate 子进程**，不留孤儿进程与占用端口。
+- `debugTerminate(scope, targetId)`：按会话归属校验（`ownedDebugTarget`，越权报 `ide-tools/no-such-debug-target`，与 `ownedTerminal` 同规则），终止后 `waitForExit`，避免重启时抢同一端口。
+- `disposeAll()`：插件卸载时同时清理 terminals 与 debug targets。
+- 路径解析失败报 `ide-tools/bad-path`（而非 `debug-failed`），避免把路径错误伪装成启动失败。
+
+**Client 端**（src/client/run/）：
+
+- `inspector.ts`：V8 Inspector（CDP over WebSocket）客户端，**浏览器直连**，无 host 代理。断点按 `file://` URL 绑定；`--inspect-brk` 目标必须先 `Runtime.runIfWaitingForDebugger` 才会开始解析脚本，且断点必须在放行**之前**注册。
+- `use-debugger.ts`：会话状态机（idle/starting/running/paused）、调用栈、帧求值（`Debugger.evaluateOnCallFrame`，`Runtime.evaluate` 看不见局部变量）。
+- `DebugPanel.tsx`：控制条、调用栈、调试控制台、DevTools 附加提示。
+- `run-config.ts`：任务发现（10 种清单）、`runCommandForFile`、以及**路径单位换算**（见下）。
+
+**关键约束：路径单位不一致**。IDE 侧（Tab / 文件树 / Monaco model）用**绝对路径**，host 侧所有方法只接受**工作区相对路径**并在 host 内做越界校验（`resolveWorkspacePath` 会直接拒绝绝对路径）。跨边界必须经 `run-config.ts` 的 `workspaceRelativePath` / `workspaceAbsolutePath` / `scriptUrlFor`。这曾导致「调试此文件」必然报越界失败，而 e2e 因为自己直连 CDP 绕开了 host 通道，测试全绿也没暴露 —— 现由 `scripts/test-debugger.mjs` 的 host spawn 用例覆盖。
+
+验证：`pnpm test:debugger`（40 项，含针对真实 `--inspect-brk` 目标的 e2e）、`pnpm test:run-debug`。已验证暂停/继续/单步/调用栈跳转/帧求值/断点重复命中。
 
 ### 10.5 源代码管理（Git）✅（已完成并验证）
 

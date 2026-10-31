@@ -78,7 +78,9 @@
     "watch": "pnpm run build:worker && tsdown --watch",
     "prepublishOnly": "pnpm run bundle",
     "test:contract": "node scripts/test-remote-contract.mjs",
-    "test:manifest": "node scripts/test-typert-manifest.mjs"
+    "test:manifest": "node scripts/test-typert-manifest.mjs",
+    "test:run-debug": "node scripts/test-run-debug.mjs",
+    "test:debugger": "node scripts/test-debugger.mjs"
   },
   "publishConfig": {
     "access": "public",

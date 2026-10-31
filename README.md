@@ -67,6 +67,17 @@ npm install @zhaoyang10/dsh-web-ide
 - `Ctrl+C` 中断、终止终端、最大化 / 展开 / 还原
 - 关闭面板不终止进程，重新打开自动回放历史输出（scrollback 回放）
 
+### 运行与调试
+
+- **运行当前文件**：编辑器右键菜单或命令面板一键运行 JS/TS/Python/Go/Rust/C/C++/Ruby/PHP/Shell 等单文件
+- **任务发现**：自动扫描 `package.json` / `Makefile` / `Cargo.toml` / `go.mod` / `pyproject.toml` / `pom.xml` / `build.gradle`，列出可运行任务
+- **退出码跟踪**：记录每次运行的成功 / 失败（含退出码与耗时），失败时弹出通知
+- **运行诊断入面板**：编译 / 测试输出中的错误行自动解析并合并进 Problems 面板，点击直达文件与行
+- **最近运行**：按工作区记住最近任务，下次一键重跑
+- **断点**：行号左侧单击添加 / 移除，红点标记并持久化到浏览器
+- **调试 Node.js**（V8 Inspector，浏览器直连，无额外代理进程）：暂停 / 继续 / 单步跳过 / 单步进入 / 单步跳出，调用栈逐帧跳转，调试控制台在当前帧求值
+- **Chrome DevTools 附加**：面板显示目标的 `ws://` 地址，可用 `chrome://inspect` 接管同一个调试目标
+
 ### 全局搜索
 
 - 基于 ripgrep 的全工作区检索
@@ -188,6 +199,18 @@ npm install @zhaoyang10/dsh-web-ide
 - 终端面板新建终端，支持分屏与最大化
 - `Ctrl+C` 中断当前进程；关闭面板终端保持后台运行，重新打开自动回放输出
 
+### 运行与调试
+
+- 点击活动栏的「运行和调试」图标打开侧栏，列出工作区任务、最近运行、本次会话的运行记录与断点
+- **运行文件**：在编辑器右键选择「运行当前文件」，或命令面板执行同命令；命令写入一个新终端执行
+- **运行任务**：命令面板「运行任务…」或侧栏任务列表，从 `package.json` scripts 等清单中选择
+- **调试文件**：打开一个 JS/TS 文件，点击侧栏调试按钮（或命令面板「调试当前文件」），IDE 会以 `--inspect-brk` 启动 Node 并直接接管 V8 Inspector
+- **断点**：在编辑器行号左侧单击切换断点；启动调试时先注册断点再放行进程，因此首行断点不会漏
+- **暂停时**：调用栈可点击跳转；调试控制台输入表达式回车，在当前调用帧求值；继续 / 单步按钮恢复执行
+- **附加 DevTools**：暂停时展开面板顶部提示中的 `ws://` 地址，在 Chrome `chrome://inspect` 的 *Configure* 里加入后即可接管同一目标
+
+> 断点以工作区文件为单位记录，跨会话保留；调试目标由 host 侧按会话归属管理，插件卸载或页面卸载时会一并终止。
+
 ### 全局搜索
 
 - 支持正则、区分大小写与 include glob（如 `*.ts`）过滤
@@ -207,18 +230,22 @@ npm install @zhaoyang10/dsh-web-ide
 会话页 Tab：  [ 会话 ]  [ 轨迹 ]  [ IDE ]
                                   │
         浏览器 bundle：lib/client.js
-        注册 ide Tab · 文件树 · Monaco · Git · 终端 · 搜索
+        注册 ide Tab · 文件树 · Monaco · Git · 终端 · 搜索 · 运行与调试
                                   │
                                   │  typert 远程调用
                                   │  workspaceFiles（读） / ideTools（写 · git · 终端）
                                   ▼
         Host 服务：lib/index.js
         ripgrep 搜索 · node-pty 终端 · git 全流程 · 文件写（+ 工作区校验 + sandbox 围栏）
+        · 调试目标 spawn / 终止（--inspect-brk）
+        浏览器直连 V8 Inspector WebSocket（CDP，不经 host 代理）
 ```
 
 - **双入口**：`lib/index.js` 为 host 侧入口，挂载 `ideTools` 远程命名空间；`lib/client.js` 为浏览器 bundle，注册 `ide` 会话 Tab。
 - **自动注册**：DSH 启动时套用包内 `cordis.patch.yml`，把 `ui-ide` 写入浏览器 roster。
 - **依赖注入**：`package.json` 的 `dsh.client.inject` 声明所需浏览器服务（slots / sessions / locale / remote 等），由启动内核先行解析。
+- **调试链路**：host 侧的 `ideTools.debugOpen` 以 `--inspect-brk` 拉起 Node，从 stderr 解析出 `ws://` 地址返回；浏览器随后**直连**该 Inspector 地址（CDP），断点、暂停、单步、调用栈与求值全部在页面内完成，host 只负责进程生命周期。调试目标按会话归属，`debugTerminate` 与插件卸载都会终止进程。
+- **路径单位**：IDE 侧（Tab、文件树、Monaco model）使用**绝对路径**，host 侧各方法只接受**工作区相对路径**并在 host 内做越界校验；跨边界一律经 `src/client/run/run-config.ts` 的换算函数。
 - **保存链路自持**：编辑器保存走 `ideTools.writeFile`（本包 host 服务，非独立包）：先按会话工作区做路径校验，再交给宿主 `fs` seam 的 `writeText` —— 由 sandbox 策略围栏目标、按文件真实版本做原子并发校验（过期保存报冲突而非静默覆盖），成功后 `fs/observed` 回灌会话的文件变更流，会话侧与 agent 都能看到这次改动。
 
 ## 开发指南
@@ -243,7 +270,13 @@ pnpm watch
 
 # 远程契约测试
 pnpm test:contract
+
+# 运行 / 调试功能测试（含针对真实 --inspect-brk 目标的 e2e）
+pnpm test:run-debug
+pnpm test:debugger
 ```
+
+> 调试测试会在本机拉起真实 Node 子进程并连接其 Inspector，需要环境中可用 `node` 与 WebSocket。
 
 > `@deepseek-ai/*` 系列依赖已发布在公共 npm 上，`devDependencies` 中以版本范围声明（与 `peerDependencies` 保持一致），`pnpm install` 即可直接装好，无需任何本机路径或 `link:`。tsdown 会把它们保持为 external，运行时由宿主 DSH 从自己的 `node_modules` 解析，因此这些依赖只参与本地类型检查，不影响发布产物。
 
@@ -270,6 +303,7 @@ dsh-web-ide/
 │       ├── explorer/               # FileTree
 │       ├── git/                    # SourceControlPanel / DiffEditor / GraphView / BranchesView
 │       ├── search/                 # SearchPanel
+│       ├── run/                    # 运行与调试（任务发现 / 终端执行 / V8 Inspector 调试）
 │       └── terminal/               # TerminalPanel
 ├── scripts/
 │   ├── build-monaco-worker.mjs     # 把 Monaco Worker 源码内嵌进客户端产物

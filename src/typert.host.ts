@@ -22,6 +22,17 @@ const _ide_tools_ideTools_search_result$schema = z.object({
   'totalMatches': z.number().readonly(),
 }).readonly()
 
+const _ide_tools_ideTools_debugOpen_parameter_1$schema = z.object({
+  'path': z.string().readonly(),
+  'args': z.array(z.string().readonly()).optional(),
+  'cwd': z.string().optional(),
+  'port': z.number().optional(),
+  'breakOnStart': z.boolean().optional(),
+}).readonly()
+const _ide_tools_ideTools_debugOpen_result$schema = z.object({
+  'targetId': z.string().readonly(),
+  'wsUrl': z.string().readonly(),
+}).readonly()
 const _ide_tools_ideTools_terminalOpen_parameter_1$schema = z.object({
   'cols': z.number().readonly(),
   'rows': z.number().readonly(),
@@ -361,6 +372,60 @@ export const TYPERT = {
         create: () => _ide_tools_ideTools_search_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 119, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/debugOpen',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'debugOpen',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('debugOpen', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'spec',
+          wire: 'spec',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/debugOpen:spec',
+            create: () => _ide_tools_ideTools_debugOpen_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeDebugOpenResult',
+        create: () => _ide_tools_ideTools_debugOpen_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 828, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/debugTerminate',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'debugTerminate',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('debugTerminate', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'targetId',
+          wire: 'targetId',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/debugTerminate:targetId',
+            create: () => z.string().readonly(),
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#void',
+        create: () => z.void(),
+      },
+      sourceLocation: { file: 'src/index.ts', line: 899, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/terminalOpen',

@@ -17,6 +17,8 @@ import { existsSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
+import type { IdeDebugOpenResult } from './client/types.js'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
 // declaration-merged into the typert protocol's extensible
 // RemoteErrorDetailsMap by src/remote-errors.d.ts (DSH 0.2.0 narrowed
@@ -505,8 +507,21 @@ interface TerminalEntry {
   readonly subscribers: Set<(frame: IdeTerminalOutputFrame) => void>
 }
 
+/** One running debuggee. Like TerminalEntry it records its owner, because
+ *  debug target ids are as guessable as terminal ids. */
+interface DebugTargetEntry {
+  readonly id: string
+  /** Session that started this target. */
+  readonly ownerSessionId: string
+  readonly handle: SubprocessHandle
+}
+
 /** Cap the replay log at ~512 KiB per terminal, dropping the oldest chunks. */
 const MAX_LOG_BYTES = 512 * 1024
+
+/** How long a debuggee gets to print its inspector address. Node prints it
+ *  within ~100ms; a cold start on a network filesystem is the slow case. */
+const DEBUG_INSPECTOR_TIMEOUT_MS = 10_000
 
 /** Final byte of a CSI sequence (ESC [ ... final): 0x40–0x7e. */
 function isCsiFinal(code: number): boolean {
@@ -661,6 +676,11 @@ export class IdeTools extends TypertRemoteService {
    *  Keyed by session so two browser sessions on the same workspace cannot
    *  read each other's editor state. */
   private readonly dirtyStore = new Map<string, Map<string, DirtyBufferEntry>>()
+  /** Live debug targets started by debugOpen, keyed by target id. Each entry
+   *  carries its owning Session: ids are guessable, so every terminate goes
+   *  through ownedDebugTarget() exactly as the terminal* methods go through
+   *  ownedTerminal(). */
+  private readonly debugTargets = new Map<string, DebugTargetEntry>()
   private dirtyRevision = 0
 
   constructor(ctx: Context, _config: Record<string, never>) {
@@ -675,6 +695,8 @@ export class IdeTools extends TypertRemoteService {
         methods: Object.freeze([
           Object.freeze({ method: 'search', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalOpen', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'debugOpen', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'debugTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalWrite', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalSignal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -717,7 +739,7 @@ export class IdeTools extends TypertRemoteService {
     // Terminate every still-live terminal when the plugin unloads.
     ctx.effect(() => () => {
       void this.disposeAll()
-    }, 'ideTools: terminal teardown')
+    }, 'ideTools: terminal + debug target teardown')
   }
 
   /** Workspace grep reusing dsh-tool-fs-search's ripgrep machinery verbatim. */
@@ -817,6 +839,135 @@ export class IdeTools extends TypertRemoteService {
     this.terminals.set(id, entry)
     this.pump(entry)
     return { terminalId: id, pid: handle.pid }
+  }
+
+  /**
+   * Spawn a Node process under the inspector and report its WebSocket URL
+   * (Scheme B: the IDE page drives V8 directly, no proxy).
+   *
+   * The process runs DETACHED from any PTY: it is a debuggee, not a shell.
+   * Its stdout/stderr are drained into a bounded ring so the debug console can
+   * show program output, and `terminate` kills the whole group.
+   */
+  async debugOpen(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    spec: { path: string; args?: string[]; cwd?: string; port?: number; breakOnStart?: boolean },
+    _signal: AbortSignal,
+  ): Promise<IdeDebugOpenResult> {
+    const { workspaceRoot } = workspaceFileScope
+    // A path that refuses to resolve (escaping '..', a foreign absolute path) is
+    // a bad request, not a spawn failure: reporting it as a spawn failure hid
+    // the actual cause behind "the debug target could not start".
+    let absPath: string
+    let spawnCwd = workspaceRoot
+    try {
+      absPath = resolveWorkspacePath(workspaceRoot, spec.path)
+      if (spec.cwd !== undefined && spec.cwd.length > 0) spawnCwd = resolveWorkspacePath(workspaceRoot, spec.cwd)
+    } catch {
+      throw new RemoteError('ide-tools/bad-path', 'the debug target escapes the workspace', { path: spec.path })
+    }
+    // Port 0 lets the OS pick a free one; node prints the actual port.
+    const port = spec.port !== undefined && spec.port > 0 ? spec.port : 0
+    const host = '127.0.0.1'
+    const argv = [
+      process.execPath,
+      (spec.breakOnStart === false ? '--inspect=' : '--inspect-brk=') + host + ':' + String(port),
+      absPath,
+      ...(spec.args ?? []),
+    ]
+    let handle: SubprocessHandle
+    try {
+      handle = this.ctx.subprocess.spawn({
+        argv,
+        cwd: spawnCwd,
+        // stderr MUST be a raw pipe: the inspector address is read off it below.
+        // stdout is collected for a future output stream and needs no listener.
+        stdio: {
+          stdin: 'ignore',
+          stdout: { maxBytes: 1_000_000 },
+          stderr: 'pipe',
+        },
+        graceMs: 5000,
+      })
+    } catch {
+      throw new RemoteError('ide-tools/debug-failed', 'the debug target could not start', {})
+    }
+    // node prints "Debugger listening on ws://127.0.0.1:PORT/UUID" on stderr.
+    // Every failure path must KILL the child: a debuggee that never reported an
+    // address still holds a process and an inspector port.
+    let wsUrl: string
+    try {
+      wsUrl = await this.waitForInspectorUrl(handle, DEBUG_INSPECTOR_TIMEOUT_MS)
+    } catch (err) {
+      this.terminateHandle(handle)
+      throw err
+    }
+    const id = 'd' + ++this.counter + '-' + Date.now().toString(36)
+    this.debugTargets.set(id, { id, ownerSessionId: workspaceFileScope.sessionId, handle })
+    return { targetId: id, wsUrl }
+  }
+
+  /** Read the inspector WebSocket address off a debuggee's stderr.
+   *
+   *  Resolves on the first match; rejects on timeout or on the process exiting
+   *  first. The caller owns terminating the handle on rejection. */
+  private waitForInspectorUrl(handle: SubprocessHandle, timeoutMs: number): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      let buffer = ''
+      let settled = false
+      const finish = (fn: () => void): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        fn()
+      }
+      const timer = setTimeout(() => {
+        finish(() => { reject(new RemoteError('ide-tools/debug-timeout', 'the debug target did not report an inspector address', {})) })
+      }, timeoutMs)
+      handle.stderr?.on('data', (chunk: Buffer | string) => {
+        if (settled) return
+        buffer += chunk.toString()
+        const match = /ws:\/\/\S+/.exec(buffer)
+        if (match !== null) finish(() => { resolve(match[0]) })
+      })
+      void handle.done.then(
+        () => { finish(() => { reject(new RemoteError('ide-tools/debug-exited', 'the debug target exited before the inspector started', {})) }) },
+        () => { finish(() => { reject(new RemoteError('ide-tools/debug-exited', 'the debug target exited before the inspector started', {})) }) },
+      )
+    })
+  }
+
+  /** Terminate one handle, never throwing: teardown paths must not mask their
+   *  own outcome with a secondary process error. */
+  private terminateHandle(handle: SubprocessHandle): void {
+    try { handle.terminate() } catch { /* already gone */ }
+  }
+
+  /** Stop a debug target started by debugOpen.
+   *
+   *  Ownership-checked: a foreign id is reported exactly like a missing one
+   *  (no-such-debug-target), so a caller cannot probe which targets exist —
+   *  the same rule ownedTerminal() applies to terminals. */
+  async debugTerminate(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    targetId: string,
+    _signal: AbortSignal,
+  ): Promise<void> {
+    const entry = this.ownedDebugTarget(workspaceFileScope, targetId)
+    this.debugTargets.delete(targetId)
+    this.terminateHandle(entry.handle)
+    // Wait for the managed range to drain so a restart does not race the old
+    // process for the inspector port.
+    await Promise.resolve(entry.handle.waitForExit?.()).catch(() => false)
+  }
+
+  /** Look up a debug target and verify the caller's Session owns it. */
+  private ownedDebugTarget(scope: { sessionId: string }, targetId: string): DebugTargetEntry {
+    const entry = this.debugTargets.get(targetId)
+    if (entry === undefined || entry.ownerSessionId !== scope.sessionId) {
+      throw new RemoteError('ide-tools/no-such-debug-target', 'debug target ' + JSON.stringify(targetId) + ' is not open', { targetId })
+    }
+    return entry
   }
 
   /** Look up a terminal and verify the caller's Session owns it.
@@ -3037,8 +3188,15 @@ export class IdeTools extends TypertRemoteService {
     text = text.replace(/\n{3,}/g, '\n\n').trim()
     return text
   }
-  /** Plugin teardown: terminate every still-live terminal. */
+  /** Plugin teardown: terminate every still-live terminal AND debuggee.
+   *
+   *  Debug targets are children of the host process, not of the browser tab:
+   *  a page that reloads or unmounts without calling debugTerminate (crash,
+   *  force-closed tab) would otherwise leave the debuggee running forever. */
   private async disposeAll(): Promise<void> {
+    const targets = [...this.debugTargets.values()]
+    this.debugTargets.clear()
+    for (const target of targets) this.terminateHandle(target.handle)
     const entries = [...this.terminals.values()]
     this.terminals.clear()
     await Promise.allSettled(entries.map(async (entry) => {

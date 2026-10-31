@@ -24,6 +24,11 @@ import { SettingsDialog, AboutDialog, KeybindingsDialog, SnippetsDialog, display
 import { CommandPalette } from './CommandPalette.js'
 import { ExtensionsView } from './ExtensionsView.js'
 import { ProblemsPanel, type ProblemItem } from './editor/ProblemsPanel.js'
+import { useTaskRunner, mergeProblems } from './run/use-task-runner.js'
+import { RunView } from './run/RunView.js'
+import { useDebugger } from './run/use-debugger.js'
+import { useRunDebug, runDebug } from './run/run-debug-store.js'
+import { runCommandForFile, isRunnable, discoverTasks, rememberTask, recentTasks, workspaceRelativePath, type RunTask } from './run/run-config.js'
 import { ideCommands, type IdeCommand } from './commands.js'
 import { ideSettings, ideKeybindings, ideSnippets, applyEditorOptions, chordMatches, eventToChord } from './settingsStore.js'
 import { notifications } from './notifications.js'
@@ -206,7 +211,7 @@ function sameGitEntries(a: readonly import('./types.js').GitStatusEntry[] | unde
 const IDE_VERSION = '0.1.3'
 
 /** The activity bar's selectable sidebar panels. */
-type SidebarView = 'explorer' | 'search' | 'git' | 'extensions'
+type SidebarView = 'explorer' | 'search' | 'git' | 'extensions' | 'run'
 
 /**
  * Last activity-bar selection, module-level so the view ring's remounts (and a
@@ -583,11 +588,33 @@ export function IdeView(props: IdeViewInjected & {
   const [bottomTabsActions, setBottomTabsActions] = useState<HTMLDivElement | null>(null)
   /** Monaco marker snapshot for the problems indicator + panel. */
   const [problems, setProblems] = useState<ProblemItem[]>([])
+
+  /** Scheme B debugger. Node's inspector is the only target for now. */
+  const debuggerApi = useDebugger({ sessionId, ideTools, cwd, t })
+  const debuggable = activePath !== undefined && /\.[cm]?[jt]sx?$/.test(activePath)
+  const startDebug = useCallback(() => {
+    if (activePath === undefined) { notifications.error(t('run.noFile')); return }
+    void debuggerApi.start(activePath)
+  }, [activePath, debuggerApi, t])
+
+  const runDebugState = useRunDebug()
+  /** Run diagnostics (compiler/test output) merged with Monaco markers, so the
+   *  Problems panel reflects a build even for files the editor never opened. */
+  const allProblems = useMemo<ProblemItem[]>(
+    () => mergeProblems(
+      runDebugState.runProblems.map((p) => ({ path: p.path, line: p.line, column: p.column, severity: p.severity, message: p.message })),
+      problems,
+    ),
+    [runDebugState.runProblems, problems],
+  )
+
   const problemCounts = useMemo(() => {
     let errors = 0, warnings = 0
-    for (const p of problems) { if (p.severity === 'error') errors++; else if (p.severity === 'warning') warnings++ }
+    // Count the MERGED set: a build's diagnostics belong in the status bar
+    // even when the offending file was never opened in the editor.
+    for (const p of allProblems) { if (p.severity === 'error') errors++; else if (p.severity === 'warning') warnings++ }
     return { errors, warnings }
-  }, [problems])
+  }, [allProblems])
   const workspaceName = useMemo(() => cwd?.split('/').pop() || undefined, [cwd])
   /** Live settings snapshot (theme hot-apply etc.). */
   const settings = useSyncExternalStore(ideSettings.subscribe, ideSettings.getSnapshot)
@@ -668,9 +695,25 @@ export function IdeView(props: IdeViewInjected & {
     let cancelled = false
     let cursorSub: { dispose(): void } | null = null
     let contentSub: { dispose(): void } | null = null
+    let glyphSub: { dispose(): void } | null = null
     ideEditor.attach(containerRef.current!).then((editor) => {
       if (cancelled) return
       editorRef.current = editor
+      // P2-9: click the glyph margin to toggle a breakpoint (VS Code parity).
+      // The namespace is already loaded here (attach resolved through it), so
+      // reading the enum off the module is synchronous and cannot fail.
+      void loadMonaco().then((mono) => {
+        if (cancelled) return
+        glyphSub = editor.onMouseDown((e) => {
+          const type = e.target.type
+          if (type !== mono.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+              type !== mono.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return
+          const line = e.target.position?.lineNumber
+          const modelPath = activePathRef.current
+          if (line === undefined || modelPath === undefined) return
+          runDebug.toggleBreakpoint(modelPath, line)
+        })
+      })
       cursorSub = editor.onDidChangeCursorPosition((e) => {
         if (e.position) setCursor({ line: e.position.lineNumber, column: e.position.column })
       })
@@ -723,9 +766,39 @@ export function IdeView(props: IdeViewInjected & {
       cancelled = true
       cursorSub?.dispose()
       contentSub?.dispose()
+      glyphSub?.dispose()
       editorRef.current = null
     }
   }, [])
+
+  // A counter (not the snapshot) so the decoration effect below does not
+  // depend on useRunDebug() having been called earlier in this component.
+  const [breakpointVersion, setBreakpointVersion] = useState(0)
+  useEffect(() => runDebug.subscribe(() => setBreakpointVersion((v) => v + 1)), [])
+
+  // P2-9: paint breakpoints of the active file into the glyph margin.
+  const breakpointDecorationsRef = useRef<string[]>([])
+  useEffect(() => {
+    let disposed = false
+    void loadMonaco().then((mono) => {
+      if (disposed) return
+      const editor = editorRef.current
+      if (editor === null || activePath === undefined) return
+      const ids = runDebug.breakpointsFor(activePath).map((b) => ({ line: b.line }))
+      breakpointDecorationsRef.current = editor.deltaDecorations(
+        breakpointDecorationsRef.current,
+        ids.map((b) => ({
+          range: new mono.Range(b.line, 1, b.line, 1),
+          options: {
+            isWholeLine: false,
+            glyphMarginClassName: 'ide-breakpoint-glyph',
+            glyphMarginHoverMessage: { value: 'Breakpoint' },
+          },
+        })),
+      )
+    })
+    return () => { disposed = true }
+  }, [breakpointVersion, activePath])
 
   const activeTab = useMemo(() => tabs.find((t) => t.path === activePath), [tabs, activePath])
   /** Data URI backing the active image tab, when it is an image. */
@@ -1517,19 +1590,76 @@ export function IdeView(props: IdeViewInjected & {
     return () => { dispose?.() }
   }, [sessionId, ideTools])
   /** Run a package.json script in a fresh terminal (VS Code Run Task). */
-  const runBuildTask = useCallback((script: string) => {
+  /** Open a terminal tab, adopt it in the panel and show the bottom panel. */
+  const adoptTerminal = useCallback((id: string) => {
+    setTerminalIds((prev) => prev.includes(id) ? prev : [...prev, id])
+    setTerminalOpen(true)
+    setBottomTab('terminal')
+    setActiveTerminalIdx((prev) => prev + 1)
+  }, [])
+
+  const revealTerminal = useCallback(() => {
+    setTerminalOpen(true)
+    setBottomTab('terminal')
+  }, [])
+
+  /** Runs commands and tracks their exit status (see run/use-task-runner). */
+  const taskRunner = useTaskRunner({
+    sessionId,
+    ideTools,
+    onTerminalOpened: adoptTerminal,
+    onRevealTerminal: revealTerminal,
+    t,
+  })
+
+  /** Start a task and remember it as recent for this workspace (P0-3). */
+  const startTask = useCallback((task: RunTask) => {
+    taskRunner.run(task)
+    const key = cwd ?? 'default'
+    rememberTask(task, key)
+    setRecentRunTasks(recentTasks(key))
+  }, [taskRunner, cwd])
+
+  /** Workspace manifests scanned for runnable tasks (P1-4). */
+  const MANIFEST_FILES = ['package.json', 'Makefile', 'makefile', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradlew'] as const
+  const [runTasks, setRunTasks] = useState<RunTask[]>([])
+  const [recentRunTasks, setRecentRunTasks] = useState<RunTask[]>([])
+  const [runTasksLoading, setRunTasksLoading] = useState(false)
+
+  /** Discover runnable tasks whenever the workspace or the run view changes. */
+  const refreshRunTasks = useCallback(async () => {
     if (!sessionId) return
-    void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
-      if (!res.ok) { notifications.error(res.error.message ?? res.error.code); return }
-      setTerminalIds((prev) => prev.includes(res.value.terminalId) ? prev : [...prev, res.value.terminalId])
-      setTerminalOpen(true)
-      setBottomTab('terminal')
-      setActiveTerminalIdx((prev) => prev + 1)
-      setTimeout(() => {
-        void ideTools.terminalWrite(sessionId, res.value.terminalId, 'npm run ' + script + '\r')
-      }, 400)
-    }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
-  }, [sessionId, ideTools])
+    const ctrl = new AbortController()
+    setRunTasksLoading(true)
+    try {
+      const entries = await Promise.all(MANIFEST_FILES.map(async (name) => {
+        const res = await workspaceFiles.read(sessionId, name, { offset: 0, limit: 131072 }, ctrl.signal)
+        return [name, res.ok ? res.value.text : undefined] as const
+      }))
+      const files: Record<string, string> = {}
+      for (const [name, text] of entries) if (text !== undefined) files[name] = text
+      setRunTasks(discoverTasks(files))
+    } catch {
+      // A missing/unreadable manifest just means fewer tasks; never an error banner.
+    } finally {
+      setRunTasksLoading(false)
+    }
+  }, [sessionId, workspaceFiles])
+
+  useEffect(() => {
+    if (sidebarView !== 'run') return
+    setRecentRunTasks(recentTasks(cwd ?? 'default'))
+    void refreshRunTasks()
+  }, [sidebarView, refreshRunTasks, cwd])
+
+  /** "Run Current File" (VS Code's ▶): derive a command from the extension. */
+  const runCurrentFile = useCallback((path?: string) => {
+    const target = path ?? activePath
+    if (target === undefined) { notifications.error(t('run.noFile')); return }
+    const task = runCommandForFile(target, cwd)
+    if (task === null) { notifications.error(t('run.unsupported', { path: target })); return }
+    startTask(task)
+  }, [activePath, startTask, cwd, t])
 
 
   /** Jump to a resolved definition: open the file, scroll to the line and
@@ -1623,6 +1753,7 @@ export function IdeView(props: IdeViewInjected & {
       e.stopPropagation()
       showContextMenu(e.clientX, e.clientY, [
         { id: 'def', label: t('nav.goToDefinition'), hint: 'F12', onClick: () => { void goToDefinitionRef.current() } },
+        { id: 'run-file', label: t('command.runFile'), disabled: !isRunnable(workspaceRelativePath(path, cwd)), onClick: () => { runCurrentFile(path) } },
         { id: 'sep', label: '', separator: true },
         { id: 'copy', label: t('nav.copySymbol'), onClick: () => { void copyTextOrNotify(request.name, copyFailureNotifier(t, t('nav.copySymbol'))) } },
       ])
@@ -1744,24 +1875,22 @@ export function IdeView(props: IdeViewInjected & {
   /** Tasks menu: package.json scripts → run in a fresh terminal. */
   const openTasksMenu = useCallback(async () => {
     if (!sessionId) return
-    const res = await workspaceFiles.read(sessionId, 'package.json', { offset: 0, limit: 65536 })
-    let items: Parameters<typeof showContextMenu>[2]
-    if (res.ok) {
-      try {
-        const pkg = JSON.parse(res.value.text) as { scripts?: Record<string, string> }
-        const scripts = Object.keys(pkg.scripts ?? {})
-        items = scripts.length > 0
-          ? scripts.map((sc) => ({ id: sc, label: 'npm run ' + sc, onClick: () => runBuildTask(sc) }))
-          : [{ id: 'empty', label: t('tasks.empty'), disabled: true }]
-      } catch {
-        items = [{ id: 'failed', label: t('tasks.failed'), disabled: true }]
-      }
-    } else {
-      items = [{ id: 'failed', label: t('tasks.failed'), disabled: true }]
-    }
+    await refreshRunTasks()
     const rect = gearRef.current?.getBoundingClientRect()
+    const items: Parameters<typeof showContextMenu>[2] = []
+    // "Run Current File" first — the most common action when a file is open.
+    if (activePath !== undefined && runCommandForFile(activePath, cwd) !== null) {
+      items.push({ id: 'run-file', label: t('command.runFile') + ' — ' + activePath, onClick: () => { runCurrentFile() } })
+    }
+    if (runTasks.length > 0) {
+      for (const task of runTasks) {
+        items.push({ id: task.id, label: task.label, onClick: () => { startTask(task) } })
+      }
+    } else if (items.length === 0) {
+      items.push({ id: 'empty', label: t('run.noTasks'), disabled: true })
+    }
     showContextMenu(rect ? rect.left : 40, rect ? rect.top - 4 : 40, items)
-  }, [sessionId, workspaceFiles, t, runBuildTask])
+  }, [sessionId, refreshRunTasks, runTasks, activePath, runCurrentFile, startTask, cwd, t])
 
   /** Pull/push/sync shared by the command palette and the status bar.
    *  Failures surface as notifications — a bare .then chain dropped ok:false
@@ -1811,6 +1940,11 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.toggleTerminal', category: t('category.view'), label: t('command.toggleTerminal'), run: () => { setTerminalOpen((v) => !v); setBottomTab('terminal') } },
       { id: 'ide.toggleSidebar', category: t('category.view'), label: t('command.toggleSidebar'), run: () => setSidebarView('explorer') },
       { id: 'ide.toggleRightSidebar', category: t('category.view'), label: t('command.toggleRightSidebar'), run: () => setRightSidebarOpen((v) => !v) },
+      { id: 'ide.runFile', category: t('category.run'), label: t('command.runFile'), run: () => runCurrentFile() },
+      { id: 'ide.runTask', category: t('category.run'), label: t('command.runTask'), run: () => { void openTasksMenu() } },
+      { id: 'ide.viewRun', category: t('category.run'), label: t('command.viewRun'), run: () => setSidebarView('run') },
+      { id: 'ide.debugFile', category: t('category.run'), label: t('command.debugFile'), run: () => { startDebug() } },
+      { id: 'ide.debugStop', category: t('category.run'), label: t('command.debugStop'), run: () => { void debuggerApi.stop() } },
       { id: 'ide.problems', category: t('category.view'), label: t('command.problems'), run: () => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') } },
       { id: 'ide.viewExplorer', category: t('category.view'), label: t('command.viewExplorer'), run: () => setSidebarView('explorer') },
       { id: 'ide.viewSearch', category: t('category.view'), label: t('command.viewSearch'), run: () => setSidebarView('search') },
@@ -2009,7 +2143,7 @@ export function IdeView(props: IdeViewInjected & {
               <span className="ide-activitybar-badge">{gitEntries.length}</span>
             )}
           </div>
-          <div className="ide-activitybar-icon" title={t('debug.title')} onClick={() => {}}>{Icons.debug}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => setSidebarView('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => setSidebarView('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
           <div className="ide-activitybar-spacer" />
           <div
@@ -2028,7 +2162,22 @@ export function IdeView(props: IdeViewInjected & {
           >{Icons.gear}</div>
         </div>
         <div className="ide-sidebar">
-          {sidebarView === 'extensions' ? (
+          {sidebarView === 'run' ? (
+            <div className="ide-sidebar-view">
+              <RunView
+                tasks={runTasks}
+                loading={runTasksLoading}
+                recents={recentRunTasks}
+                onRun={startTask}
+                debug={debuggerApi}
+                debugState={debuggerApi.state}
+                debuggable={debuggable}
+                onStartDebug={startDebug}
+                onOpenBreakpoint={(path, line) => { setDiffPath(undefined); void openFile(path, line) }}
+                t={t}
+              />
+            </div>
+          ) : sidebarView === 'extensions' ? (
             <div className="ide-sidebar-view">
               <ExtensionsView t={t} />
             </div>
@@ -2409,7 +2558,7 @@ export function IdeView(props: IdeViewInjected & {
             </div>
             {bottomTab === 'problems' && (
               <div className="ide-bottom-problems">
-                <ProblemsPanel problems={problems} onOpen={(path, line) => { setDiffPath(undefined); void openFile(path, line) }} t={t} />
+                <ProblemsPanel problems={allProblems} onOpen={(path, line) => { setDiffPath(undefined); void openFile(path, line) }} t={t} />
               </div>
             )}
             {bottomTab === 'terminal' && (

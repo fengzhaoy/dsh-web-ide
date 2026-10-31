@@ -16,6 +16,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import type { IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
+import { showContextMenu } from '../ContextMenu.js'
+import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
 import { ideSettings, terminalXtermOptions, xtermThemeFor } from '../settingsStore.js'
 import { buildWrapRepaint, detectWrapRepaint } from './wrapRepaint.js'
 import type { WrapRepaintPlan } from './wrapRepaint.js'
@@ -531,6 +533,51 @@ export function TerminalPanel({
   const setHostRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
     if (el !== null) hostsRef.current.set(id, el)
   }, [])
+
+  // --- P1-7: copy/paste the terminal's selection (VS Code behaviour) ---
+  // xterm keeps its selection on the Terminal instance, not in the DOM, so the
+  // browser's own menu cannot copy it. This listener runs in the CAPTURE phase
+  // on the panel so it wins before xterm's internal handler.
+  useEffect(() => {
+    const panel = panelRef.current
+    if (panel === null) return
+    const onContextMenu = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (target === null) return
+      // Only inside a terminal viewport, never on the toolbar or tab strip.
+      const hostEntry = Array.from(hostsRef.current.entries()).find(([, host]) => host.contains(target))
+      if (hostEntry === undefined) return
+      const [id] = hostEntry
+      const term = termsRef.current.get(id)?.term
+      if (term === undefined) return
+      e.preventDefault()
+      e.stopPropagation()
+      const selection = term.getSelection()
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          id: 'copy',
+          label: t('terminal.copy'),
+          icon: Icons.copy,
+          disabled: selection === '',
+          onClick: () => { void copyTextOrNotify(selection, copyFailureNotifier(t, t('terminal.copy'))) },
+        },
+        {
+          id: 'paste',
+          label: t('terminal.paste'),
+          icon: Icons.paste,
+          onClick: () => {
+            void navigator.clipboard.readText()
+              .then((text) => { if (text !== '') term.paste(text) })
+              .catch(() => { /* clipboard read denied: nothing to paste */ })
+          },
+        },
+        { id: 'selectAll', label: t('terminal.selectAll'), icon: Icons.eye, onClick: () => { term.selectAll() } },
+        { id: 'clear', label: t('terminal.clear'), icon: Icons.trash, onClick: () => { term.clear() } },
+      ])
+    }
+    panel.addEventListener('contextmenu', onContextMenu, true)
+    return () => { panel.removeEventListener('contextmenu', onContextMenu, true) }
+  }, [t])
 
   // --- Clipboard paste (VS Code-style, replaces xterm's clipboard addon) ---
   // xterm's default Ctrl/Cmd+V path forwards the helper textarea's input event

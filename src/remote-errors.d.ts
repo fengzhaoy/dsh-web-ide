@@ -25,6 +25,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/no-workspace': { readonly [key: string]: unknown }
     /** The workspace root is not inside a git repository. */
     'ide-tools/not-a-repo': { readonly [key: string]: unknown }
+    /** A debug target could not be started. */
+    'ide-tools/debug-failed': { readonly [key: string]: unknown }
+    /** The debug target never printed an inspector address. */
+    'ide-tools/debug-timeout': { readonly [key: string]: unknown }
+    /** The debug target exited before the inspector came up. */
+    'ide-tools/debug-exited': { readonly [key: string]: unknown }
+    /** No debug target with that id is open in the calling Session. */
+    'ide-tools/no-such-debug-target': { readonly targetId?: string; readonly [key: string]: unknown }
     /** A git command failed to start or reported a non-zero exit. */
     'ide-tools/git-failed': { readonly [key: string]: unknown }
     /** git checkout failed (conflict, missing ref, dirty tree, ...). */
