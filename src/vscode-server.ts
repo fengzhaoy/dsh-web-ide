@@ -8,7 +8,7 @@
  */
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 /** One managed code-server process. */
 export interface VscodeServerEntry {
@@ -33,6 +33,10 @@ export interface VscodeServerInfo {
  * `env.HOME` wins over `homedir()`: when a caller passes an env it means it,
  * and os.homedir() ignores the env entirely (it reads the passwd entry), which
  * made a sandboxed HOME silently fall back to the real user's install.
+ *
+ * `env.PATH` is searched too: a version manager (nvm, fnm, volta, asdf) puts
+ * npm globals in a node-version-specific bin dir such as
+ * `~/.nvm/versions/node/v24.14.0/bin`, which no fixed path list can predict.
  */
 export function codeServerCandidates(env: Record<string, string | undefined> = process.env): string[] {
   const out: string[] = []
@@ -42,6 +46,14 @@ export function codeServerCandidates(env: Record<string, string | undefined> = p
   out.push(join(home, '.npm-global', 'bin', 'code-server'))
   out.push('/opt/homebrew/bin/code-server')
   out.push('/usr/local/bin/code-server')
+  out.push(join(home, '.local', 'bin', 'code-server'))
+  out.push(join(home, 'Library', 'pnpm', 'code-server'))
+  const path = env.PATH
+  if (path !== undefined && path !== '') {
+    for (const dir of path.split(delimiter)) {
+      if (dir !== '') out.push(join(dir, 'code-server'))
+    }
+  }
   return out
 }
 
