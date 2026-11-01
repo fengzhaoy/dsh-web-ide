@@ -14,10 +14,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import type { IdeDebugOpenResult } from './client/types.js'
+import type { IdeVscodeInfo } from './client/types.js'
+import { codeServerArgs, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
 // declaration-merged into the typert protocol's extensible
@@ -676,6 +679,8 @@ export class IdeTools extends TypertRemoteService {
    *  Keyed by session so two browser sessions on the same workspace cannot
    *  read each other's editor state. */
   private readonly dirtyStore = new Map<string, Map<string, DirtyBufferEntry>>()
+  /** One code-server per DSH Session (Scheme C). */
+  private readonly vscodeServers = new Map<string, VscodeServerEntry>()
   /** Live debug targets started by debugOpen, keyed by target id. Each entry
    *  carries its owning Session: ids are guessable, so every terminate goes
    *  through ownedDebugTarget() exactly as the terminal* methods go through
@@ -696,6 +701,9 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'search', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalOpen', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'debugOpen', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'vscodeOpen', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'vscodeStatus', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'vscodeStop', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'debugTerminate', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalWrite', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalSignal', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -968,6 +976,98 @@ export class IdeTools extends TypertRemoteService {
       throw new RemoteError('ide-tools/no-such-debug-target', 'debug target ' + JSON.stringify(targetId) + ' is not open', { targetId })
     }
     return entry
+  }
+
+  /**
+   * Start (or reuse) a code-server instance for this workspace and return the
+   * iframe URL. Scheme C: the page embeds a real VS Code in a tab; Monaco is
+   * untouched by design so this feature can be removed wholesale.
+   */
+  async vscodeOpen(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    spec: { restart?: boolean },
+    _signal: AbortSignal,
+  ): Promise<IdeVscodeInfo> {
+    const { sessionId, workspaceRoot } = workspaceFileScope
+    const existing = this.vscodeServers.get(sessionId)
+    if (existing !== undefined && spec.restart !== true) {
+      const ready = await this.probeVscode(existing)
+      return { url: workspaceUrl(existing.origin, workspaceRoot), port: existing.port, ready }
+    }
+    if (existing !== undefined) await this.stopVscode(sessionId)
+
+    const bin = findCodeServer()
+    if (bin === null) {
+      throw new RemoteError('ide-tools/vscode-missing', 'code-server is not installed on this machine', {})
+    }
+    const port = nextFreePort(8787, [...this.vscodeServers.values()].map((e) => e.port))
+    const stateDir = join(homedir(), '.dsh-ide', 'code-server')
+    const origin = 'http://127.0.0.1:' + String(port)
+    const handle = this.ctx.subprocess.spawn({
+      argv: [bin, ...codeServerArgs({
+        port,
+        userDataDir: join(stateDir, 'user-data'),
+        extensionsDir: join(stateDir, 'extensions'),
+      })],
+      cwd: workspaceRoot,
+      stdio: { stdin: 'ignore' as const, stdout: { maxBytes: 200_000 }, stderr: { maxBytes: 200_000 } },
+      graceMs: 5000,
+    } as never)
+    this.vscodeServers.set(sessionId, { port, origin, handle, startedAt: Date.now(), ready: false })
+    void handle.done.then(() => { this.vscodeServers.delete(sessionId) }).catch(() => undefined)
+
+    // Poll until the workbench answers; a cold start measured ~1.5s.
+    for (let i = 0; i < 100; i += 1) {
+      const server = this.vscodeServers.get(sessionId)
+      if (server === undefined) break
+      if (await this.probeVscode(server)) {
+        server.ready = true
+        return { url: workspaceUrl(origin, workspaceRoot), port, ready: true }
+      }
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    await this.stopVscode(sessionId)
+    throw new RemoteError('ide-tools/vscode-timeout', 'code-server did not answer on its port', {})
+  }
+
+  /** Current state of this Session's VS Code server, if any. */
+  async vscodeStatus(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    _signal: AbortSignal,
+  ): Promise<IdeVscodeInfo | null> {
+    const server = this.vscodeServers.get(workspaceFileScope.sessionId)
+    if (server === undefined) return null
+    return {
+      url: workspaceUrl(server.origin, workspaceFileScope.workspaceRoot),
+      port: server.port,
+      ready: await this.probeVscode(server),
+    }
+  }
+
+  /** Stop this Session's VS Code server. */
+  async vscodeStop(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    _signal: AbortSignal,
+  ): Promise<void> {
+    void workspaceFileScope.workspaceRoot
+    await this.stopVscode(workspaceFileScope.sessionId)
+  }
+
+  /** One HTTP probe: is the workbench serving? */
+  private async probeVscode(server: { origin: string }): Promise<boolean> {
+    try {
+      const res = await fetch(server.origin + '/', { signal: AbortSignal.timeout(1000) })
+      return res.ok || res.status === 302
+    } catch {
+      return false
+    }
+  }
+
+  private async stopVscode(sessionId: string): Promise<void> {
+    const server = this.vscodeServers.get(sessionId)
+    if (server === undefined) return
+    this.vscodeServers.delete(sessionId)
+    try { await Promise.resolve(server.handle.terminate?.()) } catch { /* already gone */ }
   }
 
   /** Look up a terminal and verify the caller's Session owns it.

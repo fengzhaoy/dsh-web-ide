@@ -25,6 +25,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'ide-tools/no-workspace': { readonly [key: string]: unknown }
     /** The workspace root is not inside a git repository. */
     'ide-tools/not-a-repo': { readonly [key: string]: unknown }
+    /** code-server is not installed on this machine. */
+    'ide-tools/vscode-missing': { readonly [key: string]: unknown }
+    /** code-server never answered on its port. */
+    'ide-tools/vscode-timeout': { readonly [key: string]: unknown }
     /** A debug target could not be started. */
     'ide-tools/debug-failed': { readonly [key: string]: unknown }
     /** The debug target never printed an inspector address. */

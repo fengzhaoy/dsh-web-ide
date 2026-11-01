@@ -21,8 +21,9 @@ export interface OpenTab {
   error: string | null
   /** Whether the editor holds unsaved edits for this tab. */
   dirty: boolean
-  /** Render mode: Monaco text, or an <img>/<iframe> preview for binary files. */
-  kind: 'text' | 'image'
+  /** Render mode: Monaco text, an <img>/<iframe> preview for binary files, or
+   *  a full VS Code Server embedded in an iframe (Scheme C). */
+  kind: 'text' | 'image' | 'vscode'
   /** Data URI backing an image/PDF tab (kind === 'image'). */
   imageSrc?: string
   /** Detected text encoding, shown in the status bar. */

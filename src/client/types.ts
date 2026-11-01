@@ -116,6 +116,15 @@ export interface IdeTerminalOpenResult {
   readonly terminalId: string
   readonly pid: number
 }
+/** A running code-server instance (Scheme C). */
+export interface IdeVscodeInfo {
+  /** Full iframe URL opening the workspace. */
+  readonly url: string
+  readonly port: number
+  /** True once the workbench is serving. */
+  readonly ready: boolean
+}
+
 /** Result of starting a Node debug target (Scheme B). */
 export interface IdeDebugOpenResult {
   /** Host-side id, used to terminate the process. */
@@ -303,6 +312,12 @@ export interface IdeToolsRemote {
     query: { pattern: string; include?: string; path?: string; caseSensitive: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchResult>>
+  /** Start or reuse a code-server for this workspace (Scheme C). */
+  vscodeOpen(sessionId: SessionId, spec: { restart?: boolean }, signal?: AbortSignal): Promise<RemoteResult<IdeVscodeInfo>>
+  /** Current code-server state, or null when none is running. */
+  vscodeStatus(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<IdeVscodeInfo | null>>
+  /** Stop the code-server for this Session. */
+  vscodeStop(sessionId: SessionId, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Start a Node process under --inspect-brk (Scheme B debugging). */
   debugOpen(
     sessionId: SessionId,

@@ -22,6 +22,14 @@ const _ide_tools_ideTools_search_result$schema = z.object({
   'totalMatches': z.number().readonly(),
 }).readonly()
 
+const _ide_tools_ideTools_vscodeOpen_parameter_1$schema = z.object({
+  'restart': z.boolean().optional(),
+}).readonly()
+const _ide_tools_ideTools_vscodeOpen_result$schema = z.object({
+  'url': z.string().readonly(),
+  'port': z.number().readonly(),
+  'ready': z.boolean().readonly(),
+}).readonly()
 const _ide_tools_ideTools_debugOpen_parameter_1$schema = z.object({
   'path': z.string().readonly(),
   'args': z.array(z.string().readonly()).optional(),
@@ -372,6 +380,67 @@ export const TYPERT = {
         create: () => _ide_tools_ideTools_search_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 119, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/vscodeOpen',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'vscodeOpen',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('vscodeOpen', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'spec',
+          wire: 'spec',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/vscodeOpen:spec',
+            create: () => _ide_tools_ideTools_vscodeOpen_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeVscodeInfo',
+        create: () => _ide_tools_ideTools_vscodeOpen_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 830, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/vscodeStatus',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'vscodeStatus',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('vscodeStatus', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeVscodeInfo',
+        create: () => z.union([_ide_tools_ideTools_vscodeOpen_result$schema, z.null()]),
+      },
+      sourceLocation: { file: 'src/index.ts', line: 875, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/vscodeStop',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'vscodeStop',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('vscodeStop', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#void',
+        create: () => z.void(),
+      },
+      sourceLocation: { file: 'src/index.ts', line: 890, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/debugOpen',

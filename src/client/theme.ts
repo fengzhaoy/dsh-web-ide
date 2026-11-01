@@ -104,6 +104,10 @@ export const IDE_STYLES = `
 .ide-activitybar-icon svg{width:24px;height:24px}
 .ide-activitybar-badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#0e639c;color:#fff;font-size:9px;font-weight:600;line-height:16px;text-align:center;box-sizing:border-box;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
 .ide-sidebar{position:relative;width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}
+/* Collapsed left panel: the activity bar stays, the panel takes no space.
+   The hidden attribute cannot do this — the element is display:flex, which
+   overrides the attribute display:none. */
+.ide-sidebar[data-collapsed='true']{display:none}
 /* Right-edge resize grip: a 7px hit strip centered on the 1px border. Hover
    shows the accent line + a small handle icon (Icons.splitEditor). */
 .ide-sidebar-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:20;display:flex;align-items:center;justify-content:center}
@@ -708,6 +712,16 @@ export const IDE_STYLES = `
 .ide-problems{padding:8px 12px}
 .ide-problems-empty{padding:24px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
 .ide-problems-group{margin-bottom:8px}
+.ide-vscode{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--ide-bg);z-index:3}
+.ide-vscode-bar{display:flex;align-items:center;gap:8px;padding:4px 10px;border-bottom:1px solid var(--ide-border);flex:none}
+.ide-vscode-title{font-size:12px;font-weight:600;color:var(--ide-fg)}
+.ide-vscode-origin{font-size:11px;color:var(--ide-fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.ide-vscode-actions{display:flex;gap:4px;flex:none}
+.ide-vscode-action{background:none;border:1px solid var(--ide-border);border-radius:3px;color:var(--ide-fg);font-size:11px;padding:2px 8px;cursor:pointer}
+.ide-vscode-action:hover{background:var(--ide-tree-hover)}
+.ide-vscode-frame{flex:1;width:100%;border:none;background:#1e1e1e}
+.ide-vscode-loading,.ide-vscode-error{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;flex:1;font-size:12px;color:var(--ide-fg-muted);padding:20px;text-align:center}
+.ide-vscode-error{color:var(--ide-fg)}
 .ide-debug{padding:0 0 4px}
 .ide-debug-toolbar{display:flex;align-items:center;gap:4px;padding:6px 12px 4px;border-bottom:1px solid var(--ide-border)}
 .ide-debug-action{background:none;border:none;padding:2px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;color:var(--ide-fg);cursor:pointer;border-radius:3px}

@@ -25,6 +25,7 @@ import { CommandPalette } from './CommandPalette.js'
 import { ExtensionsView } from './ExtensionsView.js'
 import { ProblemsPanel, type ProblemItem } from './editor/ProblemsPanel.js'
 import { useTaskRunner, mergeProblems } from './run/use-task-runner.js'
+import { VscodeTab } from './VscodeTab.js'
 import { RunView } from './run/RunView.js'
 import { useDebugger } from './run/use-debugger.js'
 import { useRunDebug, runDebug } from './run/run-debug-store.js'
@@ -34,7 +35,7 @@ import { ideSettings, ideKeybindings, ideSnippets, applyEditorOptions, chordMatc
 import { notifications } from './notifications.js'
 import type { OpenTab } from './editor/TabBar.js'
 import { detectLanguage } from './language.js'
-import type { IdeViewInjected, RemoteResult, WorkspaceFileBytes, WorkspaceFileStat, WorkspaceFileText } from './types.js'
+import type { IdeVscodeInfo, IdeViewInjected, RemoteResult, WorkspaceFileBytes, WorkspaceFileStat, WorkspaceFileText } from './types.js'
 import { publishActiveFile, registerIdeMount, syncSidebarHighlight, takePendingOpenPath, unregisterIdeMount } from './sidebarBridge.js'
 import { installMonacoWorker } from './monacoWorkerBootstrap.js'
 import { installCodiconFont } from './codiconFontBootstrap.js'
@@ -407,6 +408,8 @@ export function IdeView(props: IdeViewInjected & {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<ReturnType<MonacoNS['editor']['create']> | null>(null)
   const [tabs, setTabs] = useState<OpenTab[]>([])
+  /** True when the left panel is hidden (activity bar stays visible). */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [activePath, setActivePath] = useState<string | undefined>(undefined)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [monacoReady, setMonacoReady] = useState(false)
@@ -588,6 +591,62 @@ export function IdeView(props: IdeViewInjected & {
   const [bottomTabsActions, setBottomTabsActions] = useState<HTMLDivElement | null>(null)
   /** Monaco marker snapshot for the problems indicator + panel. */
   const [problems, setProblems] = useState<ProblemItem[]>([])
+
+  /** Scheme C: one VS Code Server tab per workspace, opened on demand. */
+  const [vscodeInfo, setVscodeInfo] = useState<IdeVscodeInfo | undefined>(undefined)
+  const [vscodeLoading, setVscodeLoading] = useState(false)
+  const [vscodeError, setVscodeError] = useState<string | null>(null)
+  const VSCODE_TAB = 'dsh://vscode'
+
+  const openVscode = useCallback(async (restart = false) => {
+    // Every early exit below must be VISIBLE: a silent return made the button
+    // look dead, because nothing changed on screen and no error appeared.
+    if (sessionId === undefined || ideTools === undefined) {
+      notifications.error(t('vscode.noSession'))
+      return
+    }
+    setVscodeLoading(true)
+    setVscodeError(null)
+    // Open the tab FIRST so the click has an immediate visible effect: startup
+    // takes ~1.5s (and up to 15s on a cold cache), which read as "nothing
+    // happened" when the tab only appeared after the server answered.
+    setTabs((prev) => prev.some((x) => x.path === VSCODE_TAB) ? prev : [...prev, {
+      path: VSCODE_TAB, name: 'VS Code', language: 'vscode', version: '',
+      truncated: false, lines: 0, status: 'ready' as const, error: null,
+      dirty: false, kind: 'vscode' as const,
+    }])
+    setActivePath(VSCODE_TAB)
+    try {
+      const res = await ideTools.vscodeOpen(sessionId, { restart })
+      if (!res.ok) {
+        const message = res.error.code === 'ide-tools/vscode-missing'
+          ? t('vscode.notInstalled')
+          : (res.error.message ?? res.error.code)
+        // Surface it as a notification too: vscodeError only renders inside the
+        // VS Code tab, which does not exist yet when startup fails.
+        setVscodeError(message)
+        notifications.error(message)
+        return
+      }
+      setVscodeInfo(res.value)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setVscodeError(message)
+      notifications.error(message)
+    } finally {
+      setVscodeLoading(false)
+    }
+  }, [sessionId, ideTools, t])
+
+  const stopVscode = useCallback(async () => {
+    if (sessionId === undefined || ideTools === undefined) return
+    try { await ideTools.vscodeStop(sessionId) } catch { /* already gone */ }
+    setVscodeInfo(undefined)
+    setTabs((prev) => prev.filter((x) => x.path !== VSCODE_TAB))
+    setActivePath((prev) => (prev === VSCODE_TAB ? undefined : prev))
+  }, [sessionId, ideTools])
+
+  const activeIsVscode = activePath === VSCODE_TAB
 
   /** Scheme B debugger. Node's inspector is the only target for now. */
   const debuggerApi = useDebugger({ sessionId, ideTools, cwd, t })
@@ -1054,7 +1113,9 @@ export function IdeView(props: IdeViewInjected & {
     const tab = tabs.find((t) => t.path === activePath)
     // Image tabs (and the no-tab state) have no Monaco model: detach so a stale
     // text model never shows through the image / empty overlay.
-    if (activePath === undefined || tab?.kind === 'image') { editorRef.current.setModel(null); return }
+    // Image AND VS Code tabs have no Monaco model: detach so a stale text model
+    // never shows through the overlay.
+    if (activePath === undefined || tab?.kind === 'image' || tab?.kind === 'vscode') { editorRef.current.setModel(null); return }
     const model = ideEditor.models.get(activePath)
     if (model) editorRef.current.setModel(model)
     // Read-only when the view is truncated (saving it would drop the tail) or
@@ -1171,12 +1232,12 @@ export function IdeView(props: IdeViewInjected & {
           bumpGit()
           bumpTree()
           // Match by absolute path or relative path against open tabs.
-          const hit = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))
+          const hit = tabsRef.current.find((t) => isFileTab(t) && matchesPath(t.path, absPath, cwd))
           const newVersion = 'version' in frame.change ? frame.change.version : undefined
           if ('absent' in frame.change) {
             // Externally deleted: close a matching tab / diff overlay so a
             // stale buffer is never saved back over a new file.
-            const victim = tabsRef.current.find((t) => matchesPath(t.path, absPath, cwd))?.path
+            const victim = tabsRef.current.find((t) => isFileTab(t) && matchesPath(t.path, absPath, cwd))?.path
               ?? (diffPathRef.current !== undefined && matchesPath(diffPathRef.current.path, absPath, cwd) ? diffPathRef.current.path : undefined)
             if (victim !== undefined) {
               setDiffPath((d) => (d?.path === victim ? undefined : d))
@@ -1272,6 +1333,8 @@ export function IdeView(props: IdeViewInjected & {
       bumpTimer = setTimeout(() => { bumpTimer = undefined; setGitRefreshKey((k) => k + 1) }, 1000)
     }
     const dropTab = (path: string) => {
+      // Never drop a virtual tab through a file-deletion path.
+      if (path.startsWith('dsh://')) return
       ideEditor.models.get(path)?.dispose()
       ideEditor.models.delete(path)
       ideEditor.saved.delete(path)
@@ -1290,7 +1353,10 @@ export function IdeView(props: IdeViewInjected & {
     const ctrl = new AbortController()
     // Slow silent stat pass for non-instrumented external writes.
     const poll = () => {
-      const open = tabsRef.current.filter((t) => t.status === 'ready')
+      // Virtual tabs (the VS Code overlay) have no file behind them: stat
+      // answers not-found and the deletion branch would drop the tab ~15s
+      // after it opened.
+      const open = tabsRef.current.filter((t) => t.status === 'ready' && isFileTab(t))
       for (const tab of open) {
         if (ctrl.signal.aborted) return
         if (tab.dirty || reloading.has(tab.path)) continue
@@ -1945,6 +2011,8 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.viewRun', category: t('category.run'), label: t('command.viewRun'), run: () => setSidebarView('run') },
       { id: 'ide.debugFile', category: t('category.run'), label: t('command.debugFile'), run: () => { startDebug() } },
       { id: 'ide.debugStop', category: t('category.run'), label: t('command.debugStop'), run: () => { void debuggerApi.stop() } },
+      { id: 'ide.openVscode', category: t('category.view'), label: t('command.openVscode'), run: () => { void openVscode() } },
+      { id: 'ide.restartVscode', category: t('category.view'), label: t('command.restartVscode'), run: () => { void openVscode(true) } },
       { id: 'ide.problems', category: t('category.view'), label: t('command.problems'), run: () => { setTerminalOpen((v) => v && bottomTab === 'problems' ? false : true); setBottomTab('problems') } },
       { id: 'ide.viewExplorer', category: t('category.view'), label: t('command.viewExplorer'), run: () => setSidebarView('explorer') },
       { id: 'ide.viewSearch', category: t('category.view'), label: t('command.viewSearch'), run: () => setSidebarView('search') },
@@ -2107,6 +2175,23 @@ export function IdeView(props: IdeViewInjected & {
     if (next.length === 0) setTerminalOpen(false)
     setActiveTerminalIdx((active) => Math.min(active, Math.max(0, next.length - 1)))
   }, [terminalIds])
+  /** Double-clicking an activity-bar icon hides the left panel; double-clicking
+   *  the icon of the view that is already showing brings it back. A single
+   *  click always selects its view and shows the panel, so the two gestures do
+   *  not conflict. The VS Code icon is intentionally excluded. */
+  const toggleSidebarFor = useCallback((view: SidebarView) => {
+    setSidebarCollapsed((collapsed) => {
+      if (collapsed) {
+        setSidebarView(view)
+        return false
+      }
+      // Already showing this view: a double click means "hide it".
+      if (sidebarView === view) return true
+      setSidebarView(view)
+      return false
+    })
+  }, [sidebarView])
+
   const handleTerminalClose = useCallback(() => { setTerminalOpen(false) }, [])
 
   return (
@@ -2124,27 +2209,31 @@ export function IdeView(props: IdeViewInjected & {
             className="ide-activitybar-icon"
             data-active={sidebarView === 'explorer'}
             title={t('explorer.title')}
-            onClick={() => setSidebarView('explorer')}
+            onClick={() => { setSidebarView('explorer'); setSidebarCollapsed(false) }}
+            onDoubleClick={() => toggleSidebarFor('explorer')}
           >{Icons.explorer}</div>
           <div
             className="ide-activitybar-icon"
             data-active={sidebarView === 'search'}
             title={t('search.title')}
-            onClick={() => setSidebarView('search')}
+            onClick={() => { setSidebarView('search'); setSidebarCollapsed(false) }}
+            onDoubleClick={() => toggleSidebarFor('search')}
           >{Icons.search}</div>
           <div
             className="ide-activitybar-icon"
             data-active={sidebarView === 'git'}
             title={t('git.title')}
-            onClick={() => setSidebarView('git')}
+            onClick={() => { setSidebarView('git'); setSidebarCollapsed(false) }}
+            onDoubleClick={() => toggleSidebarFor('git')}
           >
             {Icons.git}
             {gitEntries !== undefined && gitEntries.length > 0 && (
               <span className="ide-activitybar-badge">{gitEntries.length}</span>
             )}
           </div>
-          <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => setSidebarView('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
-          <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => setSidebarView('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => { setSidebarView('run'); setSidebarCollapsed(false) }} onDoubleClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => { setSidebarView('extensions'); setSidebarCollapsed(false) }} onDoubleClick={() => toggleSidebarFor('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
+                     <div className="ide-activitybar-icon" title={t('vscode.title')} onClick={() => { void openVscode() }} data-testid="ide-activitybar-vscode">{Icons.panelBottom}</div>
           <div className="ide-activitybar-spacer" />
           <div
             className="ide-activitybar-icon"
@@ -2161,7 +2250,7 @@ export function IdeView(props: IdeViewInjected & {
             data-testid="ide-activitybar-gear"
           >{Icons.gear}</div>
         </div>
-        <div className="ide-sidebar">
+        <div className="ide-sidebar" data-collapsed={sidebarCollapsed ? 'true' : undefined}>
           {sidebarView === 'run' ? (
             <div className="ide-sidebar-view">
               <RunView
@@ -2413,6 +2502,18 @@ export function IdeView(props: IdeViewInjected & {
           <div className="ide-editor-container" ref={containerRef}
             data-md-split={mdPreviewOpen && !diffPath && activeIsMd && !previewFullscreen ? 'true' : undefined}
             data-md-covered={previewFullscreen ? 'true' : undefined} />
+          {/* Scheme C: a real VS Code Server in an overlay iframe. Monaco stays
+              mounted underneath, exactly like the image/PDF preview above. */}
+          {activeIsVscode && (
+            <VscodeTab
+              info={vscodeInfo}
+              error={vscodeError}
+              loading={vscodeLoading}
+              onRetry={() => { void openVscode(true) }}
+              onStop={() => { void stopVscode() }}
+              t={t}
+            />
+          )}
           {activeImageSrc && (
             <div className="ide-editor-image">
               {/* PDFs render in the browser's built-in viewer via an iframe.
@@ -2618,6 +2719,14 @@ export function IdeView(props: IdeViewInjected & {
 }
 
 /** Does an open tab path (absolute) match an absolute change path? */
+/** True for tabs backed by a real file on disk. Virtual tabs (the VS Code
+ *  overlay, dsh://...) must be excluded from every file-lifecycle path:
+ *  stat polling, external-change matching and deletion cleanup. */
+function isFileTab(tab: { path: string; kind?: string }): boolean {
+  if (tab.kind === 'vscode' || tab.kind === 'image') return false
+  return !tab.path.startsWith('dsh://')
+}
+
 function matchesPath(tabPath: string, absolutePath: string, _cwd: string | undefined): boolean {
   if (tabPath === absolutePath) return true
   const normTab = tabPath.replace(/\\/g, '/')
