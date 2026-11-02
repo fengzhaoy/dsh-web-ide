@@ -2175,17 +2175,17 @@ export function IdeView(props: IdeViewInjected & {
     if (next.length === 0) setTerminalOpen(false)
     setActiveTerminalIdx((active) => Math.min(active, Math.max(0, next.length - 1)))
   }, [terminalIds])
-  /** Double-clicking an activity-bar icon hides the left panel; double-clicking
-   *  the icon of the view that is already showing brings it back. A single
-   *  click always selects its view and shows the panel, so the two gestures do
-   *  not conflict. The VS Code icon is intentionally excluded. */
+  /** A single click on an activity-bar icon opens that view, and a second
+   *  click on the already-showing view hides the panel again. Double-clicking
+   *  is deliberately gone: the second click of a double click is itself a
+   *  single click, so hide-then-show would immediately reopen the panel. */
   const toggleSidebarFor = useCallback((view: SidebarView) => {
     setSidebarCollapsed((collapsed) => {
       if (collapsed) {
         setSidebarView(view)
         return false
       }
-      // Already showing this view: a double click means "hide it".
+      // Already showing this view: click again means "hide it".
       if (sidebarView === view) return true
       setSidebarView(view)
       return false
@@ -2209,30 +2209,21 @@ export function IdeView(props: IdeViewInjected & {
             className="ide-activitybar-icon"
             data-active={sidebarView === 'explorer'}
             title={t('explorer.title')}
-            onClick={() => { setSidebarView('explorer'); setSidebarCollapsed(false) }}
-            onDoubleClick={() => toggleSidebarFor('explorer')}
+            onClick={() => toggleSidebarFor('explorer')}
           >{Icons.explorer}</div>
-          <div
-            className="ide-activitybar-icon"
-            data-active={sidebarView === 'search'}
-            title={t('search.title')}
-            onClick={() => { setSidebarView('search'); setSidebarCollapsed(false) }}
-            onDoubleClick={() => toggleSidebarFor('search')}
-          >{Icons.search}</div>
           <div
             className="ide-activitybar-icon"
             data-active={sidebarView === 'git'}
             title={t('git.title')}
-            onClick={() => { setSidebarView('git'); setSidebarCollapsed(false) }}
-            onDoubleClick={() => toggleSidebarFor('git')}
+            onClick={() => toggleSidebarFor('git')}
           >
             {Icons.git}
             {gitEntries !== undefined && gitEntries.length > 0 && (
               <span className="ide-activitybar-badge">{gitEntries.length}</span>
             )}
           </div>
-          <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => { setSidebarView('run'); setSidebarCollapsed(false) }} onDoubleClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
-          <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => { setSidebarView('extensions'); setSidebarCollapsed(false) }} onDoubleClick={() => toggleSidebarFor('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
+          <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => toggleSidebarFor('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
                      <div className="ide-activitybar-icon" title={t('vscode.title')} onClick={() => { void openVscode() }} data-testid="ide-activitybar-vscode">{Icons.panelBottom}</div>
           <div className="ide-activitybar-spacer" />
           <div
@@ -2348,6 +2339,16 @@ export function IdeView(props: IdeViewInjected & {
                 <span>{t('explorer.title')}</span>
                 {/* VS Code-style title actions, revealed while the pointer is over the sidebar. */}
                 <div className="ide-header-actions">
+                  {/* The magnifier toggles the Explorer's own "filter files by
+                      name" box (the box itself is hidden until this is pressed),
+                      not the global search view. It sits ahead of "new file". */}
+                  <button
+                    className="ide-header-action"
+                    title={t('explorer.filterFiles')}
+                    aria-label={t('explorer.filterFiles')}
+                    data-testid="ide-explorer-filter"
+                    onClick={() => explorerRef.current?.toggleFilter()}
+                  >{Icons.search}</button>
                   <button
                     className="ide-header-action"
                     title={t('explorer.newFile')}

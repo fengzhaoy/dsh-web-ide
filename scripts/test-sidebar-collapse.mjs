@@ -1,6 +1,8 @@
 /**
- * Left-panel collapse wiring: double-clicking an activity-bar icon hides the
- * panel; the VS Code icon must stay exempt.
+ * Left-panel collapse wiring: a single click on an activity-bar icon opens its
+ * view or hides the panel when that view is already showing. Double-click is
+ * gone on purpose — the second click of a double click is itself a single
+ * click, so "hide on double click" would hide then immediately reopen.
  */
 import { readFileSync } from 'node:fs'
 
@@ -16,18 +18,32 @@ check('collapsed panel is hidden via data-collapsed', ide.includes("data-collaps
 check('CSS actually hides it', theme.includes(".ide-sidebar[data-collapsed='true']{display:none}"))
 check('does not rely on the hidden attribute', !/className="ide-sidebar"[^>]*hidden=/.test(ide))
 
-// --- every view except vscode ---
-for (const view of ['explorer', 'search', 'git', 'run', 'extensions']) {
-  check('double-click toggles ' + view, ide.includes("onDoubleClick={() => toggleSidebarFor('" + view + "')}"))
-  check('single click expands for ' + view, new RegExp("onClick=\\{\\(\\) => \\{[^}]*setSidebarCollapsed\\(false\\)").test(ide))
+// --- the activity-bar icons: single click toggles, no double-click ---
+for (const view of ['explorer', 'git', 'run', 'extensions']) {
+  check('single click toggles ' + view, ide.includes("onClick={() => toggleSidebarFor('" + view + "')}"))
+  check('no double-click handler for ' + view, !new RegExp("onDoubleClick=\\{\\(\\) => toggleSidebarFor\\('" + view + "\\'\\)\\}").test(ide))
 }
-check('VS Code icon has no double-click handler',
-  !/ide-activitybar-vscode[^>]*onDoubleClick/.test(ide))
-check('a collapsed panel reopens on single click', ide.includes('setSidebarCollapsed(false)'))
+// The magnifier moved out of the activity bar into the explorer title bar; it
+// now toggles the tree's name filter instead of opening the global search view.
+const activitybar = ide.slice(ide.indexOf('className="ide-activitybar"'), ide.indexOf('ide-activitybar-spacer'))
+check('search icon is gone from the activity bar', !activitybar.includes("'search'"))
+check('filter entry lives in the explorer header', ide.includes('data-testid="ide-explorer-filter"'))
+check('header magnifier toggles the name filter instead of the search view',
+  ide.includes('onClick={() => explorerRef.current?.toggleFilter()}'))
+check('header magnifier no longer switches to the search view',
+  !ide.includes("onClick={() => toggleSidebarFor('search')}"))
+check('no activity-bar icon keeps a double-click toggle',
+  !/ide-activitybar-icon[^>]*onDoubleClick/.test(ide))
+check('a collapsed panel reopens on single click', /if \(collapsed\) \{\s*setSidebarView\(view\)\s*return false/.test(ide))
+check('filter header action sits before new file', ide.indexOf('ide-explorer-filter') < ide.indexOf('ide-explorer-new-file'))
 
 // --- interaction semantics ---
-check('double-click on the shown view hides it', /if \(sidebarView === view\) return true/.test(ide))
-check('double-click on a hidden panel reveals it', /if \(collapsed\) \{/.test(ide))
+check('clicking the shown view hides the panel', /if \(sidebarView === view\) return true/.test(ide))
+check('clicking another view switches without collapsing', /setSidebarView\(view\)\s*return false/.test(ide))
+
+// --- the other two icons stay untouched ---
+check('terminal icon still toggles the bottom panel', /onClick=\{\(\) => setTerminalOpen\(\(v\) => !v\)\}/.test(ide))
+check('gear icon still opens the manage menu', /onClick=\{openManageMenu\}/.test(ide))
 
 console.log(failed === 0 ? '\nall sidebar collapse checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

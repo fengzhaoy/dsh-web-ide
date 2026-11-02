@@ -39,6 +39,9 @@ export interface ExplorerHandle {
   refresh(): void
   /** Collapse every expanded directory. */
   collapseAll(): void
+  /** Show/hide the Explorer's type-to-filter box (the magnifier in the header
+   *  toggles it); hiding always clears the filter so the whole tree returns. */
+  toggleFilter(): void
   /** Start an inline create input: at the root when parentAbs is omitted. */
   startCreate(kind: 'file' | 'directory', parentAbs?: string): void
   /** Expand ancestors and scroll this file into view (Reveal in Explorer). */
@@ -642,10 +645,26 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
   const [focusPath, setFocusPath] = useState<string | null>(null)
 
   // --- Filter box (VS Code explorer type-to-filter): rows whose own name (or
-  //  any loaded descendant row) matches stay visible; the input lives at the
-  //  top of the tree. Matching is case-insensitive substring, like VS Code's
-  //  fuzzy filter default. ---
+  //  any loaded descendant row) matches stay visible. The box is hidden by
+  //  default and toggled from the Explorer title bar (see ExplorerHandle's
+  //  toggleFilter), so an unfiltered tree has no permanently-visible input.
+  //  Matching is case-insensitive substring, like VS Code's fuzzy filter
+  //  default. ---
   const [filterText, setFilterText] = useState('')
+  // The filter box is hidden by default; the magnifier in the Explorer title
+  // bar (IdeView's header action) reveals it — VS Code keeps this out of the
+  // tree body so an unfiltered tree has no permanent input row.
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filterInputRef = useRef<HTMLInputElement | null>(null)
+  // Focus on open; when it closes, drop the filter so every row is visible
+  // again (closing the box must never leave the tree silently filtered).
+  useEffect(() => {
+    if (filterOpen) {
+      filterInputRef.current?.focus()
+      return
+    }
+    setFilterText('')
+  }, [filterOpen])
   // Visible row order, collected from the DOM after each commit — the tree
   // loads lazily per directory so this is the single source of truth for both
   // ↑/↓ keyboard movement and "does this directory contain a visible match".
@@ -725,6 +744,7 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
   useImperativeHandle(ref, () => ({
     refresh: () => setRefreshKey((k) => k + 1),
     collapseAll: () => setExpanded(new Set()),
+    toggleFilter: () => setFilterOpen((open) => !open),
     startCreate,
     revealPath,
   }), [startCreate, revealPath])
@@ -846,24 +866,32 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         style={{ display: 'none' }}
         onChange={(e) => { void onUploadPicked(e.target.files) }}
       />
-      <div className="ide-tree-filter">
-        <span className="ide-tree-filter-icon">{Icons.search}</span>
-        <input
-          className="ide-tree-filter-input"
-          value={filterText}
-          placeholder={t('explorer.filterFiles')}
-          spellCheck={false}
-          aria-label={t('explorer.filterFiles')}
-          onChange={(e) => setFilterText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setFilterText('') } }}
-        />
-        {filterActive && (
-          <button className="ide-tree-filter-clear" aria-label={t('tree.clearFilter')} onClick={() => setFilterText('')}>
-            {Icons.close}
-          </button>
-        )}
-        {filterActive && <span className="ide-tree-filter-count">{String(filterMatchCount)}</span>}
-      </div>
+      {filterOpen && (
+        <div className="ide-tree-filter" data-testid="ide-tree-filter">
+          <span className="ide-tree-filter-icon">{Icons.search}</span>
+          <input
+            ref={filterInputRef}
+            className="ide-tree-filter-input"
+            value={filterText}
+            placeholder={t('explorer.filterFiles')}
+            spellCheck={false}
+            aria-label={t('explorer.filterFiles')}
+            onChange={(e) => setFilterText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              e.preventDefault()
+              setFilterText('')
+              setFilterOpen(false)
+            }}
+          />
+          {filterActive && (
+            <button className="ide-tree-filter-clear" aria-label={t('tree.clearFilter')} onClick={() => setFilterText('')}>
+              {Icons.close}
+            </button>
+          )}
+          {filterActive && <span className="ide-tree-filter-count">{String(filterMatchCount)}</span>}
+        </div>
+      )}
       {notice && <div className="ide-tree-error">{notice}</div>}
       {(pasteError ?? dropError ?? uploadError) && (
         <div className="ide-tree-error">{pasteError ?? dropError ?? uploadError}</div>
