@@ -867,6 +867,23 @@ export function IdeView(props: IdeViewInjected & {
   /** The preview pane is open AND blown up over the whole editor area. */
   const previewFullscreen = mdPreviewOpen && !diffPath && activeIsMd && mdPreviewFull
 
+  // The preview mode is a per-workspace PARKED layout, not a property of one
+  // tab. Restoring it after a remount or a workspace switch can land it ('split'
+  // / 'full') on a .json tab — so it snaps back to 'off' as soon as the active
+  // tab is not a loaded markdown document. Otherwise the state stayed 'full'
+  // with no pane to show it and the next .md file popped straight into full
+  // screen, and any stale cover could keep the newly opened file invisible.
+  useEffect(() => {
+    if (activeTab === undefined) return
+    // Still loading: the file may turn out to be markdown. Normalizing here
+    // would kill the parked full-screen layout on every md→md tab switch (the
+    // brief 'loading' state of the newly clicked .md file), losing the reading
+    // position the user set up. Wait for the definitive classification.
+    if (activeTab.status === 'loading') return
+    if (activeTab.status === 'ready' && activeTab.kind === 'text' && isMarkdownPath(activeTab.path)) return
+    setMdPreviewMode((mode) => (mode === 'off' ? mode : 'off'))
+  }, [activeTab])
+
   // Workspace-scoped switching: when the workspace root (cwd) changes, park
   // the current tabs under the old key and restore the new workspace's tabs.
   // Sessions sharing a workspace (same cwd) keep their tabs; models and saved
@@ -2504,7 +2521,11 @@ export function IdeView(props: IdeViewInjected & {
             data-md-split={mdPreviewOpen && !diffPath && activeIsMd && !previewFullscreen ? 'true' : undefined}
             data-md-covered={previewFullscreen ? 'true' : undefined} />
           {/* Scheme C: a real VS Code Server in an overlay iframe. Monaco stays
-              mounted underneath, exactly like the image/PDF preview above. */}
+              mounted underneath, exactly like the image/PDF preview below.
+              This overlay covers the whole editor area, so it must also keep
+              the markdown full-screen preview out of the tree — otherwise the
+              preview stayed mounted (above Monaco) and a text tab opened right
+              after the VS Code tab rendered as an empty pane. */}
           {activeIsVscode && (
             <VscodeTab
               info={vscodeInfo}
@@ -2530,8 +2551,14 @@ export function IdeView(props: IdeViewInjected & {
               owns the right half. Hidden while a git diff overlay is open.
               Full screen ("Show Preview Full Screen"): the pane covers the
               whole editor area and Monaco is only covered, never unmounted,
-              so leaving full screen restores the editor exactly as it was. */}
-          {mdPreviewOpen && !diffPath && activeIsMd && (
+              so leaving full screen restores the editor exactly as it was.
+              The pane may only exist when the ACTIVE tab is a loaded markdown
+              document (activeIsMd) AND nothing else owns the editor area: the
+              full-screen pane sits above the Monaco container, so a stale
+              preview left mounted over a newly opened file is what made that
+              file look blank. Every tab kind that renders its own overlay
+              (image/PDF, VS Code) therefore suppresses it explicitly. */}
+          {mdPreviewOpen && !diffPath && activeIsMd && !activeIsVscode && !activeImageSrc && (
             <div className="ide-md-pane" data-testid="ide-md-preview" data-fullscreen={previewFullscreen || undefined}>
               <div className="ide-md-pane-header" data-fullscreen={previewFullscreen || undefined}>
                 <span className="ide-md-pane-title">{activeTab?.name ?? ''}</span>
