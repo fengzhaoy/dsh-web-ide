@@ -868,21 +868,12 @@ export function IdeView(props: IdeViewInjected & {
   const previewFullscreen = mdPreviewOpen && !diffPath && activeIsMd && mdPreviewFull
 
   // The preview mode is a per-workspace PARKED layout, not a property of one
-  // tab. Restoring it after a remount or a workspace switch can land it ('split'
-  // / 'full') on a .json tab — so it snaps back to 'off' as soon as the active
-  // tab is not a loaded markdown document. Otherwise the state stayed 'full'
-  // with no pane to show it and the next .md file popped straight into full
-  // screen, and any stale cover could keep the newly opened file invisible.
-  useEffect(() => {
-    if (activeTab === undefined) return
-    // Still loading: the file may turn out to be markdown. Normalizing here
-    // would kill the parked full-screen layout on every md→md tab switch (the
-    // brief 'loading' state of the newly clicked .md file), losing the reading
-    // position the user set up. Wait for the definitive classification.
-    if (activeTab.status === 'loading') return
-    if (activeTab.status === 'ready' && activeTab.kind === 'text' && isMarkdownPath(activeTab.path)) return
-    setMdPreviewMode((mode) => (mode === 'off' ? mode : 'off'))
-  }, [activeTab])
+  // tab — it deliberately SURVIVES switching to a non-md tab, so returning to
+  // the .md tab brings full-screen/split preview straight back (VS Code keeps
+  // the preview layout too). This is safe because every consumer of the mode
+  // (previewFullscreen, data-md-split, the pane render gate) additionally
+  // requires activeIsMd, so a non-md tab is never covered or narrowed; the
+  // parked mode is simply dormant while a non-md document is active.
 
   // Workspace-scoped switching: when the workspace root (cwd) changes, park
   // the current tabs under the old key and restore the new workspace's tabs.
