@@ -65,9 +65,9 @@ await test('SCM:三个视图本体(变更/GraphView/BranchesView)都在 SCM pane
 })
 
 await test('SCM:变更视图的 AI生成/刷新 按钮挪进了对应 panel header(不在公共头部)', () => {
-  // The sparkle (AI generate) + refresh actions must live inside the changes panel,
+  // The wand (AI generate, magic wand) + refresh actions must live inside the changes panel,
   // not in a shared ide-git-header that all views share.
-  assert.match(src, /Icons\.sparkle/, 'AI 生成按钮仍在')
+  assert.match(src, /Icons\.wand/, 'AI 生成按钮(魔法棒)仍在')
   assert.match(src, /Icons\.refresh/, '刷新按钮仍在')
   // No shared header that renders these actions conditionally on a single active view.
   assert.doesNotMatch(src, /view === 'changes' && \(\s*<>\s*<button[^>]*ide-git-action/, 'AI/刷新 按钮不能再放在「仅 changes 视图时显示」的公共头部里')

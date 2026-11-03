@@ -654,7 +654,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               }
               onClick={() => { if (generating) cancelGenerate(); else void handleGenerate() }}
               disabled={(status !== 'ready' || noChanges) && !generating}
-            >{generating ? Icons.close : Icons.sparkle}</button>
+            >{generating ? Icons.close : Icons.wand}</button>
             <button
               className="ide-git-action"
               title={t('git.refresh')}
