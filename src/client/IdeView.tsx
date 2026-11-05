@@ -1142,22 +1142,40 @@ export function IdeView(props: IdeViewInjected & {
     if (model) setPreviewContent(model.getValue())
   }, [mdPreviewOpen, monacoReady, activePath, tabs])
 
-  // VS Code parity: scrolling the editor scrolls the preview proportionally
-  // (one-way sync, editor → preview).
+  // VS Code parity: bi-directional proportional scroll sync between the
+  // editor and the preview. A sync lock breaks the feedback loop — the side
+  // that receives a programmatic scroll does not echo it back.
   useEffect(() => {
     if (!mdPreviewOpen || !monacoReady || !activeIsMd) return
     const editor = editorRef.current
     if (editor === null) return
+    let syncing = false
     const d = editor.onDidScrollChange((e) => {
+      if (syncing) return
       const el = previewScrollRef.current
       if (el === null) return
       const layout = editor.getLayoutInfo()
       const srcRange = e.scrollHeight - layout.height
       const dstRange = el.scrollHeight - el.clientHeight
+      syncing = true
       el.scrollTop = srcRange > 0 ? (e.scrollTop / srcRange) * dstRange : 0
+      syncing = false
     })
     return () => { d.dispose() }
   }, [mdPreviewOpen, monacoReady, activeIsMd])
+
+  // VS Code parity (reverse direction): scrolling the preview scrolls the
+  // editor. The listener lives inside <MarkdownPreview> on its own live DOM
+  // node and reports the scroll RATIO — attaching it from this side kept a
+  // stale element when the pane remounted without these deps changing, so the
+  // ratio callback keeps the wiring correct across every remount.
+  const onPreviewScrollRatio = useCallback((ratio: number) => {
+    const editor = editorRef.current
+    if (editor === null) return
+    const dstRange = editor.getContentHeight() - editor.getLayoutInfo().height
+    if (dstRange <= 0) return
+    editor.setScrollTop(ratio * dstRange)
+  }, [])
 
   const closeTabNow = useCallback((path: string) => {
     // Detach the editor before disposing the model: Monaco keeps rendering the
@@ -2577,6 +2595,8 @@ export function IdeView(props: IdeViewInjected & {
                 content={previewContent}
                 nonce={previewNonce}
                 scrollRef={(el) => { previewScrollRef.current = el }}
+                onScrollRatio={onPreviewScrollRatio}
+                dark={settings.theme !== 'light-modern'}
                 onOpenPath={(p) => { void openFile(p) }}
                 t={t}
               />

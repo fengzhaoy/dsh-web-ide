@@ -194,6 +194,43 @@ export const IDE_STYLES = `
 .ide-md-body pre{position:relative;background:rgba(255,255,255,.045);border:1px solid #3c3c3c;border-radius:4px;padding:12px;overflow:auto;margin:0 0 16px}
 .ide-md-body pre code{background:none;padding:0;font-size:12px;line-height:18px;display:block;white-space:pre}
 .ide-md-body pre[data-lang]:not([data-lang=''])::before{content:attr(data-lang);position:absolute;top:4px;right:8px;font-size:10px;color:var(--ide-fg-dim);text-transform:uppercase;letter-spacing:.5px}
+/* Diagram box: a plain block context (not flex) so the content layer can take
+   the full inner width — a flex item shrinks to its content, which collapsed
+   wide mermaid SVGs to ~300px. Padding leaves room for the corner toolbar. */
+.ide-md-body .ide-md-mermaid{background:rgba(255,255,255,.045);border:1px solid #3c3c3c;border-radius:4px;padding:12px;margin:0 0 16px;overflow:auto;position:relative;touch-action:none;min-height:120px;box-sizing:border-box}
+.ide-md-body .ide-md-mermaid svg{max-width:100%;height:auto;display:block}
+.ide-md-body pre.ide-md-mermaid-error{border-color:var(--ide-status-error,#f14c4c)}
+/* Interactive mermaid chrome (VS Code mermaid-markdown-features parity).
+   The .ide-md-mermaid box becomes the pan/zoom surface once DiagramManager
+   attaches; the content layer holds the SVG and carries the transform.
+   Toolbar hides until hover/focus, mirroring the extension default
+   showControls: onHoverOrFocus. */
+.ide-md-mermaid.ide-md-mermaid-active{cursor:grab}
+.ide-md-mermaid.ide-md-mermaid-dragging{cursor:grabbing}
+.ide-md-mermaid-active:focus-visible{outline:1px solid var(--ide-accent,#0e639c);outline-offset:-1px}
+/* Content layer: fills the wrapper's inner width so mermaid's own
+   width="100%" SVG scales to the box instead of collapsing to its intrinsic
+   minimum (flex items shrink to content by default). */
+.ide-md-mermaid-content{transform-origin:0 0;flex:1 1 auto;min-width:0;width:100%;display:block}
+.ide-md-mermaid-content>svg{display:block;width:100%;height:auto;max-width:100%}
+/* Corner toolbar: pinned to the diagram box's top-right corner. */
+.ide-md-mermaid-controls{position:absolute;top:4px;right:4px;display:flex;gap:2px;z-index:100;background:var(--ide-tab-bg,#2d2d2d);border:1px solid var(--ide-border,#2b2b2b);border-radius:6px;padding:2px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.ide-md-mermaid-controls-hover{opacity:0;transition:opacity .15s ease-in-out;pointer-events:none}
+/* CSS fallback for the reveal; mermaidDiagram.ts also drives the inline style
+   on pointerenter/focus so the toolbar shows even if :hover never matches
+   (e.g. the pointer sits over the SVG inside a scrolling box). */
+.ide-md-mermaid-active:hover .ide-md-mermaid-controls-hover,
+.ide-md-mermaid-active:focus .ide-md-mermaid-controls-hover,
+.ide-md-mermaid-active:focus-within .ide-md-mermaid-controls-hover{opacity:1;pointer-events:auto}
+.ide-md-mermaid-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--ide-fg-muted,#9d9d9d);cursor:pointer}
+.ide-md-mermaid-btn:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+.ide-md-mermaid-btn:focus-visible{outline:1px solid var(--ide-accent,#0e639c)}
+.ide-md-mermaid-btn-icon{width:14px;height:14px;display:block}
+/* Height resize handle: a strip along the bottom edge with a pill that
+   fades in on hover (extension .mermaid-resize-handle). */
+.ide-md-mermaid-resize-handle{position:absolute;bottom:0;left:0;right:0;height:10px;cursor:ns-resize;background:transparent;z-index:50}
+.ide-md-mermaid-resize-handle::after{content:'';position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:40px;height:3px;background:var(--ide-border,#2b2b2b);border-radius:2px;opacity:0;transition:opacity .15s ease-in-out}
+.ide-md-mermaid-resize-handle:hover::after{opacity:1;transition-delay:.3s}
 .ide-md-body table{border-collapse:collapse;margin:0 0 16px;display:block;overflow-x:auto;max-width:100%}
 .ide-md-body th,.ide-md-body td{border:1px solid #3c3c3c;padding:5px 12px;font-size:13px}
 .ide-md-body th{background:rgba(255,255,255,.05);font-weight:600}

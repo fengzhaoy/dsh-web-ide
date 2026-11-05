@@ -1,3 +1,15 @@
+```mermaid
+flowchart LR
+    User[业务用户] --> AP[WeiboAP 主 Agent<br/>system.md 路由层]
+    AP --> Skill[专业 Skill<br/>troubleshooting / data-query / feature-development]
+    Skill --> PRD[prd-review<br/>PRD 门禁审查]
+    Skill -->|业务门禁通过且用户授权| Plane[Plane MCP<br/>market-biz-ops 工作区]
+    Plane --> Bridge[桥接提示词<br/>Multica autopilot 51df4330]
+    Bridge --> Agents[执行智能体<br/>按类型×系统路由]
+    Agents -->|结果回写 + 钉钉通知| Plane
+```
+
+
 # DSH Web IDE
 
 [![npm version](https://img.shields.io/npm/v/@zhaoyang10/dsh-web-ide.svg)](https://www.npmjs.com/package/@zhaoyang10/dsh-web-ide)

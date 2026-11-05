@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
 import { fileURLToPath } from 'node:url'
 
 const empty = fileURLToPath(new URL('./empty-module.js', import.meta.url))
+const shim = fileURLToPath(new URL('./browser-crypto-shim.js', import.meta.url))
+const vendoredSanitizeUrl = fileURLToPath(new URL('./vendor/sanitize-url.mjs', import.meta.url))
+const mermaidIife = fileURLToPath(new URL('./vendor/mermaid-iife.js', import.meta.url))
 
 /**
  * Rolldown plugin: Monaco imports codicon .ttf/.woff font assets and a few
@@ -15,6 +19,45 @@ function neutralizeMonacoAssets() {
     resolveId(source: string) {
       if (/\.(?:ttf|woff2?|eot)$/.test(source)) return { id: empty, external: false }
       if (/vs\/base\/browser\/ui\/codicons\/codicon\/codicon\.css$/.test(source)) return { id: empty, external: false }
+      return null
+    },
+  }
+}
+
+/** Rolldown plugin: mermaid's dependency tree (uuid) requires node:crypto for
+ * random UUIDs, but the client runs inside the DSH ModuleLoader whose require
+ * shim has no Node builtins. Redirect the specifier to a WebCrypto shim.
+ * sanitize-url is redirected to a vendored single-file ESM copy because its
+ * upstream CJS wrapper pair trips a rolldown __commonJS ordering bug in this
+ * bundle (the index wrapper executes before the constants wrapper registers). */
+function shimNodeCrypto() {
+  return {
+    name: 'dsh-ide-shim-node-crypto',
+    resolveId(source: string) {
+      if (source === 'node:crypto' || source === 'crypto') return { id: shim, external: false }
+      if (source === '@braintree/sanitize-url') return { id: vendoredSanitizeUrl, external: false }
+      return null
+    },
+  }
+}
+
+/** Rolldown plugin: expose the vendored mermaid browser IIFE as the string
+ * constant MERMAID_IIFE. Bundling mermaid as modules trips rolldown-beta CJS
+ * ordering bugs (UMD wrappers boot before their deps register), so the md
+ * preview instead evaluates this prebuilt single-file IIFE on demand. */
+function embedMermaidIife() {
+  const virtualId = 'virtual:dsh-ide-mermaid-iife'
+  return {
+    name: 'dsh-ide-embed-mermaid-iife',
+    resolveId(source: string) {
+      if (source === virtualId) return { id: virtualId, external: false }
+      return null
+    },
+    load(id: string) {
+      if (id === virtualId) {
+        const iife = readFileSync(mermaidIife, 'utf8')
+        return 'export const MERMAID_IIFE = ' + JSON.stringify(iife)
+      }
       return null
     },
   }
@@ -110,7 +153,7 @@ export default defineConfig([
       /^@deepseek-ai\//,
     ],
     noExternal: ['monaco-editor', 'zod', 'xterm', '@xterm/xterm', '@xterm/addon-fit'],
-    plugins: [neutralizeMonacoAssets(), inlineCss(), wrapModuleLoader()],
+    plugins: [neutralizeMonacoAssets(), shimNodeCrypto(), embedMermaidIife(), inlineCss(), wrapModuleLoader()],
     outputOptions: {
       inlineDynamicImports: true,
     },
