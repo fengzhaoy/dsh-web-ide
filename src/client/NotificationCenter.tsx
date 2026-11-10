@@ -20,8 +20,17 @@ export function NotificationBell({ t }: { t: T }) {
     const onDown = (e: MouseEvent): void => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
+    // Esc closes the notification dropdown — same key the IDE's other popups
+    // (command palette, context menus, dialogs) already honor.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false) }
+    }
     document.addEventListener('mousedown', onDown, true)
-    return () => { document.removeEventListener('mousedown', onDown, true) }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
   }, [open])
 
   const toasts = state.items.filter((it) => it.toast)
@@ -41,7 +50,7 @@ export function NotificationBell({ t }: { t: T }) {
             if (next) notifications.clearUnseen()
           }}
         >
-          {Icons.bell}
+          {hasUnseen ? Icons.bellDot : Icons.bell}
         </button>
         {open && (
           <div className="ide-notify-panel" data-testid="ide-notify-panel">

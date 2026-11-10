@@ -10,8 +10,8 @@
 import type * as Monaco from 'monaco-editor'
 
 export interface IdeSettings {
-  /** Color theme: 'dark-modern' (default) or 'light-modern'. */
-  theme: 'dark-modern' | 'light-modern'
+  /** Color theme: 'dark-modern' (default, VS Code Dark Modern), 'dark-2026' or 'light-modern'. */
+  theme: 'dark-2026' | 'dark-modern' | 'light-modern'
   /** Editor font size in px (Monaco fontSize). */
   'editor.fontSize': number
   /** Editor line height in px (Monaco lineHeight; 0 = auto). */
@@ -34,10 +34,38 @@ export interface IdeSettings {
   'terminal.cursorBlink': boolean
   /** Terminal scrollback lines (xterm scrollback). */
   'terminal.scrollback': number
+  /** Copy the selection to the clipboard as soon as it is made (VS Code
+   *  terminal.copyOnSelection, default off there — match it). */
+  'terminal.copyOnSelection': boolean
+  /** Terminal line height multiplier (xterm lineHeight, 1.0 default). */
+  'terminal.lineHeight': number
+  /** Terminal font weight ('normal' | 'bold' | 100–900, xterm fontWeight). */
+  'terminal.fontWeight': number
+  /** Play a soft system beep when the terminal bell (\a) fires (VS Code
+   *  terminal.integrated.enableBell; the flash variant is always shown). */
+  'terminal.bellSound': boolean
   /** Enable FIM inline completion (experimental; needs DEEPSEEK_API_KEY). */
   'fim.enabled': boolean
   /** FIM debounce in ms (how long after the cursor stops before requesting). */
   'fim.debounceMs': number
+  /** Zen mode (VS Code Appearance ▸ Zen Mode): hides the activity bar, the
+   *  side bar, the bottom panel and the status bar until toggled off. */
+  'appearance.zenMode': boolean
+  /** Show the status bar (VS Code Appearance ▸ Status Bar). */
+  'appearance.statusBar': boolean
+  /** Show breadcrumbs on top of the editor (VS Code Appearance ▸ Breadcrumbs). */
+  'appearance.breadcrumbs': boolean
+  /** Sticky scroll: the editor pins the current scope's opening lines (VS Code
+   *  Appearance ▸ Sticky Scroll, Monaco stickyScroll.enabled). */
+  'appearance.stickyScroll': boolean
+  /** Render control characters as glyphs (Monaco renderControlCharacters). */
+  'appearance.renderControlCharacters': boolean
+  /** Show the hamburger application-menu button at the top of the activity
+   *  bar (VS Code's menubar-more toggle). Hiding removes the button entirely —
+   *  it does not keep its 48px slot. */
+  'appearance.appMenuIcon': boolean
+  /** Show the VS Code (code-server) launcher icon in the activity bar. */
+  'appearance.vscodeIcon': boolean
 }
 
 export const DEFAULT_SETTINGS: IdeSettings = {
@@ -53,8 +81,22 @@ export const DEFAULT_SETTINGS: IdeSettings = {
   'terminal.fontSize': 13,
   'terminal.cursorBlink': true,
   'terminal.scrollback': 5000,
+  'terminal.copyOnSelection': false,
+  'terminal.lineHeight': 1,
+  'terminal.fontWeight': 400,
+  'terminal.bellSound': false,
   'fim.enabled': false,
   'fim.debounceMs': 250,
+  'appearance.zenMode': false,
+  'appearance.statusBar': true,
+  'appearance.breadcrumbs': true,
+  'appearance.stickyScroll': true,
+  'appearance.renderControlCharacters': false,
+  // Off by default: user preference is a clean activity bar, the two launcher
+  // icons stay available through Settings > Appearance (and the command
+  // palette entries that flip them).
+  'appearance.appMenuIcon': false,
+  'appearance.vscodeIcon': false,
 }
 
 const STORAGE_KEY = 'dsh-ide.settings'
@@ -100,11 +142,30 @@ class SettingsStore {
   export(): string { return JSON.stringify(this.data, null, 2) }
 }
 
+/** Bumped when a default flips in a way existing users should follow.
+ *  v2: the application-menu icon and the VS Code launcher icon default to hidden. */
+const SETTINGS_VERSION = 2
+const VERSION_KEY = 'dsh-ide.settingsVersion'
+
 function loadPersisted(): Partial<IdeSettings> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
-    return sanitize(JSON.parse(raw))
+    const parsed = sanitize(JSON.parse(raw))
+    // One-time migration: these two icons used to default to visible, so a
+    // stored `true` is ambiguous (old default vs. deliberate choice). The new
+    // default is hidden, so reset once and let the user opt back in from
+    // Settings > Appearance (or the palette command).
+    const version = Number(localStorage.getItem(VERSION_KEY))
+    if (!(version >= SETTINGS_VERSION)) {
+      parsed['appearance.appMenuIcon'] = false
+      parsed['appearance.vscodeIcon'] = false
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
+        localStorage.setItem(VERSION_KEY, String(SETTINGS_VERSION))
+      } catch { /* storage denied */ }
+    }
+    return parsed
   } catch { return {} }
 }
 
@@ -112,7 +173,7 @@ function sanitize(raw: unknown): IdeSettings {
   const out = { ...DEFAULT_SETTINGS }
   if (raw == null || typeof raw !== 'object') return out
   const r = raw as Record<string, unknown>
-  if (r['theme'] === 'light-modern' || r['theme'] === 'dark-modern') out['theme'] = r['theme']
+  if (r['theme'] === 'light-modern' || r['theme'] === 'dark-modern' || r['theme'] === 'dark-2026') out['theme'] = r['theme']
   const fontSize = clampInt(r['editor.fontSize'], 6, 40)
   if (fontSize !== undefined) out['editor.fontSize'] = fontSize
   const lineHeight = clampInt(r['editor.lineHeight'], 0, 80)
@@ -130,6 +191,22 @@ function sanitize(raw: unknown): IdeSettings {
   if (typeof r['terminal.cursorBlink'] === 'boolean') out['terminal.cursorBlink'] = r['terminal.cursorBlink']
   const sb = clampInt(r['terminal.scrollback'], 100, 100000)
   if (sb !== undefined) out['terminal.scrollback'] = sb
+  if (typeof r['terminal.copyOnSelection'] === 'boolean') out['terminal.copyOnSelection'] = r['terminal.copyOnSelection']
+  const tlh = clampInt(r['terminal.lineHeight'], 1, 2)
+  if (tlh !== undefined) out['terminal.lineHeight'] = tlh
+  const tfw = clampInt(r['terminal.fontWeight'], 100, 900)
+  if (tfw !== undefined) out['terminal.fontWeight'] = tfw
+  if (typeof r['terminal.bellSound'] === 'boolean') out['terminal.bellSound'] = r['terminal.bellSound']
+  if (typeof r['fim.enabled'] === 'boolean') out['fim.enabled'] = r['fim.enabled']
+  const fd = clampInt(r['fim.debounceMs'], 50, 2000)
+  if (fd !== undefined) out['fim.debounceMs'] = fd
+  if (typeof r['appearance.zenMode'] === 'boolean') out['appearance.zenMode'] = r['appearance.zenMode']
+  if (typeof r['appearance.statusBar'] === 'boolean') out['appearance.statusBar'] = r['appearance.statusBar']
+  if (typeof r['appearance.breadcrumbs'] === 'boolean') out['appearance.breadcrumbs'] = r['appearance.breadcrumbs']
+  if (typeof r['appearance.stickyScroll'] === 'boolean') out['appearance.stickyScroll'] = r['appearance.stickyScroll']
+  if (typeof r['appearance.renderControlCharacters'] === 'boolean') out['appearance.renderControlCharacters'] = r['appearance.renderControlCharacters']
+  if (typeof r['appearance.appMenuIcon'] === 'boolean') out['appearance.appMenuIcon'] = r['appearance.appMenuIcon']
+  if (typeof r['appearance.vscodeIcon'] === 'boolean') out['appearance.vscodeIcon'] = r['appearance.vscodeIcon']
   return out
 }
 
@@ -153,6 +230,9 @@ export function applyEditorOptions(editor: Monaco.editor.ICodeEditor, s: IdeSett
     lineNumbers: s['editor.lineNumbers'] ? 'on' : 'off',
     cursorBlinking: s['editor.cursorBlinking'],
     smoothScrolling: s['editor.smoothScrolling'],
+    // Appearance-menu toggles (VS Code View ▸ Appearance parity).
+    stickyScroll: { enabled: s['appearance.stickyScroll'] },
+    renderControlCharacters: s['appearance.renderControlCharacters'],
   })
 }
 
@@ -162,11 +242,15 @@ export function terminalXtermOptions(s: IdeSettings): {
   fontSize: number
   cursorBlink: boolean
   scrollback: number
+  lineHeight: number
+  fontWeight: number
 } {
   return {
     fontSize: s['terminal.fontSize'],
     cursorBlink: s['terminal.cursorBlink'],
     scrollback: s['terminal.scrollback'],
+    lineHeight: s['terminal.lineHeight'],
+    fontWeight: s['terminal.fontWeight'],
   }
 }
 
@@ -177,13 +261,14 @@ export function terminalXtermOptions(s: IdeSettings): {
  *  leftover history" text. */
 export function xtermThemeFor(theme: IdeSettings['theme']): Record<string, string> {
   const light = theme === 'light-modern'
-  const background = light ? '#ffffff' : '#1f1f1f'
+  // 2026 Dark: terminal.background #191A1B, terminalCursor.foreground #bfbfbf.
+  const background = light ? '#ffffff' : theme === 'dark-2026' ? '#191a1b' : '#1f1f1f'
   return {
     background,
-    foreground: light ? '#3b3b3b' : '#cccccc',
-    cursor: light ? '#000000' : '#aeafad',
+    foreground: light ? '#3b3b3b' : theme === 'dark-2026' ? '#bfbfbf' : '#cccccc',
+    cursor: light ? '#000000' : theme === 'dark-2026' ? '#bfbfbf' : '#aeafad',
     cursorAccent: background,
-    selectionBackground: light ? 'rgba(0,0,0,0.18)' : '#264f78',
+    selectionBackground: light ? 'rgba(0,0,0,0.18)' : theme === 'dark-2026' ? '#3994bc33' : '#264f78',
     selectionForeground: light ? '#1f1f1f' : '#ffffff',
     // Standard ANSI 16-color palette (Dark+ / Light+ variants).
     black: light ? '#000000' : '#000000',

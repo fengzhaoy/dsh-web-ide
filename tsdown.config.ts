@@ -118,6 +118,17 @@ function wrapModuleLoader() {
 }
 
 export default defineConfig([
+  // E2E harness entry (never shipped; package.json files only includes lib/
+  // subpaths that the profile loads — e2e.js is excluded via .npmignore-free
+  // "files" allowlist because only index/typert/client are listed).
+  {
+    entry: { e2e: 'src/client/e2e-entry.ts' },
+    format: 'iife',
+    outDir: 'lib',
+    globalName: '__DSH_IDE_E2E__',
+    noExternal: [/^react/, 'monaco-editor', 'zod', 'xterm', '@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search', '@xterm/addon-web-links'],
+    plugins: [neutralizeMonacoAssets(), shimNodeCrypto(), embedMermaidIife()],
+  },
   // Host entries: plain ESM (the profile is type:module; the loader imports
   // lib/index.js as an ES module). index.js is the IdeTools Remote service;
   // typert.host.js is the strict typert manifest the typert-loader reads via
@@ -152,7 +163,7 @@ export default defineConfig([
       'react/jsx-runtime',
       /^@deepseek-ai\//,
     ],
-    noExternal: ['monaco-editor', 'zod', 'xterm', '@xterm/xterm', '@xterm/addon-fit'],
+    noExternal: ['monaco-editor', 'zod', 'xterm', '@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search', '@xterm/addon-web-links'],
     plugins: [neutralizeMonacoAssets(), shimNodeCrypto(), embedMermaidIife(), inlineCss(), wrapModuleLoader()],
     outputOptions: {
       inlineDynamicImports: true,

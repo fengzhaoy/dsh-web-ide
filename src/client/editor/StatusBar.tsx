@@ -74,17 +74,13 @@ interface StatusBarProps {
   /** Current EOL of the active model ('\n' | '\r\n'). */
   eol?: '\n' | '\r\n'
   onSetEol?: (eol: '\n' | '\r\n') => void
-  /** Toggle the left sidebar (layout button). */
-  onToggleSidebar?: () => void
-  /** Toggle the right sidebar (layout button). */
-  onToggleRightSidebar?: () => void
-  rightSidebarOpen?: boolean
+
 }
 
 const LANGUAGE_OPTIONS = ['typescript', 'javascript', 'json', 'css', 'scss', 'less', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile', 'plaintext']
 
 export function StatusBar(props: StatusBarProps) {
-  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, onOpenBranch, branchPanelOpen, syncBusy, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, bottomTab, language, onSetLanguage, indent, onSetIndent, eol, onSetEol, onToggleSidebar, onToggleRightSidebar, rightSidebarOpen } = props
+  const { activeTab, encoding, cursor, t, saveState, onSave, model, branch, detachedSha, ahead, behind, onSync, onOpenBranch, branchPanelOpen, syncBusy, problems, onOpenProblems, workspaceName, sessionId, cwd, onToggleTerminal, terminalOpen, bottomTab, language, onSetLanguage, indent, onSetIndent, eol, onSetEol } = props
 
   const menuAt = (el: HTMLElement | null, items: Parameters<typeof showContextMenu>[2]) => {
     const rect = el?.getBoundingClientRect()
@@ -142,14 +138,6 @@ export function StatusBar(props: StatusBarProps) {
       { id: 'ws', label: workspaceName ?? '—', disabled: true },
       pathRow,
       { id: 'sid', label: (sessionId ?? '').slice(0, 18), disabled: true },
-    ])
-  }
-
-  const openLayoutMenu = (e: React.MouseEvent) => {
-    showContextMenu(e.clientX, e.clientY - 4, [
-      { id: 'sidebar', label: t('command.toggleSidebar'), onClick: () => onToggleSidebar?.() },
-      { id: 'right', label: t('command.toggleRightSidebar'), onClick: () => onToggleRightSidebar?.() },
-      { id: 'panel', label: t('command.toggleTerminal'), onClick: () => onToggleTerminal?.() },
     ])
   }
 
@@ -258,20 +246,11 @@ export function StatusBar(props: StatusBarProps) {
                 {indent.insertSpaces ? t('status.spaces', { count: indent.tabSize }) : t('status.tabs', { count: indent.tabSize })}
               </button>
             )}
-            {eol && onSetEol && (
-              <button type="button" className="ide-statusbar-item" title={t('status.selectEol')} data-testid="ide-statusbar-eol" onClick={openEolMenu}>
-                {eol === '\n' ? 'LF' : 'CRLF'}
-              </button>
-            )}
-            {language && onSetLanguage && (
-              <button type="button" className="ide-statusbar-item" title={t('status.selectLanguage')} data-testid="ide-statusbar-language" onClick={openLanguageMenu}>
-                {languageLabel(language)}
-              </button>
-            )}
           </>
         )}
         {/* The real detected encoding. It used to say UTF-8 unconditionally,
-            which was actively misleading for GBK / Latin-1 files. */}
+            which was actively misleading for GBK / Latin-1 files. Order follows
+            VS Code's measured status bar: Spaces → UTF-8 → LF → language. */}
         <span
           className="ide-statusbar-item"
           title={encoding !== undefined ? encodingLabel(encoding) : t('status.utf8')}
@@ -279,15 +258,23 @@ export function StatusBar(props: StatusBarProps) {
         >
           {encoding !== undefined ? encodingLabel(encoding) : t('status.utf8')}
         </span>
+        {activeTab && activeTab.status === 'ready' && eol && onSetEol && (
+          <button type="button" className="ide-statusbar-item" title={t('status.selectEol')} data-testid="ide-statusbar-eol" onClick={openEolMenu}>
+            {eol === '\n' ? 'LF' : 'CRLF'}
+          </button>
+        )}
+        {activeTab && activeTab.status === 'ready' && language && onSetLanguage && (
+          <button type="button" className="ide-statusbar-item" title={t('status.selectLanguage')} data-testid="ide-statusbar-language" onClick={openLanguageMenu}>
+            {languageLabel(language)}
+          </button>
+        )}
+        {/* Notification bell is the LAST item, exactly like VS Code's status
+            bar (class last-visible-item there). Shows bell-dot while there are
+            unseen notifications, plain bell otherwise. The old layout-control
+            buttons (toggle sidebar / right sidebar / layout menu) were removed
+            at the user's request — those toggles remain in the editor toolbar
+            and the ≡ Appearance submenu. */}
         <NotificationBell t={t} />
-        {/* Layout buttons (VS Code bottom-right layout controls). */}
-        {onToggleSidebar && (
-          <button type="button" className="ide-statusbar-item" title={t('command.toggleSidebar')} onClick={onToggleSidebar} data-testid="ide-statusbar-toggle-sidebar">{Icons.layoutSidebar}</button>
-        )}
-        {onToggleRightSidebar && (
-          <button type="button" className="ide-statusbar-item" data-active={rightSidebarOpen || undefined} title={t('command.toggleRightSidebar')} onClick={onToggleRightSidebar} data-testid="ide-statusbar-toggle-right">{Icons.splitEditor}</button>
-        )}
-        <button type="button" className="ide-statusbar-item" title={t('status.layout')} onClick={openLayoutMenu} data-testid="ide-statusbar-layout">{Icons.layoutPanel}</button>
       </div>
     </div>
   )

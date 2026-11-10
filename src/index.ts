@@ -434,6 +434,26 @@ export interface GitLogEntry {
   readonly refs: readonly GitLogRef[]
 }
 
+/** One entry in a file's Timeline (VS Code Timeline view, git provider). */
+export interface GitTimelineEntry {
+  /** Full commit hash. */
+  readonly hash: string
+  /** Abbreviated hash for display. */
+  readonly displayId: string
+  readonly author: string
+  /** Author date, unix seconds. */
+  readonly authorDate: number
+  /** Commit subject line. */
+  readonly subject: string
+}
+
+/** Result of the per-file git history used by the Timeline panel. */
+export interface GitTimelineResult {
+  readonly notARepo: boolean
+  /** Commits touching the path, newest first, following renames. */
+  readonly entries: readonly GitTimelineEntry[]
+}
+
 /** Result of one gitLog page (VS Code SCM Graph history provider). */
 export interface GitLogResult {
   readonly notARepo: boolean
@@ -730,6 +750,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'fileReveal', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'hostPlatform', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitTimeline', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitLog', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCommitDetails', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCommitFileDiff', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -1346,7 +1367,7 @@ export class IdeTools extends TypertRemoteService {
     return stdout.text
   }
 
-  /** Parse `git status --porcelain=v2 --branch --untracked-files=all -z`
+  /** Parse `git status --porcelain=v2 --branch --untracked-files=all --ignored=matching -z`
    *  output into a GitStatusResult.
    *
    *  With `-z` every record — branch headers included — is NUL-terminated, and
@@ -1397,7 +1418,15 @@ export class IdeTools extends TypertRemoteService {
         if (path.length > 0) entries.push({ path, statusCode: '??', kind: 'untracked' })
         continue
       }
-      if (first === '!') continue // ignored — not surfaced
+      if (first === '!') {
+        // Ignored path. VS Code decorates these with the muted "ignored"
+        // foreground instead of hiding them; keep them so the explorer can.
+        // An ignored DIRECTORY is reported with a trailing slash
+        // ("! lib/"); strip it so the path matches the tree's node path.
+        const path = record.slice(2).replace(/\/+$/, '')
+        if (path.length > 0) entries.push({ path, statusCode: '!!', kind: 'ignored' })
+        continue
+      }
       if (first !== '1' && first !== '2' && first !== 'u') continue
       const fields = record.split(' ')
       const xy = fields[1] ?? '  '
@@ -1470,7 +1499,10 @@ export class IdeTools extends TypertRemoteService {
     }
     try {
       if (!cwd) return { ...EMPTY, notARepo: false }
-      const raw = await this.runGit(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], signal)
+      // --ignored=matching surfaces the '!' records so the explorer can paint
+      // .gitignore'd paths in the muted tone, exactly like VS Code's
+      // GitIgnoreDecorationProvider (gitDecoration.ignoredResourceForeground).
+      const raw = await this.runGit(cwd, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '--ignored=matching', '-z'], signal)
       // The parser owns the NUL-record framing for both branch headers and
       // change entries (including a rename's trailing original-path record).
       const parsed = this.parseGitStatusPorcelain(raw)
@@ -1556,6 +1588,15 @@ export class IdeTools extends TypertRemoteService {
     if (rev.length === 0 || rev.startsWith('-')) {
       throw new RemoteError('ide-tools/bad-request', 'invalid ' + label, {})
     }
+  }
+
+  /** A repo-relative path passed to git must be plain: no leading dash
+   *  (option injection), no traversal, no absolute or backslash form. */
+  private static assertGitPath(rel: string, label: string): void {
+    const bad = rel.length === 0 || rel.startsWith('-')
+      || rel.split('/').includes('..')
+      || rel.startsWith('/') || rel.includes('\\')
+    if (bad) throw new RemoteError('ide-tools/bad-request', 'invalid ' + label, {})
   }
 
   /** Strip a --decorate=full full-ref prefix down to the short name. */
@@ -1660,6 +1701,60 @@ export class IdeTools extends TypertRemoteService {
         upstream: upstream.length > 0 ? upstream : undefined,
         detached: currentBranch.length === 0,
       }
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
+      throw err
+    }
+  }
+
+
+  /** Per-file commit history for the Timeline panel (VS Code's
+   *  extensions/git/src/timelineProvider.ts): git log --follow, newest first.
+   *  Directories are NOT followed through renames (matching VS Code, which
+   *  only sets follow for files). */
+  async gitTimeline(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    path: string,
+    options: { limit?: number; skip?: number },
+    signal: AbortSignal | undefined,
+  ): Promise<GitTimelineResult> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    const EMPTY: GitTimelineResult = { notARepo: true, entries: [] }
+    try {
+      if (!cwd) return EMPTY
+      const rel = path.replace(/^[/\\]+/, '')
+      if (rel.length === 0) return { ...EMPTY, notARepo: false }
+      IdeTools.assertGitPath(rel, 'timeline path')
+      const limit = Math.max(1, Math.min(500, Math.round(options?.limit ?? 50)))
+      const skip = Math.max(0, Math.round(options?.skip ?? 0))
+      const head = await this.runGit(cwd, ['rev-parse', '--quiet', '--verify', 'HEAD'], signal)
+        .then((s) => s.trim())
+        .catch(() => '')
+      if (head.length === 0) return { ...EMPTY, notARepo: false }
+      // %H hash, %h short, %aN author, %at author-date (unix), %s subject.
+      // --topo-order matches the SCM graph; --follow only applies to files
+      // (VS Code's provider does the same and drops it for folders).
+      const argv = [
+        '-c', 'i18n.logOutputEncoding=UTF-8',
+        'log', '--format=%H%x1f%h%x1f%aN%x1f%at%x1f%s',
+        '-z', '--topo-order',
+        '-n', String(limit + 1), '--skip', String(skip),
+        '--follow', '--', rel,
+      ]
+      const raw = await this.runGit(cwd, argv, signal)
+      const entries: GitTimelineEntry[] = []
+      for (const record of raw.split('\u0000')) {
+        if (record.length === 0) continue
+        if (entries.length === limit) break
+        const [hash, displayId, author, authorDate, subject] = record.split('\u001f')
+        entries.push({
+          hash, displayId,
+          author: author ?? '',
+          authorDate: Number(authorDate) || 0,
+          subject: subject ?? '',
+        })
+      }
+      return { notARepo: false, entries }
     } catch (err) {
       if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
       throw err

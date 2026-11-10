@@ -8,7 +8,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GitCommitDetailsResult, GitLogEntry, IdeToolsRemote, SessionId } from '../types.js'
-import { Icons, fileIcon } from '../icons.js'
+import { Icons } from '../icons.js'
+import { setiFileIcon } from '../setiFileIcon.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { computeGraphModels, graphCellGeometry, graphPlaceholderLanes, SWIMLANE_HEIGHT, SWIMLANE_WIDTH } from './ScmGraph.js'
 import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
@@ -413,7 +414,7 @@ export function GraphView({ sessionId, cwd, ideTools, onOpenCommitDiff, onMutate
                                 title={file.oldPath !== undefined ? file.oldPath + ' → ' + file.path : file.path}
                                 onClick={() => onOpenCommitDiff(commit.hash, file.path, file.oldPath)}
                               >
-                                <span className="ide-git-entry-icon">{fileIcon(name, false)}</span>
+                                <span className="ide-git-entry-icon">{setiFileIcon(name, false)}</span>
                                 <span className="ide-git-graph-file-name">{name}</span>
                                 {dir && <span className="ide-git-entry-dir">{dir}</span>}
                                 {file.additions !== undefined && file.additions > 0 && <span className="ide-git-graph-adds">+{file.additions}</span>}

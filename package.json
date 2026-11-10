@@ -1,6 +1,6 @@
 {
   "name": "@zhaoyang10/dsh-web-ide",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "IDE tab for the dsh web client: a VSCode-style read-only code viewer with the Dark Modern theme, registered into the conversation view ring.",
   "type": "module",
   "main": "lib/index.js",
@@ -63,6 +63,8 @@
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-web-links": "0.12.0",
     "@xterm/xterm": "^5.5.0",
     "monaco-editor": "^0.52.0",
     "react": "^18.2.0",
@@ -71,15 +73,21 @@
     "typescript": "^5.6.0"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/index.d.ts",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/client.js",
+    "lib/client.d.ts",
     "cordis.patch.yml",
     "README.md",
     "screenshots.json"
   ],
   "scripts": {
     "build:worker": "node scripts/build-monaco-worker.mjs",
-    "bundle": "pnpm run build:worker && tsdown",
-    "watch": "pnpm run build:worker && tsdown --watch",
+    "gen:version": "node scripts/gen-version.mjs",
+    "bundle": "pnpm run gen:version && pnpm run build:worker && tsdown",
+    "watch": "pnpm run gen:version && pnpm run build:worker && tsdown --watch",
     "prepublishOnly": "pnpm run bundle",
     "test:contract": "node scripts/test-remote-contract.mjs",
     "test:manifest": "node scripts/test-typert-manifest.mjs",

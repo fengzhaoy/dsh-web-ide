@@ -152,6 +152,22 @@ const _ide_tools_ideTools_gitLog_result$schema = z.object({
   'detached': z.boolean().readonly(),
 }).readonly()
 
+const _ide_tools_ideTools_gitTimeline_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitTimeline_parameter_2$schema = z.object({
+  'limit': z.number().optional(),
+  'skip': z.number().optional(),
+}).readonly()
+const _ide_tools_ideTools_gitTimeline_result$schema = z.object({
+  'notARepo': z.boolean().readonly(),
+  'entries': z.array(z.object({
+    'hash': z.string().readonly(),
+    'displayId': z.string().readonly(),
+    'author': z.string().readonly(),
+    'authorDate': z.number().readonly(),
+    'subject': z.string().readonly(),
+  }).readonly()).readonly(),
+}).readonly()
+
 const _ide_tools_ideTools_gitCommitDetails_parameter_1$schema = z.string()
 const _ide_tools_ideTools_gitCommitDetails_result$schema = z.object({
   'hash': z.string().readonly(),
@@ -757,7 +773,44 @@ export const TYPERT_REMOTE = {
       sourceLocation: { file: 'src/index.ts', line: 734, column: 3 },
     },
 
-    {
+        {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitTimeline',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitTimeline',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'path',
+          wire: 'path',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitTimeline:path',
+            create: () => _ide_tools_ideTools_gitTimeline_parameter_1$schema,
+          },
+        },
+        {
+          name: 'options',
+          wire: 'options',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitTimeline:options',
+            create: () => _ide_tools_ideTools_gitTimeline_parameter_2$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitTimelineResult',
+        create: () => _ide_tools_ideTools_gitTimeline_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1715, column: 3 },
+    },
+{
       id: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitDetails',
       service: 'ideTools',
       namespace: 'ideTools',

@@ -1,11 +1,13 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { GitStatusEntry, IdeToolsRemote, SessionId, WorkspaceDirectoryEntry, WorkspaceDirectoryListing, WorkspaceFilesRemote } from '../types.js'
-import { Icons, fileIcon } from '../icons.js'
+import { Icons } from '../icons.js'
+import { setiFileIcon } from '../setiFileIcon.js'
 import { showContextMenu } from '../ContextMenu.js'
 import { revealChain } from './reveal-path.js'
 import { nonCollidingName, relPathOf } from './copy-name.js'
 import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
 import { DirLoadRegistry } from './dir-load-registry.js'
+import { filterExplorerEntries } from './exclude.js'
 
 interface FileTreeProps {
   sessionId: SessionId
@@ -165,6 +167,9 @@ function gitStatusColor(kind: GitStatusEntry['kind']): string | undefined {
     case 'untracked': return '#73c991'   // green (U)
     case 'conflicted': return '#e2c08d'  // amber
     case 'modified': return '#e2c08d'    // amber (M)
+    // VS Code's gitDecoration.ignoredResourceForeground (#8C8C8C dark,
+    // #8E8E90 light): .gitignore'd paths are shown muted, not hidden.
+    case 'ignored': return 'var(--ide-git-ignored, #8C8C8C)'
     default: return undefined
   }
 }
@@ -178,6 +183,8 @@ function gitStatusLetter(kind: GitStatusEntry['kind']): string {
     case 'untracked': return 'U'
     case 'conflicted': return 'C'
     case 'modified': return 'M'
+    // VS Code gives ignored paths only a muted color, no letter badge.
+    case 'ignored': return ''
     default: return ''
   }
 }
@@ -216,6 +223,9 @@ function buildGitIndex(
   for (const entry of gitEntries) {
     const abs = `${root}/${entry.path}`
     fileMap.set(abs, entry)
+    // Ignored paths only paint themselves: VS Code does not tint a parent
+    // folder just because it contains ignored children.
+    if (entry.kind === 'ignored') continue
     // Walk up the path, merging this entry's kind into each ancestor dir.
     let dir = abs
     const segs = entry.path.split('/')
@@ -237,7 +247,10 @@ function findRow(path: string): HTMLElement | null {
 export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileTree({ sessionId, rootDir, workspaceFiles, activePath, onOpenFile, t, gitEntries, ideToolsFull, onFileRenamed, onFileDeleted, onOpenInTerminal }, ref) {
   // Root directory state, listed from the absolute workspace root.
   const [rootState, setRootState] = useState<DirState>({ entries: [], truncated: false, loading: true, error: null })
-  const [expanded, setExpanded] = useState<Set<string>>(new Set([]))
+  // The workspace root renders as its own expandable row (VS Code shows the
+  // folder name at depth 0), so the root itself lives in the expanded set and
+  // starts expanded — collapsing it hides the whole tree under the root row.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([rootDir.replace(/[/\\]+$/, '')]))
 
   // Build an absolute-path → git-status index once per gitEntries/rootDir
   // change. The git status returns workspace-relative paths; we resolve them
@@ -263,7 +276,9 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         return { entries: [], truncated: false, loading: false, error: result.error.message }
       }
       const listing: WorkspaceDirectoryListing = result.value
-      return { entries: sortEntries(listing.entries), truncated: listing.truncated, loading: false, error: null }
+      // Explorer visibility follows VS Code files.exclude defaults: .git/.svn/.hg/
+      // .jj/.DS_Store/Thumbs.db and *.crswap are hidden, ordinary dotfiles stay.
+      return { entries: sortEntries(filterExplorerEntries(listing.entries)), truncated: listing.truncated, loading: false, error: null }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { entries: [], truncated: false, loading: false, error: message }
@@ -284,7 +299,11 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     const ctrl = new AbortController()
     const sameListing = listedRef.current === rootDir
     listedRef.current = rootDir
-    if (!sameListing) setRootState({ entries: [], truncated: false, loading: true, error: null })
+    if (!sameListing) {
+      setRootState({ entries: [], truncated: false, loading: true, error: null })
+      // A new workspace root starts expanded (the root row shows its children).
+      setExpanded(new Set([rootDir.replace(/[/\\]+$/, '')]))
+    }
     loadDir(rootDir, ctrl.signal).then((next) => {
       if (ctrl.signal.aborted) return
       setRootState(next)
@@ -707,14 +726,15 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     // An active filter hides rows; clear it so the revealed file is visible.
     setFilterText('')
     // Expand EVERY ancestor in one state update (cheap, and the tree renders
-    // level by level from it), then await each level's listing in order.
-    if (dirs.length > 0) {
-      setExpanded((prev) => {
-        const next = new Set(prev)
-        for (const dir of dirs) next.add(dir)
-        return next
-      })
-    }
+    // level by level from it), then await each level's listing in order. The
+    // root itself is not part of the chain (revealChain starts below it), so
+    // it is added unconditionally — the root row may be collapsed.
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.add(rootDir.replace(/[/\\]+$/, ''))
+      for (const dir of dirs) next.add(dir)
+      return next
+    })
     setFocusPath(file)
     for (const dir of dirs) {
       const ok = await dirLoads.waitFor(dir, 10000)
@@ -897,7 +917,17 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         <div className="ide-tree-error">{pasteError ?? dropError ?? uploadError}</div>
       )}
       {uploadBusy && <div className="ide-tree-loading">{t('context.uploading')}</div>}
-      {renderDir(rootDir, rootState, 0)}
+      <RootRow
+        rootDir={rootDir}
+        expanded={expanded.has(rootDir.replace(/[/\\]+$/, ''))}
+        gitColor={(gitDirMap.get(rootDir) !== undefined) ? gitStatusColor(gitDirMap.get(rootDir)!) : undefined}
+        onToggle={() => toggle(rootDir)}
+        onContextMenu={handleBlankContextMenu}
+        focusPath={focusPath}
+        setFocusPath={setFocusPath}
+        t={t}
+      />
+      {expanded.has(rootDir.replace(/[/\\]+$/, '')) && renderDir(rootDir, rootState, 1)}
       {pendingDelete && (
         <div
           className="ide-dialog-backdrop ide-dialog-modal"
@@ -1074,7 +1104,7 @@ function NewEntryRow({ kind, depth, busy, serverError, onCommit, onCancel, onDra
     <>
       <div className="ide-tree-row" style={{ paddingLeft }} onClick={(e) => e.stopPropagation()}>
         <span className="ide-tree-chevron" />
-        <span className="ide-tree-icon">{fileIcon(kind === 'directory' ? 'folder' : 'file.txt', isDir, false)}</span>
+        <span className="ide-tree-icon">{setiFileIcon(kind === 'directory' ? 'folder' : 'file.txt', isDir, false)}</span>
         <input
           ref={inputRef}
           className="ide-tree-rename-input"
@@ -1097,6 +1127,50 @@ function NewEntryRow({ kind, depth, busy, serverError, onCommit, onCancel, onDra
         <div className="ide-tree-rename-warning" style={{ marginLeft: paddingLeft }}>{issue.message}</div>
       ) : null}
     </>
+  )
+}
+
+/** The workspace-root row (VS Code shows the folder itself at depth 0, above
+ *  its children): folder icon, the root's basename, an expand chevron, the
+ *  blank-area context menu (new file/folder, paste, upload, collapse…), and
+ *  arrow-key focus like any other row. Collapsing it hides the whole tree. */
+interface RootRowProps {
+  rootDir: string
+  expanded: boolean
+  gitColor?: string
+  onToggle: () => void
+  onContextMenu: (e: React.MouseEvent) => void
+  focusPath: string | null | undefined
+  setFocusPath: ((p: string | null) => void) | undefined
+  t: (key: string, params?: Record<string, string | number>) => string
+}
+
+function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPath, setFocusPath }: RootRowProps) {
+  const name = rootDir.replace(/[/\\]+$/, '').split('/').pop() ?? rootDir
+  const isFocused = focusPath === rootDir
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (!expanded) onToggle(); return }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); if (expanded) onToggle(); return }
+    if (e.key === 'Enter') { e.preventDefault(); onToggle(); return }
+  }
+  return (
+    <div
+      className="ide-tree-row ide-tree-root-row"
+      data-path={rootDir}
+      data-expanded={expanded || undefined}
+      data-focused={isFocused || undefined}
+      style={{ paddingLeft: 4 }}
+      onClick={onToggle}
+      onContextMenu={onContextMenu}
+      onKeyDown={handleKeyDown}
+      onFocus={() => setFocusPath?.(rootDir)}
+      tabIndex={0}
+      title={rootDir}
+    >
+      <span className="ide-tree-chevron" data-expanded={expanded || undefined}>{Icons.chevronRight}</span>
+      <span className="ide-tree-icon">{setiFileIcon(name, true, expanded)}</span>
+      <span className="ide-tree-name" style={gitColor ? ({ color: gitColor } as React.CSSProperties) : undefined}>{name}</span>
+    </div>
   )
 }
 
@@ -1188,8 +1262,10 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
   // Files: look up their own git status entry. Directories: inherit the
   // dominant kind from their children (so a folder containing a modified
   // file shows the modification color too, like VS Code).
-  const gitEntry = !isDir ? gitFileMap?.get(childPath) : undefined
-  const dirKind = isDir ? gitDirMap?.get(childPath) : undefined
+  // An ignored directory is reported by `git status --ignored=matching` as its
+  // own record, so it is present in the file map even though it is a folder.
+  const gitEntry = gitFileMap?.get(childPath)
+  const dirKind = isDir && gitEntry === undefined ? gitDirMap?.get(childPath) : undefined
   const gitKind = gitEntry?.kind ?? dirKind
   const gitColor = gitKind ? gitStatusColor(gitKind) : undefined
   const gitLetter = gitKind ? gitStatusLetter(gitKind) : ''
@@ -1329,8 +1405,8 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
         <span className="ide-tree-chevron" data-expanded={isOpen || undefined}>
           {isDir ? Icons.chevronRight : null}
         </span>
-        <span className="ide-tree-icon">
-          {fileIcon(entry.name, isDir, isOpen)}
+        <span className="ide-tree-icon" style={gitColor ? ({ color: gitColor } as React.CSSProperties) : undefined}>
+          {setiFileIcon(entry.name, isDir, isOpen)}
         </span>
         {isRenaming ? (
           <input

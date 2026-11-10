@@ -152,10 +152,10 @@ await test('右上角最右侧按钮:打开/关闭右侧栏(不是切换侧边�
 })
 
 await test('locales:panel.toggleBottom / panel.toggleSidebar 中英文案齐全', () => {
-  assert.match(loc, /'panel.toggleBottom': '切换底部面板'/, '中文 panel.toggleBottom')
-  assert.match(loc, /'panel.toggleSidebar': '切换侧边栏位置'/, '中文 panel.toggleSidebar')
-  assert.match(loc, /'panel.toggleBottom': 'Toggle Bottom Panel'/, '英文 panel.toggleBottom')
-  assert.match(loc, /'panel.toggleSidebar': 'Toggle Sidebar Position'/, '英文 panel.toggleSidebar')
+  assert.match(loc, /'panel.toggleBottom': '切换面板'/, '中文 panel.toggleBottom')
+  assert.match(loc, /'panel.toggleSidebar': '切换主侧栏'/, '中文 panel.toggleSidebar')
+  assert.match(loc, /'panel.toggleBottom': 'Toggle Panel'/, '英文 panel.toggleBottom')
+  assert.match(loc, /'panel.toggleSidebar': 'Toggle Primary Side Bar'/, '英文 panel.toggleSidebar')
 })
 
 console.log('\\nSUMMARY pass='+pass+' fail='+fail)

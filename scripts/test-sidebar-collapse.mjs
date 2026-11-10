@@ -19,19 +19,18 @@ check('CSS actually hides it', theme.includes(".ide-sidebar[data-collapsed='true
 check('does not rely on the hidden attribute', !/className="ide-sidebar"[^>]*hidden=/.test(ide))
 
 // --- the activity-bar icons: single click toggles, no double-click ---
-for (const view of ['explorer', 'git', 'run', 'extensions']) {
+for (const view of ['explorer', 'search', 'git', 'run', 'extensions']) {
   check('single click toggles ' + view, ide.includes("onClick={() => toggleSidebarFor('" + view + "')}"))
   check('no double-click handler for ' + view, !new RegExp("onDoubleClick=\\{\\(\\) => toggleSidebarFor\\('" + view + "\\'\\)\\}").test(ide))
 }
-// The magnifier moved out of the activity bar into the explorer title bar; it
-// now toggles the tree's name filter instead of opening the global search view.
+// Two magnifiers coexist: the activity-bar one opens the global search view
+// (single click toggles like every other upper icon), while the explorer
+// header one toggles the tree's own name-filter box.
 const activitybar = ide.slice(ide.indexOf('className="ide-activitybar"'), ide.indexOf('ide-activitybar-spacer'))
-check('search icon is gone from the activity bar', !activitybar.includes("'search'"))
+check('search icon is back in the activity bar', activitybar.includes("toggleSidebarFor('search')"))
 check('filter entry lives in the explorer header', ide.includes('data-testid="ide-explorer-filter"'))
 check('header magnifier toggles the name filter instead of the search view',
   ide.includes('onClick={() => explorerRef.current?.toggleFilter()}'))
-check('header magnifier no longer switches to the search view',
-  !ide.includes("onClick={() => toggleSidebarFor('search')}"))
 check('no activity-bar icon keeps a double-click toggle',
   !/ide-activitybar-icon[^>]*onDoubleClick/.test(ide))
 check('a collapsed panel reopens on single click', /if \(collapsed\) \{\s*setSidebarView\(view\)\s*return false/.test(ide))
@@ -44,6 +43,12 @@ check('clicking another view switches without collapsing', /setSidebarView\(view
 // --- the other two icons stay untouched ---
 check('terminal icon still toggles the bottom panel', /onClick=\{\(\) => setTerminalOpen\(\(v\) => !v\)\}/.test(ide))
 check('gear icon still opens the manage menu', /onClick=\{openManageMenu\}/.test(ide))
+
+// --- Ctrl+S save commands bind ONCE on the singleton (stale-closure fix) ---
+check('keybinding commands bind once via commandsBound flag', ide.includes('commandsBound: false') && ide.includes('if (!ideEditor.commandsBound)'))
+check('save keybinding routes through the cross-mount bridge', ide.includes('ideKeyCommands.save?.()'))
+check('bridge refresh effect points save at the live view', ide.includes('ideKeyCommands.save = () => {') && ide.includes('activePathRef.current'))
+check('global Ctrl+S fallback exists for non-editor focus', ide.includes('workbench.action.files.save'))
 
 console.log(failed === 0 ? '\nall sidebar collapse checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

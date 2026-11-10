@@ -7,71 +7,288 @@
  */
 import type * as Monaco from 'monaco-editor'
 
-/** CSS custom properties for the IDE shell (activity bar, sidebar, tabs, status). */
+/** CSS custom properties for the IDE shell (activity bar, sidebar, tabs, status).
+ *
+ * Every value below is lifted VERBATIM from the official VS Code Dark Modern
+ * theme (extensions/theme-defaults/themes/dark_modern.json in the VS Code
+ * source tree), falling back to the platform's built-in dark defaults for
+ * keys Dark Modern does not override (list.hoverBackground #2A2D2E,
+ * list.inactiveSelectionBackground #37373D — src/vs/platform/theme/common/
+ * colors/listColors.ts):
+ *   activityBar.background      #181818   sideBar.background      #181818
+ *   activityBar.foreground      #D7D7D7   sideBar.border          #2B2B2B
+ *   activityBar.inactiveFg      #868686   editor.background       #1F1F1F
+ *   activityBar.activeBorder    #0078D4   tab.inactiveBackground  #181818
+ *   activityBarBadge.background #0078D4   tab.activeBackground    #1F1F1F
+ *   editorGroupHeader.tabsBg    #181818   tab.activeBorderTop     #0078D4
+ *   panel.background            #181818   panel.border            #2B2B2B
+ *   statusBar.background        #181818   statusBar.foreground    #CCCCCC
+ *   statusBarItem.hoverBg       #F1F1F133 titleBar.background     #181818
+ */
 export const IDE_CSS_VARS: Record<string, string> = {
+  // editor.background
   '--ide-bg': '#1f1f1f',
+  // sideBar.background
   '--ide-sidebar-bg': '#181818',
-  '--ide-activitybar-bg': '#333333',
-  '--ide-activitybar-fg': '#858585',
-  '--ide-activitybar-active': '#ffffff',
-  '--ide-tab-bg': '#2d2d2d',
-  '--ide-tab-inactive-bg': '#2d2d2d',
+  // activityBar.background
+  '--ide-activitybar-bg': '#181818',
+  // activityBar.inactiveForeground
+  '--ide-activitybar-fg': '#868686',
+  // activityBar.foreground (active icon)
+  '--ide-activitybar-active': '#d7d7d7',
+  // activityBar.activeBorder (the 2px left bar on the active icon)
+  '--ide-activitybar-active-border': '#0078d4',
+  // editorGroupHeader.tabsBackground (the tab strip behind inactive tabs)
+  '--ide-tab-bg': '#181818',
+  // tab.inactiveBackground
+  '--ide-tab-inactive-bg': '#181818',
+  // tab.activeBackground
   '--ide-tab-active-bg': '#1f1f1f',
-  '--ide-tab-inactive-fg': '#969696',
+  // tab.inactiveForeground
+  '--ide-tab-inactive-fg': '#9d9d9d',
+  // tab.activeForeground
   '--ide-tab-active-fg': '#ffffff',
-  '--ide-tab-border': '#252526',
-  '--ide-statusbar-bg': '#1e1e1e',
+  // tab.activeBorderTop (the 1px accent line on top of the active tab)
+  '--ide-tab-active-border-top': '#0078d4',
+  // tab.border / editorGroupHeader.tabsBorder
+  '--ide-tab-border': '#2b2b2b',
+  // statusBar.background
+  '--ide-statusbar-bg': '#181818',
+  // statusBar.foreground
   '--ide-statusbar-fg': '#cccccc',
-  // Light gray highlight for a selected status-bar toggle (terminal icon):
-  // on the dark bar a translucent white reads as VS Code's gray selection.
-  '--ide-statusbar-active-bg': 'rgba(255,255,255,.16)',
-  '--ide-statusbar-active-hover-bg': 'rgba(255,255,255,.24)',
+  // statusBarItem.hoverBackground (#F1F1F133): translucent white reads as
+  // VS Code's gray selection on the dark bar.
+  '--ide-statusbar-active-bg': 'rgba(241,241,241,.2)',
+  '--ide-statusbar-active-hover-bg': 'rgba(241,241,241,.28)',
   '--ide-statusbar-active-fg': '#ffffff',
+  // sideBar.border / panel.border / statusBar.border
   '--ide-border': '#2b2b2b',
+  // list.hoverBackground
   '--ide-tree-hover': '#2a2d2e',
+  // list.inactiveSelectionBackground
   '--ide-tree-active': '#37373d',
-  '--ide-tree-focus': '#0e639c',
+  // list.activeSelectionBackground (dark default #04395E)
+  '--ide-tree-focus': '#04395e',
+  // foreground / sideBar.foreground
   '--ide-fg': '#cccccc',
+  // descriptionForeground
   '--ide-fg-muted': '#9d9d9d',
-  '--ide-fg-dim': '#858585',
-  '--ide-accent': '#0e639c',
-  '--ide-accent-hover': '#1177bb',
+  // icon.foreground dimmed
+  '--ide-fg-dim': '#868686',
+  '--ide-git-ignored': '#8C8C8C',
+  // focusBorder / button.background / progressBar.background
+  '--ide-accent': '#0078d4',
+  // button.hoverBackground
+  '--ide-accent-hover': '#026ec1',
+  // titleBar.activeBackground
   '--ide-titlebar-bg': '#181818',
-  '--ide-icon-fg': '#c5c5c5',
+  // icon.foreground
+  '--ide-icon-fg': '#cccccc',
+  // panel.background (bottom panel / terminal dock)
+  '--ide-panel-bg': '#181818',
+  // menu.background (context menus, dropdown panels, submenus)
+  '--ide-menu-bg': '#1f1f1f',
+  // menu.border / menu.separatorBackground
+  '--ide-menu-border': '#454545',
+  // menu.selectionBackground
+  '--ide-menu-selection': '#0078d4',
+  // dropdown.background / input.background
+  '--ide-input-bg': '#313131',
+  // input.border / dropdown.border
+  '--ide-input-border': '#3c3c3c',
+  // badge.background (quiet pill counters)
+  '--ide-badge-bg': '#616161',
+  // quiet button hover (textCodeBlock tone)
+  '--ide-quiet-hover': '#3a3a3a',
+  // scrollbarSlider.background
+  '--ide-scrollbar': '#79797966',
+  // textCodeBlock.background (md preview code/pre)
+  '--ide-code-bg': '#2b2b2b',
+  // generic hover wash over chrome surfaces (list.hoverBackground tone)
+  '--ide-hover-wash': '#ffffff1a',
+  '--ide-toggle-knob': '#cccccc',
+  '--ide-toggle-knob-on': '#ffffff',
+  '--ide-selection-fg': 'rgba(255,255,255,.75)',
 }
 
-/** Light Modern equivalents (VS Code light_modern): swapped when the theme
- *  setting says light. Applied by overwriting the same CSS custom properties
- *  on the IDE root element. */
+/** Light Modern equivalents (VS Code light_modern.json): swapped when the
+ *  theme setting says light. Applied by overwriting the same CSS custom
+ *  properties on the IDE root element. Key mappings: activityBar #F8F8F8,
+ *  sideBar #F8F8F8, editor #FFFFFF, tab.inactive #F8F8F8, tab.active
+ *  #FFFFFF, statusBar #F8F8F8, borders #E5E5E5, accent #005FB8. */
 export const IDE_CSS_VARS_LIGHT: Record<string, string> = {
+  // editor.background
   '--ide-bg': '#ffffff',
+  // sideBar.background
   '--ide-sidebar-bg': '#f8f8f8',
+  // activityBar.background
   '--ide-activitybar-bg': '#f8f8f8',
+  // activityBar.inactiveForeground
   '--ide-activitybar-fg': '#616161',
+  // activityBar.foreground
   '--ide-activitybar-active': '#1f1f1f',
+  // activityBar.activeBorder
+  '--ide-activitybar-active-border': '#005fb8',
+  // editorGroupHeader.tabsBackground
   '--ide-tab-bg': '#f8f8f8',
+  // tab.inactiveBackground
   '--ide-tab-inactive-bg': '#f8f8f8',
+  // tab.activeBackground
   '--ide-tab-active-bg': '#ffffff',
+  // tab.inactiveForeground
   '--ide-tab-inactive-fg': '#616161',
-  '--ide-tab-active-fg': '#1f1f1f',
+  // tab.activeForeground
+  '--ide-tab-active-fg': '#3b3b3b',
+  // tab.activeBorderTop
+  '--ide-tab-active-border-top': '#005fb8',
+  // tab.border
   '--ide-tab-border': '#e5e5e5',
+  // statusBar.background
   '--ide-statusbar-bg': '#f8f8f8',
+  // statusBar.foreground
   '--ide-statusbar-fg': '#3b3b3b',
-  // Same idea on the light bar: a gray wash that still contrasts with white.
-  '--ide-statusbar-active-bg': 'rgba(0,0,0,.12)',
-  '--ide-statusbar-active-hover-bg': 'rgba(0,0,0,.18)',
+  // statusBarItem.hoverBackground (#1F1F1F11)
+  '--ide-statusbar-active-bg': 'rgba(31,31,31,.12)',
+  '--ide-statusbar-active-hover-bg': 'rgba(31,31,31,.18)',
+  // statusBarItem.hoverForeground
   '--ide-statusbar-active-fg': '#1f1f1f',
+  // sideBar.border / panel.border
   '--ide-border': '#e5e5e5',
-  '--ide-tree-hover': '#e8e8e8',
-  '--ide-tree-active': '#e4e6f1',
+  // list.hoverBackground
+  '--ide-tree-hover': '#f2f2f2',
+  // list.activeSelectionBackground (light_modern #E8E8E8; VS Code's own
+  // inactive default is #E4E6F1 — active reads better for the tree)
+  '--ide-tree-active': '#e8e8e8',
+  // list.focusAndSelectionOutline / focusBorder
   '--ide-tree-focus': '#005fb8',
+  // foreground
   '--ide-fg': '#3b3b3b',
+  // descriptionForeground
   '--ide-fg-muted': '#616161',
+  // pickerGroup.foreground (dim icon tone)
   '--ide-fg-dim': '#8b8b8b',
+  '--ide-git-ignored': '#8E8E90',
+  // focusBorder / button.background
   '--ide-accent': '#005fb8',
+  // button.hoverBackground
   '--ide-accent-hover': '#0258a8',
+  // titleBar.activeBackground
   '--ide-titlebar-bg': '#f8f8f8',
-  '--ide-icon-fg': '#424242',
+  // icon.foreground
+  '--ide-icon-fg': '#3b3b3b',
+  // panel.background
+  '--ide-panel-bg': '#f8f8f8',
+  // menu.background (light_modern.json)
+  '--ide-menu-bg': '#ffffff',
+  // menu.border (#CECECE) / menu.separatorBackground
+  '--ide-menu-border': '#cecece',
+  // menu.selectionBackground (#005FB8)
+  '--ide-menu-selection': '#005fb8',
+  // dropdown.background / input.background (light: white)
+  '--ide-input-bg': '#ffffff',
+  // input.border / dropdown.border
+  '--ide-input-border': '#cecece',
+  // badge.background
+  '--ide-badge-bg': '#cccccc',
+  // quiet hover (button.secondaryHoverBackground #CCCCCC)
+  '--ide-quiet-hover': '#e5e5e5',
+  // scrollbarSlider.background
+  '--ide-scrollbar': '#64646666',
+  // textCodeBlock.background (md preview code/pre)
+  '--ide-code-bg': '#f8f8f8',
+  // generic hover wash over chrome surfaces (list.hoverBackground tone)
+  '--ide-hover-wash': '#0000000d',
+  '--ide-toggle-knob': '#3b3b3b',
+  '--ide-toggle-knob-on': '#ffffff',
+  '--ide-selection-fg': 'rgba(255,255,255,.95)',
+}
+
+/** 2026 Dark (VS Code "2026 Dark", extensions/theme-defaults/themes/
+ *  2026-dark.json — built on dark_modern with a flatter, dimmer palette:
+ *  editor #121314, chrome #191A1B, borders #2A2B2C, accent teal #3994BC). */
+export const IDE_CSS_VARS_2026: Record<string, string> = {
+  // editor.background
+  '--ide-bg': '#121314',
+  // sideBar.background
+  '--ide-sidebar-bg': '#191a1b',
+  // activityBar.background
+  '--ide-activitybar-bg': '#191a1b',
+  // activityBar.inactiveForeground
+  '--ide-activitybar-fg': '#8c8c8c',
+  // activityBar.foreground
+  '--ide-activitybar-active': '#bfbfbf',
+  // activityBar.activeBorder (2026 Dark uses a light bar, not the blue one)
+  '--ide-activitybar-active-border': '#bfbfbf',
+  // editorGroupHeader.tabsBackground
+  '--ide-tab-bg': '#191a1b',
+  // tab.inactiveBackground
+  '--ide-tab-inactive-bg': '#191a1b',
+  // tab.activeBackground
+  '--ide-tab-active-bg': '#121314',
+  // tab.inactiveForeground
+  '--ide-tab-inactive-fg': '#8c8c8c',
+  // tab.activeForeground
+  '--ide-tab-active-fg': '#bfbfbf',
+  // tab.activeBorderTop
+  '--ide-tab-active-border-top': '#3994bc',
+  // tab.border / editorGroupHeader.tabsBorder
+  '--ide-tab-border': '#2a2b2c',
+  // statusBar.background
+  '--ide-statusbar-bg': '#191a1b',
+  // statusBar.foreground
+  '--ide-statusbar-fg': '#8c8c8c',
+  // statusBarItem.hoverBackground (#323233)
+  '--ide-statusbar-active-bg': '#323233',
+  '--ide-statusbar-active-hover-bg': '#3a3a3b',
+  '--ide-statusbar-active-fg': '#bfbfbf',
+  // sideBar.border / panel.border / statusBar.border
+  '--ide-border': '#2a2b2c',
+  // list.hoverBackground (#FFFFFF14)
+  '--ide-tree-hover': 'rgba(255,255,255,.08)',
+  // list.inactiveSelectionBackground
+  '--ide-tree-active': '#2c2d2e',
+  // list.focusBackground (2026 Dark's selected row is a white wash, not blue)
+  '--ide-tree-focus': 'rgba(255,255,255,.135)',
+  // foreground / sideBar.foreground
+  '--ide-fg': '#bfbfbf',
+  // descriptionForeground
+  '--ide-fg-muted': '#8c8c8c',
+  // icon.foreground (dimmed)
+  '--ide-fg-dim': '#8c8c8c',
+  '--ide-git-ignored': '#8C8C8C',
+  // button.background (2026 Dark buttons are the muted teal)
+  '--ide-accent': '#297aa0',
+  // button.hoverBackground
+  '--ide-accent-hover': '#2b7da3',
+  // titleBar.activeBackground
+  '--ide-titlebar-bg': '#191a1b',
+  // icon.foreground
+  '--ide-icon-fg': '#8c8c8c',
+  // panel.background
+  '--ide-panel-bg': '#191a1b',
+  // menu.background (2026-dark.json: menu.background)
+  '--ide-menu-bg': '#202122',
+  // menu.border / menu.separatorBackground
+  '--ide-menu-border': '#2a2b2c',
+  // menu.selectionBackground (#3994BC26 translucent teal)
+  '--ide-menu-selection': '#3994bc26',
+  // dropdown.background / input.background (#191A1B)
+  '--ide-input-bg': '#191a1b',
+  // input.border (#333536)
+  '--ide-input-border': '#333536',
+  // badge.background (2026-dark.json: badge.background)
+  '--ide-badge-bg': '#307e9f',
+  // quiet hover (toolbar.activeBackground-ish)
+  '--ide-quiet-hover': '#ffffff14',
+  // scrollbarSlider.background
+  '--ide-scrollbar': '#a8a9aa85',
+  // textCodeBlock.background (md preview code/pre)
+  '--ide-code-bg': '#242526',
+  // generic hover wash over chrome surfaces (list.hoverBackground tone)
+  '--ide-hover-wash': '#ffffff14',
+  '--ide-toggle-knob': '#8c8c8c',
+  '--ide-toggle-knob-on': '#ffffff',
+  '--ide-selection-fg': 'rgba(255,255,255,.75)',
 }
 
 /** Inline stylesheet injected once when the IDE mounts. VSCode-style geometry. */
@@ -82,7 +299,7 @@ export const IDE_STYLES = `
 [data-slot='conversation.session']:has([data-ide-view]) > div{flex:1 1 0% !important;min-height:0 !important}
 [data-conversation-scroll]:has([data-ide-view]) ~ [data-width-handle]{display:none !important}
 [data-slot='conversation.session']:has([data-ide-view]) ~ [data-composer-seat]{display:none}
-.ide-root{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;background:var(--ide-bg);color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans, -apple-system, 'Segoe UI', sans-serif);overflow:hidden}
+.ide-root{display:flex;flex-direction:column;height:100%;min-height:0;width:100%;background:var(--ide-bg);color:var(--ide-fg);font-family:var(--ds-font-family-sans, -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif);font-size:13px;line-height:1.4;overflow:hidden}
 .ide-body{display:flex;flex-direction:column;flex:1;min-height:0}
 .ide-body-main{display:flex;flex:1;min-height:0}
 /* Right sidebar (secondary side bar) — toggled open from the top-right
@@ -97,12 +314,12 @@ export const IDE_STYLES = `
 .ide-sidebar-right-placeholder{color:var(--ide-fg-muted);font-size:12px;margin:0}
 .ide-activitybar{width:48px;flex:none;background:var(--ide-activitybar-bg);display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:1px}
 .ide-activitybar-icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--ide-activitybar-fg);cursor:pointer;position:relative;transition:background-color .1s}
-.ide-activitybar-icon:hover{background-color:rgba(255,255,255,.06)}
+.ide-activitybar-icon:hover{background-color:var(--ide-hover-wash,rgba(255,255,255,.06))}
 .ide-activitybar-icon[data-active='true']{color:var(--ide-activitybar-active)}
-.ide-activitybar-icon[data-active='true']::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ide-activitybar-active)}
+.ide-activitybar-icon[data-active='true']::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ide-activitybar-active-border,#0078d4)}
 .ide-activitybar-icon:hover{color:var(--ide-fg)}
 .ide-activitybar-icon svg{width:24px;height:24px}
-.ide-activitybar-badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#0e639c;color:#fff;font-size:9px;font-weight:600;line-height:16px;text-align:center;box-sizing:border-box;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
+.ide-activitybar-badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--ide-accent,#0078d4);color:#fff;font-size:9px;font-weight:600;line-height:16px;text-align:center;box-sizing:border-box;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
 .ide-sidebar{position:relative;width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}
 /* Collapsed left panel: the activity bar stays, the panel takes no space.
    The hidden attribute cannot do this — the element is display:flex, which
@@ -113,7 +330,7 @@ export const IDE_STYLES = `
 .ide-sidebar-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:20;display:flex;align-items:center;justify-content:center}
 .ide-sidebar-resizer::before{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background-color .12s}
 .ide-sidebar-resizer:hover::before,.ide-sidebar-resizer[data-dragging='true']::before{background:var(--ide-accent)}
-.ide-sidebar-resizer-icon{pointer-events:none;opacity:0;transition:opacity .12s;display:flex;align-items:center;justify-content:center;width:16px;height:28px;border-radius:4px;background:#252526;border:1px solid #454545;color:var(--ide-fg-muted);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.ide-sidebar-resizer-icon{pointer-events:none;opacity:0;transition:opacity .12s;display:flex;align-items:center;justify-content:center;width:16px;height:28px;border-radius:4px;background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);color:var(--ide-fg-muted);box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .ide-sidebar-resizer:hover .ide-sidebar-resizer-icon,.ide-sidebar-resizer[data-dragging='true'] .ide-sidebar-resizer-icon{opacity:1}
 .ide-sidebar-resizer-icon svg{width:12px;height:12px}
 .ide-sidebar-header{height:35px;flex:none;display:flex;align-items:center;padding:0 16px 0 20px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted)}
@@ -126,12 +343,16 @@ export const IDE_STYLES = `
 .ide-header-action svg{width:16px;height:16px}
 .ide-sidebar-body{flex:1;min-height:0;overflow:auto;padding:4px 0}
 .ide-sidebar-body::-webkit-scrollbar{width:10px;height:10px}
-.ide-sidebar-body::-webkit-scrollbar-thumb{background:#424242;border-radius:5px}
+.ide-sidebar-body::-webkit-scrollbar-thumb{background:var(--ide-scrollbar,#424242);border-radius:5px}
 .ide-sidebar-body::-webkit-scrollbar-track{background:transparent}
 .ide-editor-area{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--ide-bg);position:relative}
 /* Persistent editor toolbar: panel-layout action buttons that are always
    visible (unlike TabBar actions which hide when there are no open tabs). */
 .ide-editor-toolbar{flex:none;display:flex;align-items:center;gap:2px;justify-content:flex-end;padding:2px 8px;border-bottom:1px solid var(--ide-border,#2b2b2b);background:var(--ide-bg);min-height:30px}
+/* Empty editor group (VS Code parity): no tabs and no diff means one solid
+   editor.background block — the toolbar loses its separator line and the
+   action buttons float on the same #1F1F1F, like VS Code's empty group. */
+.ide-editor-area[data-empty='true'] .ide-editor-toolbar{border-bottom-color:transparent}
 .ide-editor-stack{flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-editor-overlay{position:absolute;inset:0;pointer-events:none;display:flex}
 .ide-editor-overlay:empty{display:none}
@@ -140,15 +361,18 @@ export const IDE_STYLES = `
 .ide-tabbar-tabs::-webkit-scrollbar{height:0}
 .ide-tabbar-actions{flex:none;display:flex;align-items:center;gap:2px;padding:0 8px}
 .ide-tab{display:flex;align-items:center;gap:8px;height:35px;padding:0 12px;background:var(--ide-tab-inactive-bg);color:var(--ide-tab-inactive-fg);cursor:pointer;white-space:nowrap;border-right:1px solid var(--ide-tab-border);font-size:13px}
-.ide-tab[data-active='true']{background:var(--ide-tab-active-bg);color:var(--ide-tab-active-fg)}
-.ide-tab:hover:not([data-active='true']){background:#2a2d2e;color:var(--ide-fg)}
+.ide-tab[data-active='true']{background:var(--ide-tab-active-bg);color:var(--ide-tab-active-fg);box-shadow:inset 0 1px 0 var(--ide-tab-active-border-top,#0078d4)}
+.ide-tab:hover:not([data-active='true']){background:var(--ide-tab-hover,#1f1f1f);color:var(--ide-fg)}
 .ide-tab-name{max-width:200px;overflow:hidden;text-overflow:ellipsis}
 .ide-tab-close{width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;opacity:0}
 .ide-tab:hover .ide-tab-close,.ide-tab[data-active='true'] .ide-tab-close{opacity:.6}
-.ide-tab-close:hover{opacity:1!important;background:rgba(255,255,255,.12)}
+.ide-tab-close:hover{opacity:1!important;background:var(--ide-hover-wash,rgba(255,255,255,.12))}
 .ide-tab-close svg{width:14px;height:14px}
 .ide-editor-container{position:absolute;inset:0}
-.ide-monaco-host{position:absolute;inset:0}
+/* The Monaco host carries editor.background itself: an empty editor (no
+   model) then reads as one solid #1F1F1F block even if Monaco briefly falls
+   back to its base vs-dark theme (#1E1E1E) before dsh-dark-modern applies. */
+.ide-monaco-host{position:absolute;inset:0;background:var(--ide-bg)}
 .ide-editor-image{position:absolute;inset:0;overflow:auto;padding:16px;display:flex;align-items:center;justify-content:center;background:var(--ide-bg)}
 .ide-editor-image img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 /* PDF preview: fill the pane (no padding/centering — an iframe is a page, not
@@ -173,7 +397,7 @@ export const IDE_STYLES = `
 .ide-tabbar-action svg{width:16px;height:16px}
 /* Typography adapted from the official markdown preview (markdown.css:
    14px/22px, headings 600, 24/16 margins) on the Dark Modern palette. */
-.ide-md-body{flex:1;min-height:0;overflow:auto;padding:12px 24px 24px;font-size:14px;line-height:22px;word-wrap:break-word;color:var(--ide-fg);font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
+.ide-md-body{flex:1;min-height:0;overflow:auto;padding:12px 24px 24px;font-size:14px;line-height:22px;word-wrap:break-word;color:var(--ide-fg);font-family:var(--ds-font-family-sans,-apple-system,BlinkMacSystemFont,'Segoe WPC','Segoe UI',system-ui,'Ubuntu','Droid Sans',sans-serif,'Segoe UI Emoji','Segoe UI Symbol')}
 .ide-md-body h1,.ide-md-body h2,.ide-md-body h3,.ide-md-body h4,.ide-md-body h5,.ide-md-body h6{font-weight:600;line-height:1.25;margin:24px 0 16px}
 .ide-md-body h1:first-child,.ide-md-body h2:first-child,.ide-md-body h3:first-child,.ide-md-body h4:first-child{margin-top:8px}
 .ide-md-body h1{font-size:28px}
@@ -189,15 +413,15 @@ export const IDE_STYLES = `
 .ide-md-body li{margin:2px 0}
 .ide-md-body li.ide-md-task{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:6px}
 .ide-md-body li.ide-md-task input{margin-top:5px}
-.ide-md-body blockquote{margin:0 0 16px;padding:0 12px;border-left:3px solid #3c3c3c;color:var(--ide-fg-muted)}
-.ide-md-body code{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:12px;background:rgba(255,255,255,.09);border-radius:3px;padding:1px 4px}
-.ide-md-body pre{position:relative;background:rgba(255,255,255,.045);border:1px solid #3c3c3c;border-radius:4px;padding:12px;overflow:auto;margin:0 0 16px}
+.ide-md-body blockquote{margin:0 0 16px;padding:0 12px;border-left:3px solid var(--ide-input-border,#3c3c3c);color:var(--ide-fg-muted)}
+.ide-md-body code{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:12px;background:var(--ide-code-bg,rgba(255,255,255,.09));border-radius:3px;padding:1px 4px}
+.ide-md-body pre{position:relative;background:var(--ide-code-bg,rgba(255,255,255,.045));border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;padding:12px;overflow:auto;margin:0 0 16px}
 .ide-md-body pre code{background:none;padding:0;font-size:12px;line-height:18px;display:block;white-space:pre}
 .ide-md-body pre[data-lang]:not([data-lang=''])::before{content:attr(data-lang);position:absolute;top:4px;right:8px;font-size:10px;color:var(--ide-fg-dim);text-transform:uppercase;letter-spacing:.5px}
 /* Diagram box: a plain block context (not flex) so the content layer can take
    the full inner width — a flex item shrinks to its content, which collapsed
    wide mermaid SVGs to ~300px. Padding leaves room for the corner toolbar. */
-.ide-md-body .ide-md-mermaid{background:rgba(255,255,255,.045);border:1px solid #3c3c3c;border-radius:4px;padding:12px;margin:0 0 16px;overflow:auto;position:relative;touch-action:none;min-height:120px;box-sizing:border-box}
+.ide-md-body .ide-md-mermaid{background:var(--ide-code-bg,rgba(255,255,255,.045));border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;padding:12px;margin:0 0 16px;overflow:auto;position:relative;touch-action:none;min-height:120px;box-sizing:border-box}
 .ide-md-body .ide-md-mermaid svg{max-width:100%;height:auto;display:block}
 .ide-md-body pre.ide-md-mermaid-error{border-color:var(--ide-status-error,#f14c4c)}
 /* Interactive mermaid chrome (VS Code mermaid-markdown-features parity).
@@ -214,7 +438,7 @@ export const IDE_STYLES = `
 .ide-md-mermaid-content{transform-origin:0 0;flex:1 1 auto;min-width:0;width:100%;display:block}
 .ide-md-mermaid-content>svg{display:block;width:100%;height:auto;max-width:100%}
 /* Corner toolbar: pinned to the diagram box's top-right corner. */
-.ide-md-mermaid-controls{position:absolute;top:4px;right:4px;display:flex;gap:2px;z-index:100;background:var(--ide-tab-bg,#2d2d2d);border:1px solid var(--ide-border,#2b2b2b);border-radius:6px;padding:2px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.ide-md-mermaid-controls{position:absolute;top:4px;right:4px;display:flex;gap:2px;z-index:100;background:var(--ide-tab-bg,#181818);border:1px solid var(--ide-border,#2b2b2b);border-radius:6px;padding:2px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .ide-md-mermaid-controls-hover{opacity:0;transition:opacity .15s ease-in-out;pointer-events:none}
 /* CSS fallback for the reveal; mermaidDiagram.ts also drives the inline style
    on pointerenter/focus so the toolbar shows even if :hover never matches
@@ -232,9 +456,9 @@ export const IDE_STYLES = `
 .ide-md-mermaid-resize-handle::after{content:'';position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:40px;height:3px;background:var(--ide-border,#2b2b2b);border-radius:2px;opacity:0;transition:opacity .15s ease-in-out}
 .ide-md-mermaid-resize-handle:hover::after{opacity:1;transition-delay:.3s}
 .ide-md-body table{border-collapse:collapse;margin:0 0 16px;display:block;overflow-x:auto;max-width:100%}
-.ide-md-body th,.ide-md-body td{border:1px solid #3c3c3c;padding:5px 12px;font-size:13px}
-.ide-md-body th{background:rgba(255,255,255,.05);font-weight:600}
-.ide-md-body hr{border:none;border-top:1px solid #3c3c3c;margin:20px 0}
+.ide-md-body th,.ide-md-body td{border:1px solid var(--ide-input-border,#3c3c3c);padding:5px 12px;font-size:13px}
+.ide-md-body th{background:var(--ide-tree-hover,rgba(255,255,255,.05));font-weight:600}
+.ide-md-body hr{border:none;border-top:1px solid var(--ide-input-border,#3c3c3c);margin:20px 0}
 .ide-md-body img{max-width:100%}
 /* Raw README markup. GitHub renders a centred banner as <p align="center">
    holding an <img>; the browser's default UA stylesheet for align= is long
@@ -244,10 +468,10 @@ export const IDE_STYLES = `
 .ide-md-body [align='center'],.ide-md-body [align='middle']{text-align:center}
 .ide-md-body [align='right']{text-align:right}
 .ide-md-body p>img:only-child,.ide-md-body p>a:only-child>img:only-child{display:inline-block;vertical-align:middle;margin:4px 0}
-.ide-md-body details{border:1px solid #3c3c3c;border-radius:4px;padding:0 12px;margin:0 0 16px}
+.ide-md-body details{border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;padding:0 12px;margin:0 0 16px}
 .ide-md-body summary{cursor:pointer;padding:8px 0;font-weight:600}
-.ide-md-body details[open]>summary{margin-bottom:8px;border-bottom:1px solid #3c3c3c}
-.ide-md-body kbd{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:11px;border:1px solid #3c3c3c;border-bottom-width:2px;border-radius:3px;padding:1px 5px;background:rgba(255,255,255,.06)}
+.ide-md-body details[open]>summary{margin-bottom:8px;border-bottom:1px solid var(--ide-input-border,#3c3c3c)}
+.ide-md-body kbd{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:11px;border:1px solid var(--ide-input-border,#3c3c3c);border-bottom-width:2px;border-radius:3px;padding:1px 5px;background:rgba(255,255,255,.06)}
 .ide-md-body sub,.ide-md-body sup{font-size:75%;line-height:0}
 .ide-md-body .ide-md-image-alt{color:var(--ide-fg-muted);font-style:italic}
 /* GitHub alerts (> [!NOTE] …). */
@@ -269,8 +493,12 @@ export const IDE_STYLES = `
 .ide-statusbar-left,.ide-statusbar-right{display:flex;align-items:center;gap:12px}
 .ide-statusbar-right{margin-left:auto}
 .ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap;background:transparent;border:none;color:inherit;font:inherit;cursor:default;padding:0}
+/* Icon glyphs default to the codicon base size (16px, VS Code status bar);
+   the 12–14px rules further below are deliberate refinements and win by
+   source order for their specific items. */
+.ide-statusbar-item svg{width:16px;height:16px}
 .ide-statusbar button.ide-statusbar-item{cursor:pointer}
-.ide-statusbar button.ide-statusbar-item:hover{background:rgba(255,255,255,.08)}
+.ide-statusbar button.ide-statusbar-item:hover{background:var(--ide-statusbar-active-bg,rgba(255,255,255,.16))}
 /* Branch group: the clickable branch name plus the sync button beside it. */
 .ide-statusbar-branch-group{display:inline-flex;align-items:center;gap:0;flex:none}
 .ide-statusbar-branch{color:var(--ide-statusbar-fg);font-weight:500;padding:0 4px;border-radius:3px;display:flex;align-items:center;gap:4px;background:transparent;border:none;font-family:inherit;font-size:inherit;cursor:pointer;height:18px}
@@ -291,7 +519,7 @@ export const IDE_STYLES = `
 .ide-tree-row[data-focused='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff)}
 .ide-tree-row[data-cut='true']{opacity:.45}
 .ide-tree-row[data-drop-target='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff);background:rgba(55,148,255,.12)}
-.ide-tree-filter{display:flex;align-items:center;gap:4px;margin:2px 8px 6px;height:24px;padding:0 6px;border:1px solid var(--ide-border,#3c3c3c);border-radius:4px;background:var(--ide-bg-elev,#2d2d2d)}
+.ide-tree-filter{display:flex;align-items:center;gap:4px;margin:2px 8px 6px;height:24px;padding:0 6px;border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;background:var(--ide-input-bg,#313131);color:var(--ide-fg,#cccccc)}
 .ide-tree-filter:focus-within{border-color:var(--ide-accent,#3794ff)}
 .ide-tree-filter-icon{display:flex;align-items:center;color:var(--ide-fg-dim)}
 .ide-tree-filter-icon svg{width:13px;height:13px}
@@ -306,11 +534,15 @@ export const IDE_STYLES = `
 .ide-tree-chevron[data-expanded='true'] svg{transform:rotate(90deg)}
 .ide-tree-icon{width:16px;flex:none;display:flex;align-items:center;justify-content:center}
 .ide-tree-icon svg{width:16px;height:16px}
+/* Seti file-icon glyph: a colored text character in the seti webfont.
+   150% size mirrors the theme's declared font size (VS Code seti theme uses
+   size "150%"), which makes the 16px-wide glyph optically match codicon SVGs. */
+.ide-seti-icon{font-family:seti;font-size:150%;line-height:1;width:16px;height:16px;display:flex;align-items:center;justify-content:center;text-rendering:auto;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;flex:none}
 .ide-tree-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* In-tree rename editor (VS Code style: input replaces the label, accent border). */
-.ide-tree-rename-input{flex:1 1 auto;min-width:40px;height:20px;background:#313131;border:1px solid var(--ide-accent);border-radius:2px;color:var(--ide-fg);font:inherit;font-size:13px;padding:0 3px;outline:none}
+.ide-tree-rename-input{flex:1 1 auto;min-width:40px;height:20px;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-accent);border-radius:2px;color:var(--ide-fg);font:inherit;font-size:13px;padding:0 3px;outline:none}
 .ide-tree-rename-input[data-invalid='true']{border-color:#f48771}
-.ide-tree-rename-input::selection{background:#264f78}
+.ide-tree-rename-input::selection{background:var(--ide-tree-focus,#264f78)}
 .ide-tree-rename-error{font-size:11px;line-height:15px;color:#f48771;padding:1px 12px 2px;white-space:normal}
 .ide-tree-rename-warning{font-size:11px;line-height:15px;color:#cca700;padding:1px 12px 2px;white-space:normal}
 .ide-tree-git-badge{flex:none;margin-left:4px;font-size:11px;font-weight:600;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);opacity:.85}
@@ -324,14 +556,14 @@ export const IDE_STYLES = `
 /* Window-level modal variant (Explorer delete confirm): fixed to the viewport so
    it does not scroll away inside the tree's scroll container. */
 .ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:60}
-.ide-dialog{background:#1f1f1f;border:1px solid #3c3c3c;border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
-.ide-dialog-title{font-weight:600;margin-bottom:8px;color:#cccccc;font-size:13px}
-.ide-dialog-body{color:#9d9d9d;font-size:12px;line-height:1.6;margin-bottom:16px}
+.ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.ide-dialog-title{font-weight:600;margin-bottom:8px;color:var(--ide-fg,#cccccc);font-size:13px}
+.ide-dialog-body{color:var(--ide-fg-muted,#9d9d9d);font-size:12px;line-height:1.6;margin-bottom:16px}
 .ide-dialog-actions{display:flex;gap:8px;justify-content:flex-end}
-.ide-dialog-button{background:#0078d4;color:#ffffff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;line-height:1.5;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
-.ide-dialog-button:hover{background:#026ec1}
-.ide-dialog-button.ide-dialog-button-quiet{background:#3c3c3c;color:#cccccc}
-.ide-dialog-button.ide-dialog-button-quiet:hover{background:#4a4a4a}
+.ide-dialog-button{background:var(--ide-accent,#0078d4);color:#ffffff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;line-height:1.5;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.ide-dialog-button:hover{background:var(--ide-accent-hover,#026ec1)}
+.ide-dialog-button.ide-dialog-button-quiet{background:var(--ide-input-border,#3c3c3c);color:var(--ide-fg,#cccccc)}
+.ide-dialog-button.ide-dialog-button-quiet:hover{background:var(--ide-quiet-hover,#4a4a4a)}
 .ide-dialog-button svg{width:12px;height:12px;flex:none}
 [data-slot="rightbar.session"] li[data-files-entry][data-ide-active] > button{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
 [data-slot="rightbar.session"] div[role="button"][data-ide-active]{background:var(--dsw-alias-state-business-primary, #37373d);color:var(--dsw-alias-label-primary, #ffffff)}
@@ -348,7 +580,7 @@ export const IDE_STYLES = `
 .ide-git-action svg{width:16px;height:16px}
 .ide-git-body{flex:1;min-height:0;overflow:auto;padding-bottom:8px}
 .ide-git-body::-webkit-scrollbar{width:10px;height:10px}
-.ide-git-body::-webkit-scrollbar-thumb{background:#424242;border-radius:5px}
+.ide-git-body::-webkit-scrollbar-thumb{background:var(--ide-scrollbar,#424242);border-radius:5px}
 .ide-git-body::-webkit-scrollbar-track{background:transparent}
 .ide-git-state{display:flex;align-items:center;gap:8px;padding:12px 16px;color:var(--ide-fg-dim);font-size:12px}
 .ide-git-state svg{width:16px;height:16px;flex:none}
@@ -359,13 +591,13 @@ export const IDE_STYLES = `
 .ide-git-branch-name{font-weight:500}
 .ide-git-branch-ab{color:var(--ide-fg-dim);font-size:11px;margin-left:4px}
 .ide-git-input{position:relative;padding:4px 12px 8px;display:flex;flex-direction:column;gap:6px}
-.ide-git-input-field{width:100%;box-sizing:border-box;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;resize:vertical;min-height:40px;outline:none}
+.ide-git-input-field{width:100%;box-sizing:border-box;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;resize:vertical;min-height:40px;outline:none}
 .ide-git-input-field:focus{border-color:var(--ide-accent)}
 .ide-git-input-field::placeholder{color:var(--ide-fg-dim)}
 .ide-git-input-field:disabled{opacity:.6}
 .ide-git-input-row{display:flex;align-self:flex-end}
 .ide-git-input-action{align-self:stretch;justify-content:center}
-.ide-git-input-ab{background:rgba(255,255,255,.18);border-radius:3px;padding:1px 5px;font-weight:400;font-size:11px}
+.ide-git-input-ab{background:var(--ide-tree-hover,#2a2d2e);border-radius:3px;padding:1px 5px;font-weight:400;font-size:11px}
 .ide-git-input-button{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--ide-accent);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:12px;font-weight:500;cursor:pointer}
 .ide-git-input-row .ide-git-input-button:first-child{border-radius:4px 0 0 4px}
 .ide-git-input-row .ide-git-input-button:last-child{border-radius:0 4px 4px 0}
@@ -390,7 +622,7 @@ export const IDE_STYLES = `
 .ide-git-section-chevron{display:flex;align-items:center;color:var(--ide-fg-muted)}
 .ide-git-section-chevron svg{width:12px;height:12px}
 .ide-git-section-title{flex:1}
-.ide-git-section-count{background:#4d4d4d;color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
+.ide-git-section-count{background:var(--ide-badge-bg,#616161);color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 /* ── SCM 可折叠子 panel(源代码管理/图表/分支纵向堆叠,替代头部下拉) ── */
 .ide-git-panels{display:flex;flex-direction:column;gap:0;padding:0}
@@ -465,10 +697,10 @@ export const IDE_STYLES = `
 /* ── SCM graph + branches views (VS Code Source Control Graph parity) ── */
 /* Graph toolbar: branch filter segmented control + fetch/refresh actions. */
 .ide-git-graph-toolbar{display:flex;align-items:center;gap:2px;padding:4px 12px 6px 16px}
-.ide-git-graph-filter{flex:1;display:flex;background:#313131;border-radius:4px;padding:1px;gap:1px;max-width:200px}
+.ide-git-graph-filter{flex:1;display:flex;background:var(--ide-input-bg,#313131);border-radius:4px;padding:1px;gap:1px;max-width:200px}
 .ide-git-graph-filter-btn{flex:1;background:transparent;border:none;border-radius:3px;color:var(--ide-fg-dim);font-size:11px;padding:2px 8px;cursor:pointer;white-space:nowrap}
 .ide-git-graph-filter-btn:hover{color:var(--ide-fg)}
-.ide-git-graph-filter-btn[data-active='true']{background:#4d4d4d;color:var(--ide-fg)}
+.ide-git-graph-filter-btn[data-active='true']{background:var(--ide-badge-bg,#616161);color:var(--ide-fg)}
 /* Commit rows: swimlane cell + two-line content (subject+refs, author+age). */
 .ide-git-graph-list{display:flex;flex-direction:column}
 .ide-git-graph-row{border-left:2px solid transparent}
@@ -511,8 +743,8 @@ export const IDE_STYLES = `
 .ide-git-graph-more svg{width:14px;height:14px}
 /* Branches view: toolbar + section trees. */
 .ide-git-branches-toolbar{display:flex;align-items:center;gap:2px;padding:4px 12px 6px 16px}
-.ide-git-branches-new{display:flex;align-items:center;gap:6px;flex:1;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg-dim);font-size:12px;padding:3px 8px;cursor:pointer;max-width:160px}
-.ide-git-branches-new:hover{color:var(--ide-fg);background:#3a3a3a}
+.ide-git-branches-new{display:flex;align-items:center;gap:6px;flex:1;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;color:var(--ide-fg-dim);font-size:12px;padding:3px 8px;cursor:pointer;max-width:160px}
+.ide-git-branches-new:hover{color:var(--ide-fg);background:var(--ide-quiet-hover,#3a3a3a)}
 .ide-git-branches-new svg{width:14px;height:14px}
 .ide-git-branch-current{display:flex;align-items:center;gap:6px;padding:2px 12px 4px 16px;color:var(--ide-fg);font-size:12px}
 .ide-git-branch-current-icon{display:flex;align-items:center;color:var(--ide-accent)}
@@ -531,7 +763,7 @@ export const IDE_STYLES = `
 .ide-git-branch-row-current{margin-left:auto;color:#73c991;font-size:10px}
 .ide-git-branch-row-sha{margin-left:auto;color:var(--ide-fg-dim);font-size:10px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
 /* Dialog inputs (create branch). */
-.ide-git-branch-input{width:100%;box-sizing:border-box;background:#313131;border:1px solid #3c3c3c;border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;outline:none;margin-bottom:6px}
+.ide-git-branch-input{width:100%;box-sizing:border-box;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;color:var(--ide-fg);font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);padding:6px 8px;outline:none;margin-bottom:6px}
 .ide-git-branch-input:focus{border-color:var(--ide-accent)}
 .ide-git-branch-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ide-fg);cursor:pointer}
 /* ── Diff editor view ─────────────────────────────────────────────────── */
@@ -548,7 +780,7 @@ export const IDE_STYLES = `
 .ide-diff-dirty{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ide-accent,#0078d4);box-shadow:0 0 4px rgba(0,120,212,.8)}
 .ide-diff-save-error{flex:none;color:var(--ide-error,#f48771);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}
 .ide-diff-reload{flex:none;height:22px;padding:0 8px;border:1px solid var(--ide-tab-border);background:transparent;color:var(--ide-fg);font-size:11px;cursor:pointer;border-radius:4px;white-space:nowrap}
-.ide-diff-reload:hover{background:rgba(255,255,255,.12)}
+.ide-diff-reload:hover{background:var(--ide-hover-wash,rgba(255,255,255,.12))}
 .ide-diff-container{flex:1;min-height:0;position:relative}
 .ide-diff-overlay{position:absolute;inset:28px 0 0 0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .ide-diff-overlay:empty{display:none}
@@ -572,14 +804,15 @@ export const IDE_STYLES = `
 .ide-search-error{color:#f48771}
 .ide-search-summary{padding:4px 8px 8px;font-size:11px;color:var(--ide-fg-dim,#9d9d9d)}
 .ide-search-file{margin-bottom:6px}
-.ide-search-file-name{padding:3px 8px;font-size:12px;font-weight:600;color:var(--ide-fg,#cccccc);display:flex;align-items:baseline;gap:6px}
+.ide-search-file-name{padding:3px 8px;font-size:12px;font-weight:600;color:var(--ide-fg,#cccccc);display:flex;align-items:center;gap:6px}
+.ide-search-file-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ide-search-file-dir{font-weight:400;font-size:10px;color:var(--ide-fg-dim,#9d9d9d);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ide-search-hit{display:flex;width:100%;text-align:left;background:transparent;border:none;color:var(--ide-fg,#cccccc);padding:2px 8px 2px 20px;font-size:12px;cursor:pointer;gap:8px;align-items:baseline}
-.ide-search-hit:hover{background:var(--ide-hover,#2a2d2e)}
+.ide-search-hit:hover{background:var(--ide-tree-hover,#2a2d2e)}
 .ide-search-hit-line{color:var(--ide-fg-dim,#6a9955);min-width:30px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
 .ide-search-hit-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-alias-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
 /* ── Terminal panel ───────────────────────────────────────────────────── */
-.ide-terminal-panel{display:flex;flex-direction:column;flex:none;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f;position:relative;transition:height .2s ease}
+.ide-terminal-panel{display:flex;flex-direction:column;flex:none;height:220px;min-height:120px;border-top:1px solid var(--ide-border,#2b2b2b);background:var(--ide-panel-bg,#181818);position:relative;transition:height .2s ease}
 .ide-bottompanel > .ide-terminal-panel{flex:1;min-height:0;height:auto;border-top:none}
 .ide-terminal-panel[data-state='minimized']{height:35px !important;min-height:35px !important}
 .ide-terminal-panel[data-state='maximized']{height:60vh;min-height:200px}
@@ -590,7 +823,7 @@ export const IDE_STYLES = `
 /* ── Terminal body: hosts (left) + sidebar list (right) ─────────────── */
 .ide-terminal-body{display:flex;flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-terminal-body[data-hidden]{display:none}
-.ide-terminal-sidebar{flex:none;width:160px;min-width:120px;max-width:240px;display:flex;flex-direction:column;border-left:1px solid var(--ide-border,#2b2b2b);background:#1e1e1e;overflow:hidden;transition:width .15s ease,opacity .15s ease}
+.ide-terminal-sidebar{flex:none;width:160px;min-width:120px;max-width:240px;display:flex;flex-direction:column;border-left:1px solid var(--ide-border,#2b2b2b);background:var(--ide-sidebar-bg,#181818);overflow:hidden;transition:width .15s ease,opacity .15s ease}
 .ide-terminal-sidebar-header{display:flex;align-items:center;gap:4px;padding:4px 4px 4px 10px;flex:none;border-bottom:1px solid var(--ide-border,#2b2b2b);height:28px}
 .ide-terminal-sidebar-title{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--ide-fg-muted,#9d9d9d);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ide-terminal-sidebar-new{background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:2px 4px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex:none}
@@ -598,21 +831,21 @@ export const IDE_STYLES = `
 .ide-terminal-sidebar-new svg{width:14px;height:14px}
 .ide-terminal-sidebar-list{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:2px 0}
 .ide-terminal-sidebar-list::-webkit-scrollbar{width:6px}
-.ide-terminal-sidebar-list::-webkit-scrollbar-thumb{background:#424242;border-radius:3px}
+.ide-terminal-sidebar-list::-webkit-scrollbar-thumb{background:var(--ide-scrollbar,#424242);border-radius:3px}
 .ide-terminal-sidebar-list::-webkit-scrollbar-track{background:transparent}
 .ide-terminal-sidebar-item{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 6px;cursor:pointer;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);min-width:0;transition:background-color .1s;position:relative}.ide-terminal-sidebar-color{flex:none;width:2px;height:14px;border-radius:1px;align-self:center;background:transparent}.ide-terminal-sidebar-color[data-active='true']{background:#2472c8}
 .ide-terminal-sidebar-item:hover{background:var(--ide-tree-hover,#2a2d2e)}
-.ide-terminal-sidebar-item[data-active='true']{background:var(--ide-bg,#252526);color:var(--ide-fg,#cccccc)}
+.ide-terminal-sidebar-item[data-active='true']{background:var(--ide-tree-active,#37373d);color:var(--ide-fg,#cccccc)}
 .ide-terminal-sidebar-item[data-active='true']::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ide-fg,#cccccc)}
 .ide-terminal-sidebar-item[data-exited]{opacity:.55}
 .ide-terminal-sidebar-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ide-terminal-sidebar-close{flex:none;background:transparent;border:none;color:var(--ide-fg-dim,#9d9d9d);cursor:pointer;padding:2px;border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s}
 .ide-terminal-sidebar-item:hover .ide-terminal-sidebar-close,.ide-terminal-sidebar-item[data-active='true'] .ide-terminal-sidebar-close{opacity:1}
 .ide-terminal-sidebar-close:hover{background:var(--ide-tree-hover,#3a3d41);color:var(--ide-fg,#cccccc)}
-.ide-terminal-sidebar-close svg{width:14px;height:14px}.ide-terminal-sidebar-rename{flex:1;min-width:0;background:#3c3c3c;border:1px solid var(--ide-accent,#007acc);color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;padding:1px 4px;border-radius:2px;outline:none}.ide-terminal-sidebar-rename:focus{border-color:var(--ide-accent,#007acc)}
+.ide-terminal-sidebar-close svg{width:14px;height:14px}.ide-terminal-sidebar-rename{flex:1;min-width:0;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-accent,#007acc);color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;padding:1px 4px;border-radius:2px;outline:none}.ide-terminal-sidebar-rename:focus{border-color:var(--ide-accent,#007acc)}
 /* ── Terminal context menu ──────────────────────────────────────────── */
 .ide-terminal-context-overlay{position:fixed;inset:0;z-index:9998;background:transparent}
-.ide-terminal-context-menu{position:fixed;z-index:9999;min-width:160px;background:#252526;border:1px solid #454545;border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;flex-direction:column}
+.ide-terminal-context-menu{position:fixed;z-index:9999;min-width:160px;background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.4);display:flex;flex-direction:column}
 .ide-terminal-context-item{display:flex;align-items:center;gap:8px;padding:4px 12px;background:transparent;border:none;color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;cursor:pointer;text-align:left;white-space:nowrap}
 .ide-terminal-context-item:hover{background:var(--ide-accent,#04395e);color:#fff}
 .ide-terminal-context-icon{display:flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none}
@@ -637,9 +870,29 @@ export const IDE_STYLES = `
 .ide-terminal-error[data-testid=ide-terminal-exited]{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ide-fg-dim,#cccccc)}
 .ide-terminal-error[data-testid=ide-terminal-exited] .ide-dialog-button{flex:none;height:22px;padding:0 10px;font-size:11px}
 .ide-terminal-empty{padding:20px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);text-align:center}
+.ide-terminal-findbar{position:absolute;top:4px;right:8px;z-index:30;display:flex;align-items:center;gap:2px;padding:3px 4px;background:var(--ide-menu-bg,#1f1f1f);border:1px solid #454545;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.4);max-width:calc(100% - 16px)}
+.ide-terminal-findbar-input{width:170px;min-width:80px;background:var(--ide-input-bg,#313131);border:1px solid transparent;color:var(--ide-fg,#cccccc);font:12px var(--ds-font-family-mono,Menlo,Consolas,monospace);padding:2px 6px;border-radius:2px;outline:none}
+.ide-terminal-findbar-input:focus{border-color:var(--ide-accent,#007acc)}
+.ide-terminal-findbar-toggle{flex:none;height:20px;min-width:22px;padding:0 4px;background:transparent;border:none;border-radius:3px;color:var(--ide-fg-dim,#9d9d9d);font:11px/1 var(--ds-font-family-mono,Menlo,Consolas,monospace);cursor:pointer}
+.ide-terminal-findbar-toggle:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+.ide-terminal-findbar-toggle[data-active]{background:var(--ide-accent,#04395e);color:#fff}
+.ide-terminal-findbar-count{flex:none;min-width:44px;text-align:center;font-size:11px;color:var(--ide-fg-dim,#9d9d9d);white-space:nowrap}
+.ide-terminal-findbar-nav,.ide-terminal-findbar-close{flex:none;height:20px;width:22px;background:transparent;border:none;border-radius:3px;color:var(--ide-fg-dim,#9d9d9d);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ide-terminal-findbar-nav:hover,.ide-terminal-findbar-close:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+.ide-terminal-findbar-close svg{width:12px;height:12px}
+.ide-terminal-scrollbottom{position:absolute;right:14px;bottom:14px;z-index:25;height:24px;width:24px;border-radius:50%;background:var(--ide-menu-bg,#1f1f1f);border:1px solid #454545;color:var(--ide-fg,#cccccc);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.ide-terminal-scrollbottom:hover{background:var(--ide-accent,#04395e);color:#fff;border-color:transparent}
+.ide-terminal-scrollbottom svg{width:14px;height:14px}
+.ide-terminal-bell{flex:none;font-size:10px;line-height:1;align-self:center;opacity:.9}
+.ide-terminal-newmenu{position:relative;display:flex;align-items:center}
+.ide-terminal-newmenu-caret{padding:2px 2px 2px 0}
+.ide-terminal-newmenu-caret svg{width:12px;height:12px}
+.ide-terminal-shellmenu{position:absolute;top:24px;right:0;z-index:40;min-width:150px;background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.4);padding:4px 0;display:flex;flex-direction:column}
+.ide-terminal-shellmenu-item{display:flex;align-items:center;padding:4px 12px;background:transparent;border:none;color:var(--ide-fg,#cccccc);font-size:12px;font-family:inherit;cursor:pointer;text-align:left;white-space:nowrap}
+.ide-terminal-shellmenu-item:hover{background:var(--ide-accent,#04395e);color:#fff}
 .ide-activitybar-spacer{flex:1}
-.ide-context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;max-height:calc(100vh - 16px);background:#252526;border:1px solid #454545;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.36);padding:4px 0;font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);color:var(--ide-fg);overflow-y:auto;overflow-x:hidden}
-.ide-context-menu-separator{height:1px;background:#454545;margin:4px 0}
+.ide-context-menu{position:fixed;z-index:10000;min-width:200px;max-width:320px;max-height:calc(100vh - 16px);background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.36);padding:4px 0;font:13px/1.4 var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif);color:var(--ide-fg);overflow-y:auto;overflow-x:hidden}
+.ide-context-menu-separator{height:1px;background:var(--ide-menu-border,#454545);margin:4px 0}
 .ide-context-menu-item{display:flex;align-items:center;gap:8px;padding:0 12px 0 28px;height:26px;cursor:default;user-select:none;white-space:nowrap;position:relative}
 .ide-context-menu-item:hover:not([data-disabled='true']){background:var(--ide-accent);color:#fff}
 .ide-context-menu-item[data-disabled='true']{color:var(--ide-fg-dim);cursor:default}
@@ -652,7 +905,7 @@ export const IDE_STYLES = `
 .ide-context-menu-item-action{flex:none;display:flex;align-items:center;margin-left:12px;color:var(--ide-fg-dim,#9d9d9d)}
 .ide-context-menu-item-action svg{width:14px;height:14px}
 .ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-action{color:#fff}
-.ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-hint{color:#d8d8d8;border-left-color:#5a5a5a}
+.ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-hint{color:var(--ide-statusbar-active-fg,#d8d8d8);border-left-color:var(--ide-menu-border,#5a5a5a)}
 .ide-context-menu-item-icon{position:absolute;left:6px;display:flex;align-items:center;color:inherit}
 .ide-context-menu-item-icon svg{width:14px;height:14px}
 .ide-context-menu-item-label{flex:1;overflow:hidden;text-overflow:ellipsis}
@@ -671,10 +924,10 @@ export const IDE_STYLES = `
 .ide-settings-number{background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);padding:4px 8px;font-size:12px;width:88px;min-width:88px;flex:none;box-sizing:border-box;text-align:right}
 .ide-settings-toggle{position:relative;display:inline-block;width:34px;height:18px;cursor:pointer}
 .ide-settings-toggle input{opacity:0;width:0;height:0}
-.ide-settings-toggle span{position:absolute;inset:0;background:#3c3c3c;border-radius:9px;transition:.15s}
-.ide-settings-toggle span:before{content:'';position:absolute;width:12px;height:12px;left:3px;top:3px;background:#cccccc;border-radius:50%;transition:.15s}
+.ide-settings-toggle span{position:absolute;inset:0;background:var(--ide-input-border,#3c3c3c);border-radius:9px;transition:.15s}
+.ide-settings-toggle span:before{content:'';position:absolute;width:12px;height:12px;left:3px;top:3px;background:var(--ide-toggle-knob,#cccccc);border-radius:50%;transition:.15s}
 .ide-settings-toggle input:checked + span{background:var(--ide-accent)}
-.ide-settings-toggle input:checked + span:before{transform:translateX(16px);background:#ffffff}
+.ide-settings-toggle input:checked + span:before{transform:translateX(16px);background:var(--ide-toggle-knob-on,#ffffff)}
 .ide-settings-actions{display:flex;gap:8px}
 .ide-settings-error{color:#f14c4c;font-size:12px;padding:4px 0}
 .ide-about-body{text-align:center;padding:8px 0}
@@ -704,10 +957,10 @@ export const IDE_STYLES = `
 .ide-palette-item[data-selected='true']{background:var(--ide-accent);color:#fff}
 .ide-palette-item[data-disabled='true']{color:var(--ide-fg-dim)}
 .ide-palette-category{color:var(--ide-fg-muted);font-size:11px}
-.ide-palette-item[data-selected='true'] .ide-palette-category{color:rgba(255,255,255,.75)}
+.ide-palette-item[data-selected='true'] .ide-palette-category{color:var(--ide-selection-fg,rgba(255,255,255,.75))}
 .ide-palette-label{flex:1}
 .ide-palette-keys{font-family:var(--ds-font-family-code,Menlo,monospace);font-size:11px;color:var(--ide-fg-muted)}
-.ide-palette-item[data-selected='true'] .ide-palette-keys{color:rgba(255,255,255,.75)}
+.ide-palette-item[data-selected='true'] .ide-palette-keys{color:var(--ide-selection-fg,rgba(255,255,255,.75))}
 .ide-palette-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
 /* ── Notifications ─────────────────────────────────────────────────── */
 .ide-notify-root{position:relative;display:inline-flex}
@@ -738,12 +991,12 @@ export const IDE_STYLES = `
 .ide-toast-close{color:var(--ide-fg-dim);display:flex}
 .ide-toast-close svg{width:12px;height:12px}
 /* ── Problems panel + bottom tabs ──────────────────────────────────── */
-.ide-bottompanel{display:flex;flex-direction:column;flex:none;min-height:0;overflow:hidden;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:#1f1f1f}
-.ide-bottomtabs{display:flex;align-items:stretch;gap:2px;padding:0 4px 0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-sidebar-bg)}
+.ide-bottompanel{display:flex;flex-direction:column;flex:none;min-height:0;overflow:hidden;height:220px;border-top:1px solid var(--ide-border,#2b2b2b);background:var(--ide-panel-bg,#181818)}
+.ide-bottomtabs{display:flex;align-items:stretch;gap:2px;padding:0 4px 0 8px;border-bottom:1px solid var(--ide-border);background:var(--ide-panel-bg,#181818)}
 /* Right end of the tab row: the terminal's action buttons are portaled here. */
 .ide-bottomtabs-actions{display:flex;align-items:center;margin-left:auto;padding-left:8px;flex:none}
 .ide-bottomtab{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;letter-spacing:.5px;text-transform:uppercase;padding:6px 10px;cursor:pointer;border-bottom:1px solid transparent;display:flex;align-items:center;gap:6px}
-.ide-bottomtab[data-active='true']{color:var(--ide-fg);border-bottom-color:var(--ide-fg)}
+.ide-bottomtab[data-active='true']{color:var(--ide-fg);border-bottom-color:var(--ide-accent,#0078d4)}
 .ide-bottomtab-count{background:#f14c4c;color:#fff;border-radius:8px;font-size:10px;padding:0 5px;min-width:14px;text-align:center}
 .ide-bottom-problems{flex:1;min-height:0;overflow:auto;background:var(--ide-bg)}
 .ide-problems{padding:8px 12px}
@@ -756,7 +1009,7 @@ export const IDE_STYLES = `
 .ide-vscode-actions{display:flex;gap:4px;flex:none}
 .ide-vscode-action{background:none;border:1px solid var(--ide-border);border-radius:3px;color:var(--ide-fg);font-size:11px;padding:2px 8px;cursor:pointer}
 .ide-vscode-action:hover{background:var(--ide-tree-hover)}
-.ide-vscode-frame{flex:1;width:100%;border:none;background:#1e1e1e}
+.ide-vscode-frame{flex:1;width:100%;border:none;background:var(--ide-bg,#1f1f1f)}
 .ide-vscode-loading,.ide-vscode-error{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;flex:1;font-size:12px;color:var(--ide-fg-muted);padding:20px;text-align:center}
 .ide-vscode-error{color:var(--ide-fg)}
 .ide-debug{padding:0 0 4px}
@@ -780,7 +1033,7 @@ export const IDE_STYLES = `
 .ide-debug-console-line[data-kind='input']{color:#4daafc}
 .ide-debug-console-line[data-kind='system']{color:var(--ide-fg-dim);font-style:italic}
 .ide-debug-input-row{padding:2px 12px 0}
-.ide-debug-input{width:100%;box-sizing:border-box;background:var(--ide-input-bg);border:1px solid var(--ide-border);border-radius:2px;color:var(--ide-fg);font-family:Menlo,Consolas,monospace;font-size:11px;padding:3px 6px;outline:none}
+.ide-debug-input{width:100%;box-sizing:border-box;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-border);border-radius:2px;color:var(--ide-fg);font-family:Menlo,Consolas,monospace;font-size:11px;padding:3px 6px;outline:none}
 .ide-debug-input:focus{border-color:#4daafc}
 .ide-debug-input:disabled{opacity:.5}
 .ide-runview{padding:4px 0;overflow:auto;height:100%}
@@ -852,6 +1105,58 @@ export const IDE_STYLES = `
 .ide-statusbar-prob-icon svg{width:12px;height:12px}
 .ide-statusbar-prob-error{color:#f14c4c}
 .ide-statusbar-prob-warn{color:#cca700}
+
+/* ── Application (hamburger) menu & submenu styling ───────────────────
+   .ide-context-submenu reuses the base menu look; rows carrying a submenu
+   show a right chevron pinned right (VS Code menu-submenu). Checkbox rows
+   keep a fixed icon slot so labels align whether checked or not. */
+.ide-context-menu-item[data-submenu='true']{padding-right:8px}
+.ide-context-menu-item-submenu{flex:none;display:flex;align-items:center;margin-left:12px;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-context-menu-item-submenu svg{width:14px;height:14px}
+.ide-context-menu-item:hover:not([data-disabled='true']) .ide-context-menu-item-submenu{color:#fff}
+.ide-context-menu-item-icon[data-checkslot]{color:inherit}
+.ide-context-submenu{position:fixed;z-index:10001}
+
+/* Hamburger button: same geometry as the other activity-bar icons (rendered
+   at the TOP of the strip like VS Code's compact menubar). The GLYPH keeps
+   VS Code's own size — .codicon base 16px inside a 32x32 toggle (verified on
+   the live workbench: fontSize 16px, box 32x32) — smaller than the 24px view
+   icons because the menu glyph is solid full-width bars that read heavier. */
+.ide-activitybar-hamburger{color:var(--ide-activitybar-fg)}
+.ide-activitybar-hamburger svg{width:16px;height:16px}
+
+/* Zen mode (View ▸ Appearance ▸ Zen Mode): hide every chrome strip except
+   the editor + tabs; the hamburger stays so the user can leave the mode. */
+.ide-root[data-zen='true'] .ide-activitybar .ide-activitybar-icon:not(.ide-activitybar-hamburger){display:none}
+.ide-root[data-zen='true'] .ide-sidebar{display:none}
+.ide-root[data-zen='true'] .ide-bottompanel{display:none}
+.ide-root[data-zen='true'] .ide-statusbar{display:none}
+.ide-root[data-zen='true'] .ide-sidebar-right{display:none}
+
+/* Go to Line/Column mini-dialog (Go ▸ Go to Line/Column…): top-centered
+   QuickInput-style box over a click-away backdrop. */
+.ide-gotoline{margin:8vh auto 0;width:min(480px,88vw);background:var(--ide-menu-bg,#252526);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.45);padding:8px;display:flex;flex-direction:column;gap:6px}
+.ide-gotoline-input{background:var(--ide-bg,#1f1f1f);border:1px solid #454545;border-radius:4px;color:var(--ide-fg,#cccccc);padding:6px 8px;font-size:13px;font-family:var(--ds-font-family-code,Menlo,Consolas,monospace)}
+.ide-gotoline-input:focus{outline:1px solid var(--ide-accent,#04395e)}
+.ide-gotoline-hint{font-size:11px;color:var(--ide-fg-dim,#9d9d9d);padding:0 2px 2px}
+
+
+.ide-explorer-section{flex:none;display:flex;flex-direction:column;border-top:1px solid var(--ide-border);max-height:40%}
+.ide-explorer-section-header{height:22px;display:flex;align-items:center;gap:4px;padding:0 6px;background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;flex:none}
+.ide-explorer-section-header:hover{background:var(--ide-hover-wash)}
+.ide-explorer-section-title{flex:1;text-align:left}
+.ide-explorer-section .ide-outline-tree,.ide-explorer-section .ide-timeline-list{overflow:auto;flex:1;min-height:0;padding-bottom:4px}
+.ide-explorer-section .ide-tree-row{height:22px}
+.ide-outline-symbol{font-family:var(--ds-font-family-code,Menlo,Consolas,monospace);font-size:10px;font-weight:700;width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--ide-fg-muted)}
+.ide-outline-symbol[data-kind='5'],.ide-outline-symbol[data-kind='23']{color:#ee9d28}
+.ide-outline-symbol[data-kind='11']{color:#ee9d28}
+.ide-outline-symbol[data-kind='6'],.ide-outline-symbol[data-kind='9'],.ide-outline-symbol[data-kind='12']{color:#b180d7}
+.ide-outline-symbol[data-kind='10'],.ide-outline-symbol[data-kind='22'],.ide-outline-symbol[data-kind='24']{color:#ee9d28}
+.ide-outline-symbol[data-kind='13'],.ide-outline-symbol[data-kind='14']{color:#75beff}
+.ide-outline-symbol[data-kind='2'],.ide-outline-symbol[data-kind='3'],.ide-outline-symbol[data-kind='4']{color:#75beff}
+.ide-timeline-glyph{color:var(--ide-fg-muted)}
+.ide-timeline-desc{color:var(--ide-fg-muted);font-size:11px;margin-left:auto;padding-right:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
+.ide-panel-empty{padding:4px 16px;color:var(--ide-fg-muted);font-size:12px}
 `
 
 /** Monaco theme definition matching VSCode Dark Modern (Dark+ equivalent). */
@@ -879,6 +1184,24 @@ export const MONACO_DARK_MODERN = {
     { token: 'string.key.json', foreground: '9cdcfe' },
     { token: 'string.value.json', foreground: 'ce9178' },
     { token: 'keyword.json', foreground: '569cd6' },
+    // Markdown — dark_vs tokenColors on the custom monarch token names.
+    { token: 'markup.heading', foreground: '569cd6', fontStyle: 'bold' },
+    // Markdown markers only, exactly as dark_vs.json scopes them:
+    { token: 'punctuation.definition.quote.begin', foreground: '6a9955' },
+    { token: 'punctuation.definition.list.begin', foreground: '6796e6' },
+    { token: 'markup.bold', foreground: '569cd6', fontStyle: 'bold' },
+    { token: 'markup.italic', foreground: 'c586c0', fontStyle: 'italic' },
+    { token: 'markup.inline.raw', foreground: 'ce9178' },
+    { token: 'markup.fenced-code.block', foreground: 'ce9178' },
+    { token: 'string.other.link', foreground: 'ce9178' },
+    { token: 'string.other.link.title', foreground: 'ce9178' },
+    { token: 'markup.strikethrough', foreground: 'ffa198', fontStyle: 'strikethrough' },
+    { token: 'markup.raw.content', foreground: 'ce9178' },
+    { token: 'keyword.table.header', foreground: '569cd6' },
+    { token: 'keyword.table.left', foreground: '569cd6' },
+    { token: 'keyword.table.middle', foreground: '569cd6' },
+    { token: 'keyword.table.right', foreground: '569cd6' },
+    { token: 'meta.separator', foreground: '6a9955' },
   ],
   colors: {
     'editor.background': '#1f1f1f',
@@ -892,7 +1215,7 @@ export const MONACO_DARK_MODERN = {
     'editorIndentGuide.background': '#404040',
     'editorIndentGuide.activeBackground': '#707070',
     'editorGutter.background': '#1f1f1f',
-    'editorWidget.background': '#252526',
+    'editorWidget.background': '#202020',
     'editorWidget.border': '#454545',
     'editorSuggestWidget.background': '#252526',
     'editorSuggestWidget.selectedBackground': '#04395e',
@@ -904,7 +1227,8 @@ export const MONACO_DARK_MODERN = {
   },
 }
 
-/** Define the Dark Modern Monaco theme once per Monaco load. */
+/** Monaco theme matching VS Code "2026 Dark" (extensions/theme-defaults/
+ *  themes/2026-dark.json): #121314 editor, GitHub-Dark token palette. */
 export function defineDarkModernTheme(monaco: typeof import('monaco-editor')) {
   monaco.editor.defineTheme('dsh-dark-modern', MONACO_DARK_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
 }
@@ -934,6 +1258,24 @@ export const MONACO_LIGHT_MODERN = {
     { token: 'string.key.json', foreground: '0451a5' },
     { token: 'string.value.json', foreground: 'a31515' },
     { token: 'keyword.json', foreground: '0000ff' },
+    // Markdown — light_vs tokenColors on the custom monarch token names.
+    { token: 'markup.heading', foreground: '800000', fontStyle: 'bold' },
+    // light_vs.json gives both markers the same tone.
+    { token: 'punctuation.definition.quote.begin', foreground: '0451a5' },
+    { token: 'punctuation.definition.list.begin', foreground: '0451a5' },
+    { token: 'markup.bold', foreground: '000080', fontStyle: 'bold' },
+    { token: 'markup.italic', foreground: '800080', fontStyle: 'italic' },
+    { token: 'markup.inline.raw', foreground: '800000' },
+    { token: 'markup.fenced-code.block', foreground: '800000' },
+    { token: 'string.other.link', foreground: '0451a5' },
+    { token: 'string.other.link.title', foreground: '0451a5' },
+    { token: 'markup.strikethrough', foreground: 'a31515', fontStyle: 'strikethrough' },
+    { token: 'markup.raw.content', foreground: 'a31515' },
+    { token: 'keyword.table.header', foreground: '0451a5' },
+    { token: 'keyword.table.left', foreground: '0451a5' },
+    { token: 'keyword.table.middle', foreground: '0451a5' },
+    { token: 'keyword.table.right', foreground: '0451a5' },
+    { token: 'meta.separator', foreground: '0451a5' },
   ],
   colors: {
     'editor.background': '#ffffff',
@@ -959,19 +1301,95 @@ export const MONACO_LIGHT_MODERN = {
   },
 }
 
+/** Monaco theme matching VS Code "2026 Dark" (extensions/theme-defaults/
+ *  themes/2026-dark.json): #121314 editor, GitHub-Dark token palette. */
+export const MONACO_DARK_2026 = {
+  base: 'vs-dark' as const,
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '8b949e' },
+    { token: 'keyword', foreground: 'ff7b72' },
+    { token: 'string', foreground: 'a5d6ff' },
+    { token: 'number', foreground: '79c0ff' },
+    { token: 'type', foreground: '79c0ff' },
+    { token: 'type.identifier', foreground: '79c0ff' },
+    { token: 'identifier', foreground: 'c9d1d9' },
+    { token: 'function', foreground: 'd2a8ff' },
+    { token: 'variable', foreground: 'ffa657' },
+    { token: 'variable.predefined', foreground: '79c0ff' },
+    { token: 'variable.parameter', foreground: 'c9d1d9' },
+    { token: 'tag', foreground: '7ee787' },
+    { token: 'attribute.name', foreground: '79c0ff' },
+    { token: 'attribute.value', foreground: 'a5d6ff' },
+    { token: 'delimiter', foreground: 'c9d1d9' },
+    { token: 'operator', foreground: 'ff7b72' },
+    { token: 'key', foreground: '79c0ff' },
+    { token: 'string.key.json', foreground: '79c0ff' },
+    { token: 'string.value.json', foreground: 'a5d6ff' },
+    { token: 'keyword.json', foreground: 'ff7b72' },
+    // Markdown — VS Code 2026 Dark tokenColors. These hit the token names of
+    // the custom markdown monarch registered in markdownMonarch.ts (which
+    // emits VS Code TextMate-style scopes: markup.heading / markup.quote /
+    // markup.list / markup.fenced-code.block / string.other.link …), NOT the
+    // built-in lexer (whose keyword/strong/emphasis tokens cannot separate
+    // headings from quotes from list bullets).
+    { token: 'markup.heading', foreground: '79c0ff', fontStyle: 'bold' },
+    // 2026-dark.json defines no marker scopes, so the marker keeps the tone
+    // of markup.quote / markup.list while the text stays body-colored.
+    { token: 'punctuation.definition.quote.begin', foreground: '7ee787' },
+    { token: 'punctuation.definition.list.begin', foreground: 'ffa657' },
+    { token: 'markup.bold', foreground: 'c9d1d9', fontStyle: 'bold' },
+    { token: 'markup.italic', foreground: 'c9d1d9', fontStyle: 'italic' },
+    { token: 'markup.inline.raw', foreground: '79c0ff' },
+    { token: 'markup.fenced-code.block', foreground: '79c0ff' },
+    { token: 'string.other.link', foreground: 'a5d6ff' },
+    { token: 'string.other.link.title', foreground: 'a5d6ff' },
+    { token: 'markup.strikethrough', foreground: 'ffa198', fontStyle: 'strikethrough' },
+    { token: 'markup.raw.content', foreground: 'ce9178' },
+    { token: 'keyword.table.header', foreground: '569cd6' },
+    { token: 'keyword.table.left', foreground: '569cd6' },
+    { token: 'keyword.table.middle', foreground: '569cd6' },
+    { token: 'keyword.table.right', foreground: '569cd6' },
+    { token: 'meta.separator', foreground: '8b949e' },
+  ],
+  colors: {
+    'editor.background': '#121314',
+    'editor.foreground': '#bbbfbf',
+    'editorLineNumber.foreground': '#858889',
+    'editorLineNumber.activeForeground': '#bbbfbf',
+    'editor.selectionBackground': '#276782dd',
+    'editor.inactiveSelectionBackground': '#27678260',
+    'editor.lineHighlightBackground': '#242526',
+    'editorCursor.foreground': '#bbbfbf',
+    'editorIndentGuide.background': '#8384854d',
+    'editorIndentGuide.activeBackground': '#838485',
+    'editorGutter.background': '#121314',
+    'editorWidget.background': '#202122',
+    'editorWidget.border': '#2a2b2c',
+    'editorSuggestWidget.background': '#202122',
+    'editorSuggestWidget.selectedBackground': '#ffffff26',
+    'editorHoverWidget.background': '#202122',
+    'scrollbarSlider.background': '#a8a9aa85',
+    'scrollbarSlider.hoverBackground': '#a8a9aa90',
+    'scrollbarSlider.activeBackground': '#a8a9aa9c',
+    'minimap.background': '#121314',
+  },
+}
+
 /** Define both Monaco themes once per Monaco load (dark is the default). */
 export function defineIdeThemes(monaco: typeof import('monaco-editor')) {
   monaco.editor.defineTheme('dsh-dark-modern', MONACO_DARK_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
+  monaco.editor.defineTheme('dsh-dark-2026', MONACO_DARK_2026 as Parameters<typeof monaco.editor.defineTheme>[1])
   monaco.editor.defineTheme('dsh-light-modern', MONACO_LIGHT_MODERN as Parameters<typeof monaco.editor.defineTheme>[1])
 }
 
 /** CSS-variable set for a theme id. */
-export function cssVarsForTheme(theme: 'dark-modern' | 'light-modern'): Record<string, string> {
-  return theme === 'light-modern' ? IDE_CSS_VARS_LIGHT : IDE_CSS_VARS
+export function cssVarsForTheme(theme: 'dark-2026' | 'dark-modern' | 'light-modern'): Record<string, string> {
+  if (theme === 'light-modern') return IDE_CSS_VARS_LIGHT
+  return theme === 'dark-2026' ? IDE_CSS_VARS_2026 : IDE_CSS_VARS
 }
 
 /** Monaco theme name for a theme id. */
-export function monacoThemeFor(theme: 'dark-modern' | 'light-modern'): string {
-  return theme === 'light-modern' ? 'dsh-light-modern' : 'dsh-dark-modern'
+export function monacoThemeFor(theme: 'dark-2026' | 'dark-modern' | 'light-modern'): string {
+  return theme === 'light-modern' ? 'dsh-light-modern' : theme === 'dark-2026' ? 'dsh-dark-2026' : 'dsh-dark-modern'
 }
-

@@ -11,6 +11,12 @@ import { TabBar } from './editor/TabBar.js'
 import { StatusBar } from './editor/StatusBar.js'
 import { MarkdownPreview } from './editor/MarkdownPreview.js'
 import { isMarkdownPath } from './editor/markdown.js'
+import { registerMarkdownMonarch } from './editor/markdownMonarch.js'
+import { registerMarkdownOutline } from './editor/markdownOutline.js'
+import { installSetiFont } from './setiFileIcon.js'
+import { relPathOf } from './explorer/copy-name.js'
+import { OutlinePanel } from './explorer/OutlinePanel.js'
+import { TimelinePanel } from './explorer/TimelinePanel.js'
 import {
   hasLanguageService, searchIncludeFor, symbolAt, definitionsFromHits,
   supportsDefinition, languageOfPath, type DefinitionTarget,
@@ -82,6 +88,17 @@ function loadMonaco(): Promise<MonacoNS> {
     // navigation silently degrades. Must run before any model is created.
     configureTypeScriptDefaults(Monaco as never)
     defineIdeThemes(Monaco)
+    // Markdown: replace Monaco's built-in lexer (which emits no token at all
+    // for headings/quotes/bullets) with one emitting VS Code TextMate-style
+    // markup.* tokens, so each theme's markdown colors can actually apply.
+    registerMarkdownMonarch(Monaco)
+    // Monaco has no markdown symbol provider, so the Outline view needs ours
+    // (headings -> nested symbols, like VS Code).
+    registerMarkdownOutline(Monaco)
+    // Re-apply the theme AFTER defining it: a mount-time setTheme() that ran
+    // before loadMonaco() resolved silently fell back to vs-light (Monaco
+    // setTheme uses the light theme for unknown names).
+    Monaco.editor.setTheme(monacoThemeFor(ideSettings.getSnapshot().theme))
     monacoLoaded = true
   }
   return Promise.resolve(Monaco)
@@ -102,7 +119,10 @@ const ideEditor = {
   host: null as HTMLDivElement | null,
   models: new Map<string, MonacoTextModel>(),
   /** Saved-content baseline per open path; the dirty flag compares against it. */
-  saved: new Map<string, string>(),  /** Create-or-adopt: returns a live editor attached inside the container. */
+  saved: new Map<string, string>(),
+  /** Keybinding commands are bound ONCE on the singleton; remounts only
+   *  repoint the bridge (see ideKeyCommands below). */
+  commandsBound: false,  /** Create-or-adopt: returns a live editor attached inside the container. */
   async attach(container: HTMLElement): Promise<ReturnType<MonacoNS['editor']['create']>> {
     const m = await loadMonaco()
     const EDITOR_OPTIONS = {
@@ -137,6 +157,12 @@ const ideEditor = {
     return this.editor
   },
 }
+
+/** Cross-mount keybinding bridge: the singleton editor's handlers
+ *  call these; every mount repoints them at ITS live closures (the VS Code
+ *  pattern: workbench-level commands route to the active view). */
+const ideKeyCommands: { save?: () => void; gotoDefinition?: () => void } =
+  ((window as unknown as { __dshIdeCmd?: typeof ideKeyCommands }).__dshIdeCmd ?? {})
 
 /**
  * The git diff shown in the editor area: a working-tree path diff (the
@@ -558,6 +584,42 @@ export function IdeView(props: IdeViewInjected & {
   const explorerRef = useRef<ExplorerHandle | null>(null)
   /** Bumped by the explorer's refresh button to force an immediate git status refetch. */
   const [gitRefreshKey, setGitRefreshKey] = useState(0)
+  /** Outline / Timeline section collapse state (persisted; both default
+   *  COLLAPSED exactly like VS Code registers them: collapsed: true). */
+  const [outlineOpen, setOutlineOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('dsh-ide.outlineOpen') === '1' } catch { return false }
+  })
+  const [timelineOpen, setTimelineOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('dsh-ide.timelineOpen') === '1' } catch { return false }
+  })
+  useEffect(() => { try { localStorage.setItem('dsh-ide.outlineOpen', outlineOpen ? '1' : '0') } catch { /* denied */ } }, [outlineOpen])
+  useEffect(() => { try { localStorage.setItem('dsh-ide.timelineOpen', timelineOpen ? '1' : '0') } catch { /* denied */ } }, [timelineOpen])
+  /** Timeline entries for the ACTIVE file (VS Code's timeline tracks the
+   *  active editor's resource). Refetched on file change and git refresh. */
+  const [timelineEntries, setTimelineEntries] = useState<readonly import('./types.js').GitTimelineEntry[] | null>(null)
+  const [timelineIsRepo, setTimelineIsRepo] = useState(true)
+  useEffect(() => {
+    // A host built before the Timeline RPC existed has no gitTimeline: degrade to
+    // an empty panel instead of crashing the whole view slot.
+    const canTimeline = ideTools !== undefined && typeof (ideTools as unknown as { gitTimeline?: unknown }).gitTimeline === 'function'
+    if (!timelineOpen || !canTimeline || !sessionId || activePath === undefined || cwd === undefined) { setTimelineEntries(null); return }
+    const ctrl = new AbortController()
+    const root = cwd.replace(/[/\\]+$/, '')
+    const rel = activePath.startsWith(root + '/') ? activePath.slice(root.length + 1) : activePath
+    setTimelineEntries(null)
+    void ideTools.gitTimeline(sessionId, rel, { limit: 50 }, ctrl.signal).then((res) => {
+      if (ctrl.signal.aborted) return
+      if (res.ok) {
+        setTimelineEntries(res.value.entries)
+        setTimelineIsRepo(!res.value.notARepo)
+      } else {
+        setTimelineEntries([])
+        setTimelineIsRepo(false)
+      }
+    }).catch(() => { if (!ctrl.signal.aborted) { setTimelineEntries([]); setTimelineIsRepo(false) } })
+    return () => ctrl.abort()
+  }, [timelineOpen, ideTools, sessionId, activePath, cwd, gitRefreshKey])
+
   // Lifted SCM commit-message state: held by the view (not the panel) so that
   // switching the sidebar to the explorer and back — which unmounts/remounts
   // <SourceControlPanel> — does not wipe a typed or AI-generated message.
@@ -691,8 +753,12 @@ export function IdeView(props: IdeViewInjected & {
   /** Bumped on snippet-store changes so the completion provider re-registers. */
   const [snippetsVersion, setSnippetsVersion] = useState(0)
 
-  // Inject the stylesheet + CSS vars once.
+  // Inject the stylesheet + CSS vars once, and install the Seti file-icon
+  // webfont. Without installSetiFont() the @font-face never exists, so every
+  // file icon renders as a missing glyph while folders (SVG codicons) draw,
+  // which is exactly what makes file rows look blank and misaligned.
   useEffect(() => {
+    installSetiFont()
     const style = document.createElement('style')
     style.textContent = IDE_STYLES
     document.head.appendChild(style)
@@ -712,7 +778,9 @@ export function IdeView(props: IdeViewInjected & {
     if (root) {
       for (const [k, v] of Object.entries(cssVarsForTheme(settings.theme))) root.style.setProperty(k, v)
     }
-    Monaco.editor.setTheme(monacoThemeFor(settings.theme))
+    // setTheme must run AFTER defineIdeThemes(): Monaco silently falls back
+    // to vs-light for an unknown theme name.
+    void loadMonaco().then((m) => { m.editor.setTheme(monacoThemeFor(settings.theme)) })
   }, [settings.theme])
   // Editor-option hot-apply (font size, minimap, word wrap, ...).
   useEffect(() => {
@@ -804,13 +872,14 @@ export function IdeView(props: IdeViewInjected & {
       })
       // addCommand's return value is not a stable IDisposable across Monaco
       // builds; keybinding commands live with the singleton editor anyway.
-      editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => {
-        const p = activePathRef.current
-        if (p !== undefined) void saveRef.current(p)
-      })
-      // Go to Definition (F12). The editor's own Ctrl/Cmd+click link handling
-      // is registered below; both funnel into the same command.
-      editor.addCommand(Monaco.KeyCode.F12, () => { void goToDefinitionRef.current() })
+      // VS Code binds keybindings once on the workbench and routes them to the
+      // ACTIVE view; remounting must never stack stale closures, so the
+      // handlers only call through the cross-mount bridge.
+      if (!ideEditor.commandsBound) {
+        ideEditor.commandsBound = true
+        editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { ideKeyCommands.save?.() })
+        editor.addCommand(Monaco.KeyCode.F12, () => { ideKeyCommands.gotoDefinition?.() })
+      }
       // Ctrl/Cmd+Click on a symbol goes to its definition, like VS Code.
       editor.onMouseDown((e) => {
         if (e.event.leftButton && (e.event.ctrlKey || e.event.metaKey) && e.target.position !== null) {
@@ -1474,6 +1543,34 @@ export function IdeView(props: IdeViewInjected & {
   const activePathRef = useRef(activePath)
   useEffect(() => { activePathRef.current = activePath }, [activePath])
   const saveRef = useRef<(path: string) => Promise<boolean>>(async () => false)
+  // Repoint the cross-mount keybinding bridge at THIS mount's live closures
+  // (session switches make the old ones stale: they would save into the
+  // previous session or read an unmounted activePathRef).
+  useEffect(() => {
+    ideKeyCommands.save = () => { const p = activePathRef.current; if (p !== undefined) void saveRef.current(p) }
+    ideKeyCommands.gotoDefinition = () => { void goToDefinitionRef.current() }
+    ;(window as unknown as { __dshIdeCmd?: typeof ideKeyCommands }).__dshIdeCmd = ideKeyCommands
+    return () => { if (ideKeyCommands.save !== undefined) ideKeyCommands.save = undefined }
+  })
+  // VS Code parity: Ctrl/Cmd+S works even when the editor does NOT have
+  // focus (the keybinding is workbench-level). Monaco only sees keys while
+  // focused, so a window-level fallback routes the same command id
+  // (workbench.action.files.save) to the active view through the bridge.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        const el = e.target as HTMLElement | null
+        const tag = el?.tagName?.toLowerCase()
+        const inEditor = el?.closest(".monaco-editor") !== null
+        const inInput = tag === 'input' || tag === 'textarea' || el?.isContentEditable === true
+        if (inEditor || inInput) return // the editor binding or native handling wins
+        e.preventDefault()
+        ideKeyCommands.save?.() // workbench.action.files.save
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
   /** Go-to-Definition, exposed to Monaco keybindings and mouse gestures. */
   const goToDefinitionRef = useRef<() => Promise<void>>(async () => {})
   useEffect(() => { saveRef.current = saveFile })
@@ -2023,6 +2120,11 @@ export function IdeView(props: IdeViewInjected & {
   useEffect(() => {
     const cmds: IdeCommand[] = [
       { id: 'ide.commandPalette', category: t('category.view'), label: t('command.commandPalette'), run: () => setPaletteOpen(true) },
+      // Launcher-icon visibility toggles: the icons default to hidden, so the
+      // palette must be able to bring them back.
+      { id: 'ide.vscodeIcon', category: t('category.view'), label: t('command.vscodeIcon'), run: () => { const on = ideSettings.getSnapshot()['appearance.vscodeIcon'] === true; ideSettings.update({ 'appearance.vscodeIcon': !on }); notifications.info(t(on ? 'vscodeIcon.hidden' : 'vscodeIcon.shown')) } },
+      { id: 'ide.appMenuIcon', category: t('category.view'), label: t('command.appMenuIcon'), run: () => { const on = ideSettings.getSnapshot()['appearance.appMenuIcon'] === true; ideSettings.update({ 'appearance.appMenuIcon': !on }); notifications.info(t(on ? 'appMenuIcon.hidden' : 'appMenuIcon.shown')) } },
+      { id: 'ide.appMenu', category: t('category.view'), label: t('command.appMenu'), run: () => { const el = document.querySelector('[data-testid=ide-activitybar-appmenu]'); if (el) { const r = el.getBoundingClientRect(); (window as unknown as { __dshAppMenu?: (x: number, y: number) => void }).__dshAppMenu?.(r.left, r.bottom + 4) } else { ideSettings.update({ 'appearance.appMenuIcon': true }); notifications.info(t('appmenu.restored')) } } },
       { id: 'ide.settings', category: t('category.preferences'), label: t('command.settings'), run: () => setSettingsOpen(true) },
       { id: 'ide.keybindings', category: t('category.preferences'), label: t('command.keybindings'), run: () => setKeybindingsOpen(true) },
       { id: 'ide.snippets', category: t('category.preferences'), label: t('command.snippets'), run: () => setSnippetsOpen(true) },
@@ -2052,6 +2154,31 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.themeLight', category: t('category.preferences'), label: t('command.themeLight'), run: () => ideSettings.update({ theme: 'light-modern' }) },
     ]
     ideCommands.setAll(cmds)
+
+    // Hamburger application menu (VS Code menubar): the full command list is
+    // grouped by category into top-level sections (File / Edit / ... / Help);
+    // a submenu entry runs its command. Exposed on window so the activity-bar
+    // button (rendered outside this effect) can trigger it.
+    ;(window as unknown as { __dshAppMenu?: (x: number, y: number) => void }).__dshAppMenu = (x: number, y: number) => {
+      const SECTION_ORDER = [
+        t('appmenu.file'), t('appmenu.edit'), t('appmenu.selection'), t('appmenu.view'),
+        t('appmenu.go'), t('appmenu.run'), t('appmenu.terminal'), t('appmenu.help'),
+      ]
+      const sections = new Map<string, { id: string; label: string; run: () => void }[]>()
+      for (const cmd of cmds) {
+        if (cmd.id === 'ide.appMenu' || cmd.id === 'ide.appMenuIcon' || cmd.id === 'ide.vscodeIcon') continue
+        const list = sections.get(cmd.category) ?? []
+        list.push({ id: cmd.id, label: cmd.label, run: cmd.run })
+        sections.set(cmd.category, list)
+      }
+      const items = [...sections.entries()]
+        .sort((a, b) => {
+          const ia = SECTION_ORDER.indexOf(a[0]); const ib = SECTION_ORDER.indexOf(b[0])
+          return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+        })
+        .map(([label, list]) => ({ id: 'section-' + label, label, children: list.map((c) => ({ id: c.id, label: c.label, onClick: c.run })) }))
+      showContextMenu(x, y, items)
+    }
   })
 
   /** Global keybinding dispatch (user-customizable, settings-store backed). */
@@ -2231,12 +2358,27 @@ export function IdeView(props: IdeViewInjected & {
       <div className="ide-body">
         <div className="ide-body-main">
         <div className="ide-activitybar">
+          {settings['appearance.appMenuIcon'] && (
+            <div
+              className="ide-activitybar-icon"
+              title={t('appmenu.title')}
+              data-testid="ide-activitybar-appmenu"
+              onClick={(e) => { (window as unknown as { __dshAppMenu?: (x: number, y: number) => void }).__dshAppMenu?.(e.currentTarget.getBoundingClientRect().left, e.currentTarget.getBoundingClientRect().bottom + 4) }}
+            >{Icons.menu}</div>
+          )}
           <div
             className="ide-activitybar-icon"
             data-active={sidebarView === 'explorer'}
             title={t('explorer.title')}
             onClick={() => toggleSidebarFor('explorer')}
           >{Icons.explorer}</div>
+          <div
+            className="ide-activitybar-icon"
+            data-active={sidebarView === 'search'}
+            title={t('search.title')}
+            onClick={() => toggleSidebarFor('search')}
+            data-testid="ide-activitybar-search"
+          >{Icons.search}</div>
           <div
             className="ide-activitybar-icon"
             data-active={sidebarView === 'git'}
@@ -2250,7 +2392,7 @@ export function IdeView(props: IdeViewInjected & {
           </div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => toggleSidebarFor('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
-                     <div className="ide-activitybar-icon" title={t('vscode.title')} onClick={() => { void openVscode() }} data-testid="ide-activitybar-vscode">{Icons.panelBottom}</div>
+                     {settings['appearance.vscodeIcon'] && <div className="ide-activitybar-icon" title={t('vscode.title')} onClick={() => { void openVscode() }} data-testid="ide-activitybar-vscode">{Icons.vscodeLogo}</div>}
           <div className="ide-activitybar-spacer" />
           <div
             className="ide-activitybar-icon"
@@ -2448,6 +2590,47 @@ export function IdeView(props: IdeViewInjected & {
               ) : (
                 <div className="ide-tree-loading">{sessionId ? t('tree.loading') : t('empty.noSession')}</div>
               )}
+
+              {/* Outline — VS Code registers it under the Explorer container
+                  (outline.contribution.ts, collapsed: true). */}
+              <div className="ide-explorer-section" data-testid="ide-outline-section">
+                <button className="ide-explorer-section-header" aria-expanded={outlineOpen} onClick={() => setOutlineOpen((v) => !v)}>
+                  <span className="ide-tree-chevron" data-expanded={outlineOpen || undefined}>{Icons.chevronRight}</span>
+                  <span className="ide-explorer-section-title">{t('outline.title')}</span>
+                </button>
+                {outlineOpen && (
+                  <OutlinePanel
+                    editor={editorRef.current}
+                    model={editorRef.current?.getModel() ?? null}
+                    activePath={activePath}
+                    onReveal={(path, line, col) => { void openFile(path, line, col - 1) }}
+                    t={t}
+                  />
+                )}
+              </div>
+              {/* Timeline — git provider entries for the active file
+                  (timeline.contribution.ts, collapsed: true). */}
+              <div className="ide-explorer-section" data-testid="ide-timeline-section">
+                <button className="ide-explorer-section-header" aria-expanded={timelineOpen} onClick={() => setTimelineOpen((v) => !v)}>
+                  <span className="ide-tree-chevron" data-expanded={timelineOpen || undefined}>{Icons.chevronRight}</span>
+                  <span className="ide-explorer-section-title">{t('timeline.title')}</span>
+                </button>
+                {timelineOpen && (
+                  <TimelinePanel
+                    entries={timelineEntries ?? []}
+                    loading={timelineEntries === null}
+                    hasFile={activePath !== undefined}
+                    isRepo={timelineIsRepo}
+                    onOpenCommit={(sha) => {
+                      // Open this file's state at that commit, like VS Code's
+                      // timeline "Open Comparison" command.
+                      const rel = relPathOf(cwd ?? '', activePath ?? '')
+                      if (rel.length > 0) setDiffPath({ path: rel, sha })
+                    }}
+                    t={t}
+                  />
+                )}
+              </div>
             </>
           )}
           {/* Right-edge resize grip (hover shows a handle icon; drag resizes). */}
@@ -2472,8 +2655,18 @@ export function IdeView(props: IdeViewInjected & {
               aria-label={t('editor.findInFile')}
               onClick={triggerFind}
             >{Icons.search}</button>
+            {/* VS Code layout toggles */}
             <button
               className="ide-tabbar-action"
+              data-testid="ide-toggle-sidebar"
+              data-active={!sidebarCollapsed || undefined}
+              title={t('panel.toggleSidebar')}
+              aria-label={t('panel.toggleSidebar')}
+              onClick={() => setSidebarCollapsed((v) => !v)}
+            >{sidebarCollapsed ? Icons.layoutSidebarOff : Icons.layoutSidebar}</button>
+            <button
+              className="ide-tabbar-action"
+              data-testid="ide-toggle-panel"
               data-active={terminalOpen || undefined}
               title={t('panel.toggleBottom')}
               aria-label={t('panel.toggleBottom')}
@@ -2481,6 +2674,7 @@ export function IdeView(props: IdeViewInjected & {
             >{Icons.panelBottom}</button>
             <button
               className="ide-tabbar-action"
+              data-testid="ide-toggle-secondary-sidebar"
               data-active={rightSidebarOpen || undefined}
               title={t('panel.toggleRightSidebar')}
               aria-label={t('panel.toggleRightSidebar')}
@@ -2748,9 +2942,6 @@ export function IdeView(props: IdeViewInjected & {
           onSetIndent={(tabSize, insertSpaces) => { const model = editorRef.current?.getModel(); if (model) { model.updateOptions({ tabSize, insertSpaces }); syncModelMeta() } }}
           eol={modelEol}
           onSetEol={(eol) => { const model = editorRef.current?.getModel(); if (model) { model.pushEOL(eol === '\r\n' ? Monaco.editor.EndOfLineSequence.CRLF : Monaco.editor.EndOfLineSequence.LF); syncModelMeta() } }}
-          onToggleSidebar={() => setSidebarView('explorer')}
-          onToggleRightSidebar={() => setRightSidebarOpen((v) => !v)}
-          rightSidebarOpen={rightSidebarOpen}
         />
       </div>
     </div>

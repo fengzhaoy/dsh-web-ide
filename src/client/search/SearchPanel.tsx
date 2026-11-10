@@ -7,6 +7,7 @@ import { showContextMenu } from '../ContextMenu.js'
 import { useCallback, useRef, useState } from 'react'
 import type { IdeSearchMatch, IdeToolsRemote, SessionId } from '../types.js'
 import { Icons } from '../icons.js'
+import { setiFileIcon } from '../setiFileIcon.js'
 
 export interface SearchPanelProps {
   sessionId: SessionId
@@ -128,7 +129,8 @@ export function SearchPanel({ sessionId, cwd, ideTools, onOpenFile, onRevealFile
                     ])
                   }}
                 >
-                  {path.split('/').pop()}
+                  <span className="ide-tree-icon">{setiFileIcon(path.split('/').pop() ?? '', false)}</span>
+                  <span className="ide-search-file-label">{path.split('/').pop()}</span>
                   <span className="ide-search-file-dir">{dirLabel(path, cwd)}</span>
                 </div>
                 {hits.map((hit) => (

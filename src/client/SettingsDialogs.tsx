@@ -14,6 +14,21 @@ import { fuzzyScore } from './commands.js'
 
 type T = (key: string, params?: Record<string, string | number>) => string
 
+/** Close-on-Escape for modal dialogs (VS Code dialog parity: Esc dismisses).
+ *  Capture-phase window listener so it fires regardless of inner focus; the
+ *  caller gates it with enabled=false when an inner surface owns Escape first
+ *  (e.g. the keybinding recorder consumes Esc before the dialog closes). */
+function useEscapeToClose(enabled: boolean, onClose: () => void): void {
+  useEffect(() => {
+    if (!enabled) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
+    }
+window.addEventListener('keydown', onKey, true)
+return () => { window.removeEventListener('keydown', onKey, true) }
+  }, [enabled, onClose])
+}
+
 /* ────────────────────────── Settings dialog ────────────────────────── */
 
 interface SettingsDialogProps {
@@ -28,6 +43,7 @@ interface SettingsDialogProps {
 const LANGUAGES = ['plaintext', 'typescript', 'javascript', 'json', 'css', 'scss', 'html', 'markdown', 'xml', 'yaml', 'python', 'go', 'rust', 'java', 'c', 'cpp', 'csharp', 'ruby', 'php', 'swift', 'kotlin', 'shell', 'sql', 'ini', 'dockerfile', 'makefile'] as const
 
 export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: SettingsDialogProps) {
+  useEscapeToClose(true, onClose)
   const settings = useSyncExternalStore(ideSettings.subscribe, ideSettings.getSnapshot)
   const [search, setSearch] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
@@ -88,6 +104,7 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
           <SettingsSection title={t('settings.section.theme')} visible={sectionVisible(t('settings.section.theme'), [t('settings.theme'), t('settings.uiLocale')])}>
             <SettingsRow label={t('settings.theme')} visible={rowVisible(t('settings.theme'))}>
               <select className="ide-settings-select" value={settings.theme} onChange={(e) => set('theme', e.target.value as IdeSettings['theme'])} data-testid="ide-settings-theme">
+                <option value="dark-2026">{t('settings.theme.dark2026')}</option>
                 <option value="dark-modern">{t('settings.theme.dark')}</option>
                 <option value="light-modern">{t('settings.theme.light')}</option>
               </select>
@@ -108,6 +125,12 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
                 </select>
               </SettingsRow>
             )}
+            {/* Activity-bar icon visibility. Conditional rendering in IdeView
+                removes the button entirely (no reserved 48px slot). */}
+            <ToggleRow label={t('settings.appearance.appMenuIcon')} value={settings['appearance.appMenuIcon']} testid="ide-settings-appmenu-icon"
+              visible={rowVisible(t('settings.appearance.appMenuIcon'))} onChange={(v) => set('appearance.appMenuIcon', v)} />
+            <ToggleRow label={t('settings.appearance.vscodeIcon')} value={settings['appearance.vscodeIcon']} testid="ide-settings-vscode-icon"
+              visible={rowVisible(t('settings.appearance.vscodeIcon'))} onChange={(v) => set('appearance.vscodeIcon', v)} />
           </SettingsSection>
 
           <SettingsSection title={t('settings.section.editor')} visible={sectionVisible(t('settings.section.editor'), [t('settings.editor.fontSize'), t('settings.editor.lineHeight'), t('settings.editor.minimap'), t('settings.editor.wordWrap'), t('settings.editor.renderWhitespace'), t('settings.editor.lineNumbers'), t('settings.editor.cursorBlinking'), t('settings.editor.smoothScrolling')])}>
@@ -153,13 +176,21 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
               visible={rowVisible(t('settings.fim.debounceMs'))} onChange={(v) => set('fim.debounceMs', v)} />
           </SettingsSection>
 
-          <SettingsSection title={t('settings.section.terminal')} visible={sectionVisible(t('settings.section.terminal'), [t('settings.terminal.fontSize'), t('settings.terminal.cursorBlink'), t('settings.terminal.scrollback')])}>
+          <SettingsSection title={t('settings.section.terminal')} visible={sectionVisible(t('settings.section.terminal'), [t('settings.terminal.fontSize'), t('settings.terminal.cursorBlink'), t('settings.terminal.scrollback'), t('settings.terminal.lineHeight'), t('settings.terminal.fontWeight'), t('settings.terminal.copyOnSelection'), t('settings.terminal.bellSound')])}>
             <NumberRow label={t('settings.terminal.fontSize')} value={settings['terminal.fontSize']} min={6} max={40} testid="ide-settings-termfontsize"
               visible={rowVisible(t('settings.terminal.fontSize'))} onChange={(v) => set('terminal.fontSize', v)} />
             <ToggleRow label={t('settings.terminal.cursorBlink')} value={settings['terminal.cursorBlink']} testid="ide-settings-termblink"
               visible={rowVisible(t('settings.terminal.cursorBlink'))} onChange={(v) => set('terminal.cursorBlink', v)} />
             <NumberRow label={t('settings.terminal.scrollback')} value={settings['terminal.scrollback']} min={100} max={100000} testid="ide-settings-scrollback"
               visible={rowVisible(t('settings.terminal.scrollback'))} onChange={(v) => set('terminal.scrollback', v)} />
+            <NumberRow label={t('settings.terminal.lineHeight')} value={settings['terminal.lineHeight']} min={1} max={2} testid="ide-settings-termlineheight"
+              visible={rowVisible(t('settings.terminal.lineHeight'))} onChange={(v) => set('terminal.lineHeight', v)} />
+            <NumberRow label={t('settings.terminal.fontWeight')} value={settings['terminal.fontWeight']} min={100} max={900} testid="ide-settings-termfontweight"
+              visible={rowVisible(t('settings.terminal.fontWeight'))} onChange={(v) => set('terminal.fontWeight', v)} />
+            <ToggleRow label={t('settings.terminal.copyOnSelection')} value={settings['terminal.copyOnSelection']} testid="ide-settings-termcopyonsel"
+              visible={rowVisible(t('settings.terminal.copyOnSelection'))} onChange={(v) => set('terminal.copyOnSelection', v)} />
+            <ToggleRow label={t('settings.terminal.bellSound')} value={settings['terminal.bellSound']} testid="ide-settings-termbellsound"
+              visible={rowVisible(t('settings.terminal.bellSound'))} onChange={(v) => set('terminal.bellSound', v)} />
           </SettingsSection>
 
           <SettingsSection title={t('settings.section.profiles')} visible={sectionVisible(t('settings.section.profiles'), [t('settings.profiles')])}>
@@ -228,6 +259,7 @@ export function AboutDialog({ t, version, monacoVersion, branch, onClose }: {
   branch: string | undefined
   onClose: () => void
 }) {
+  useEscapeToClose(true, onClose)
   return (
     <div className="ide-dialog-backdrop ide-dialog-modal" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="ide-dialog" role="dialog" data-testid="ide-about-dialog">
@@ -257,6 +289,9 @@ export function KeybindingsDialog({ t, onClose }: { t: T; onClose: () => void })
   const [recording, setRecording] = useState<string | null>(null)
   const [recordingChord, setRecordingChord] = useState<string[]>([])
   const isMac = useMemo(() => navigator.platform.toLowerCase().includes('mac'), [])
+  // While a keybinding row is recording, Escape cancels the recording (handled
+  // inside the recorder's own listener) instead of closing the dialog.
+  useEscapeToClose(recording === null, onClose)
 
   useEffect(() => {
     if (!recording) return
@@ -352,6 +387,7 @@ function commandLabel(t: T, command: string): string {
 /* ────────────────────── Snippets dialog ────────────────────── */
 
 export function SnippetsDialog({ t, onClose }: { t: T; onClose: () => void }) {
+  useEscapeToClose(true, onClose)
   const snapshots = useSyncExternalStore(ideSnippets.subscribe, ideSnippets.getSnapshot)
   const [language, setLanguage] = useState<string>('typescript')
   const [json, setJson] = useState('')

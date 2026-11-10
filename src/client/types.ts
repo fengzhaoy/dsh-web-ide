@@ -238,6 +238,27 @@ export interface GitLogEntry {
   readonly refs: readonly GitLogRef[]
 }
 
+
+/** One entry in a file's Timeline (VS Code Timeline view, git provider). */
+export interface GitTimelineEntry {
+  /** Full commit hash. */
+  readonly hash: string
+  /** Abbreviated hash for display. */
+  readonly displayId: string
+  readonly author: string
+  /** Author date, unix seconds. */
+  readonly authorDate: number
+  /** Commit subject line. */
+  readonly subject: string
+}
+
+/** Result of the per-file git history used by the Timeline panel. */
+export interface GitTimelineResult {
+  readonly notARepo: boolean
+  /** Commits touching the path, newest first, following renames. */
+  readonly entries: readonly GitTimelineEntry[]
+}
+
 /** Result of one gitLog page (VS Code SCM Graph history provider). */
 export interface GitLogResult {
   readonly notARepo: boolean
@@ -343,6 +364,9 @@ export interface IdeToolsRemote {
   /** One page of the SCM graph history (VS Code Source Control Graph).
    *  scope 'current' walks HEAD, 'all' every ref, 'branch' one named ref. */
   gitLog(sessionId: SessionId, options: { limit?: number; skip?: number; scope?: 'current' | 'all' | 'branch'; ref?: string }, signal?: AbortSignal): Promise<RemoteResult<GitLogResult>>
+  /** Per-file commit history for the Explorer's Timeline panel
+   *  (VS Code Timeline view, git provider). */
+  gitTimeline(sessionId: SessionId, path: string, options: { limit?: number; skip?: number }, signal?: AbortSignal): Promise<RemoteResult<GitTimelineResult>>
   /** One commit's metadata + changed files (graph commit details). */
   gitCommitDetails(sessionId: SessionId, sha: string, signal?: AbortSignal): Promise<RemoteResult<GitCommitDetailsResult>>
   /** Old/new content + patch of ONE file inside one commit. */

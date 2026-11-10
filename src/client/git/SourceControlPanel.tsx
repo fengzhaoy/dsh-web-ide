@@ -9,7 +9,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitStatusEntry, GitStatusResult, IdeToolsRemote, SessionId } from '../types.js'
-import { Icons, fileIcon } from '../icons.js'
+import { Icons } from '../icons.js'
+import { setiFileIcon } from '../setiFileIcon.js'
 import { copyTextOrNotify, copyFailureNotifier } from '../clipboard.js'
 import { relPathOf } from '../explorer/copy-name.js'
 import { showContextMenu } from '../ContextMenu.js'
@@ -226,6 +227,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
    *  conflict) lives in the "Staged Changes" / "Merge Changes" group.
    *  Porcelain v2 marks an unchanged index slot with '.' (v1 used a
    *  space), so BOTH count as not-staged alongside untracked '?'. */
+  /** Ignored paths are surfaced by the host only so the file tree can paint
+   *  them muted (gitDecoration.ignoredResourceForeground); Source Control
+   *  never lists them - VS Code hides them from SCM entirely. */
+  const isIgnoredEntry = useCallback((entry: GitStatusEntry): boolean => {
+    return entry.kind === 'ignored' || entry.statusCode[0] === '!'
+  }, [])
+
   const isStagedEntry = useCallback((entry: GitStatusEntry): boolean => {
     if (entry.kind === 'conflicted') return true
     const x = entry.statusCode[0] ?? ' '
@@ -303,7 +311,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
     // VS Code smart-commit: when the index already holds staged entries the
     // commit takes EXACTLY those (autoStage:false); a fully unstaged tree
     // still stages everything (autoStage default), matching git's own UX.
-    const hasStaged = result?.entries.some((entry) => isStagedEntry(entry)) ?? false
+    const hasStaged = result?.entries.some((entry) => !isIgnoredEntry(entry) && isStagedEntry(entry)) ?? false
     const options = {
       amend: mode === 'amend',
       signoff: mode === 'signoff',
@@ -582,7 +590,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
               ])
             }}
           >
-            <span className="ide-git-entry-icon" data-kind={entry.kind}>{fileIcon(name, false)}</span>
+            <span className="ide-git-entry-icon" data-kind={entry.kind}>{setiFileIcon(name, false)}</span>
             <span className="ide-git-entry-name" data-kind={entry.kind}>{name}</span>
             {dir && <span className="ide-git-entry-dir">{dir}</span>}
             <span className="ide-git-entry-hover-actions">
@@ -777,13 +785,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
                   })()}
                   {/* —— 已暂存的更改 (Staged Changes) 分组 —— */}
                   {(() => {
-                    const staged = result.entries.filter((e) => e.kind !== 'conflicted' && isStagedEntry(e))
+                    const staged = result.entries.filter((e) => e.kind !== 'conflicted' && !isIgnoredEntry(e) && isStagedEntry(e))
                     if (staged.length === 0) return null
                     return renderGroup('staged', t('git.stagedChanges'), staged)
                   })()}
                   {/* —— 更改 (Changes) 分组：工作树未暂存条目 —— */}
                   {(() => {
-                    const changes = result.entries.filter((e) => e.kind !== 'conflicted' && !isStagedEntry(e))
+                    const changes = result.entries.filter((e) => e.kind !== 'conflicted' && !isIgnoredEntry(e) && !isStagedEntry(e))
                     if (changes.length === 0) return null
                     return renderGroup('changes', t('git.changesGroup'), changes)
                   })()}
