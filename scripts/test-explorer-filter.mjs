@@ -112,5 +112,11 @@ check('markdown outline handles ATX headings', /#{1,6}/.test(mdOutline))
 check('markdown outline handles setext headings', mdOutline.includes('setext'))
 check('markdown outline skips fenced code', mdOutline.includes('fence'))
 
+// --- the Source Control badge counts real changes, never ignored paths ---
+check('badge uses a filtered change count', ide.includes('const changeCount = useMemo('))
+check('badge excludes ignored entries', /filter\(\(e\) => e\.kind !== 'ignored'\)\.length/.test(ide))
+check('badge renders changeCount, not raw entries', ide.includes('{changeCount}') && !ide.includes('{gitEntries.length}</span>'))
+check('tree still receives raw entries for muted ignored coloring', ide.includes('gitEntries={gitEntries}'))
+
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

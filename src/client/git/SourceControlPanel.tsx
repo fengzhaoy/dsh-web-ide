@@ -299,7 +299,13 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
 
   /** True when the working tree has no visible changes — the AI generate
    *  button is then disabled with an explanatory tooltip. */
-  const noChanges = (result?.entries.length ?? 0) === 0
+
+  /** Visible entries: the host also reports .gitignore'd paths (kind
+   *  ignored) so the file tree can mute them. They are never uncommitted
+   *  work, so every count in this panel — group headers, the "no changes"
+   *  gate and the activity-bar badge — must exclude them. */
+  const visibleEntries = (result?.entries ?? []).filter((e) => !isIgnoredEntry(e))
+  const noChanges = visibleEntries.length === 0
 
   const runCommit = useCallback(async (mode: CommitMode) => {
     const message = commitMessage.trim()
@@ -407,7 +413,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
       if (res.ok) {
         setConfirmDiscardAll(false)
         await refresh()
-        onChangesDiscarded?.(result?.entries.map((entry) => entry.path) ?? [])
+        onChangesDiscarded?.(visibleEntries.map((entry) => entry.path))
       } else {
         setDiscardError(res.error.message ?? res.error.code)
       }
@@ -648,9 +654,6 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
             >
               <span className="ide-git-section-chevron">{openViews.changes ? Icons.chevronDown : Icons.chevronRight}</span>
               <span className="ide-git-section-title">{t('git.title')}</span>
-              {result && result.entries.length > 0 && (
-                <span className="ide-git-section-count">{result.entries.length}</span>
-              )}
             </button>
             <button
               className={generating ? 'ide-git-action ide-git-action-busy' : 'ide-git-action'}
@@ -773,7 +776,7 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
             )}
 
             <div className="ide-git-entries-wrap">
-              {result.entries.length === 0 ? (
+              {visibleEntries.length === 0 ? (
                 <div className="ide-git-empty">{t('git.noChanges')}</div>
               ) : (
                 <div className="ide-git-entries" data-testid="ide-git-entries">

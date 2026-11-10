@@ -622,7 +622,6 @@ export const IDE_STYLES = `
 .ide-git-section-chevron{display:flex;align-items:center;color:var(--ide-fg-muted)}
 .ide-git-section-chevron svg{width:12px;height:12px}
 .ide-git-section-title{flex:1}
-.ide-git-section-count{background:var(--ide-badge-bg,#616161);color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-empty{padding:6px 16px 6px 32px;color:var(--ide-fg-dim);font-size:12px;font-style:italic}
 /* ── SCM 可折叠子 panel(源代码管理/图表/分支纵向堆叠,替代头部下拉) ── */
 .ide-git-panels{display:flex;flex-direction:column;gap:0;padding:0}
@@ -654,6 +653,7 @@ export const IDE_STYLES = `
 .ide-git-group{display:flex;flex-direction:column}
 .ide-git-group-header{display:flex;align-items:center;gap:4px;padding:0 8px 0 8px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ide-fg);min-height:22px;line-height:22px;white-space:nowrap}
 .ide-git-group-label{flex:none}
+.ide-git-section-count{background:var(--ide-badge-bg,#616161);color:var(--ide-fg);border-radius:10px;padding:0 6px;font-size:10px;font-weight:600;line-height:16px;min-width:16px;text-align:center}
 .ide-git-group-count{flex:none;opacity:.75;font-weight:400}
 .ide-git-group-actions{flex:none;margin-left:auto;display:none;align-items:center;gap:0}
 .ide-git-group-header:hover .ide-git-group-actions{display:inline-flex}

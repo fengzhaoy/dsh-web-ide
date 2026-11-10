@@ -539,6 +539,13 @@ export function IdeView(props: IdeViewInjected & {
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
   /** Git status entries for coloring file tree names. Fetched when explorer view is active. */
   const [gitEntries, setGitEntries] = useState<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
+  /** Badge count: real changes only. The host also reports .gitignore'd
+   *  paths (kind ignored) so the file tree can mute them; they are not
+   *  uncommitted work and must never inflate the Source Control badge. */
+  const changeCount = useMemo(
+    () => (gitEntries ?? []).filter((e) => e.kind !== 'ignored').length,
+    [gitEntries],
+  )
   const gitEntriesRef = useRef<readonly import('./types.js').GitStatusEntry[] | undefined>(undefined)
   /** Current git branch name (HEAD short name) — shown in the status bar. */
   /** Monotonic token for openFile: a load that resolves after a NEWER open has
@@ -2386,8 +2393,11 @@ export function IdeView(props: IdeViewInjected & {
             onClick={() => toggleSidebarFor('git')}
           >
             {Icons.git}
-            {gitEntries !== undefined && gitEntries.length > 0 && (
-              <span className="ide-activitybar-badge">{gitEntries.length}</span>
+            {/* VS Code SCM badge counts real changes only: .gitignore'd paths
+                are surfaced by the host for the tree's muted color, never as
+                uncommitted work. */}
+            {changeCount > 0 && (
+              <span className="ide-activitybar-badge">{changeCount}</span>
             )}
           </div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
