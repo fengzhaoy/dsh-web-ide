@@ -160,5 +160,14 @@ check('the submenu lists every bundled theme', /THEME_CHOICES = \['dark-modern',
 check('the active theme is marked with a check', /\\u2713/.test(ide))
 check('theme submenu sits right after Settings in the gear menu', ide.indexOf("'settings', label: t('manage.settings')") < ide.indexOf("id: 'color-theme'"))
 
+// --- terminal survives a client hot reload (ideTools stub window) ---
+const term = readFileSync(new URL('../src/client/terminal/TerminalPanel.tsx', import.meta.url), 'utf8')
+const entrySrc = readFileSync(new URL('../src/client/index.ts', import.meta.url), 'utf8')
+check('the degraded ideTools face is tagged', /__isStub: true/.test(entrySrc))
+check('terminal waits for the real face instead of attaching to the stub',
+  /__isStub === true\) \{\s*const retry = setTimeout/.test(term))
+check('fit is skipped on the degraded face (no terminalResize)', /__isStub === true\) return/.test(term))
+check('no term.reset() on re-attach (it blanked the pane)', !/\.term\.reset\(\)/.test(term))
+
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

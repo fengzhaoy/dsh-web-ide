@@ -375,6 +375,9 @@ function TerminalPanelImpl({
   // Track which terminal IDs we've already attached an xterm to, so the effect
   // below only runs once per terminal.
   const attachedRef = useRef<Set<string>>(new Set())
+  /** Bumped to re-run the attach effect while waiting for a real ideTools face
+   *  (see the hot-reload guard in that effect). */
+  const [attachEpoch, setAttachEpoch] = useState(0)
   // Per-terminal echo-back gate: false during replay (suppresses onData
   // → terminalWrite so DCS/CSI responses in the log never reach the shell
   // as commands), flipped true by the host's replay-marker frame.
@@ -458,6 +461,17 @@ function TerminalPanelImpl({
 
   // --- Attach xterm + stream output for each terminal ID (once per ID) ---
   useEffect(() => {
+    // A client hot reload (pnpm run bundle) briefly leaves the ideTools
+    // namespace unmounted. In that window the view holds the DEGRADED face:
+    // its terminalOutput is an empty generator (the subscription ends before a
+    // single frame), terminalResize does not exist (TypeError mid-attach) and
+    // terminalWrite always fails — the pane went blank and dead until a tab
+    // switch remounted everything. Wait for the real namespace instead, then
+    // attach normally (the PTY and its replay log are still alive in the host).
+    if ((ideTools as unknown as { __isStub?: boolean }).__isStub === true) {
+      const retry = setTimeout(() => { setAttachEpoch((n) => n + 1) }, 500)
+      return () => clearTimeout(retry)
+    }
     for (const id of terminalIds) {
       if (attachedRef.current.has(id)) continue
       attachedRef.current.add(id)
@@ -659,6 +673,10 @@ function TerminalPanelImpl({
 
         setStatuses((prev) => ({ ...prev, [id]: 'ready' }))
 
+        // NOTE: no term.reset() here. This ran on every re-attach (hot reload)
+        // and blanked the screen, but the host stream does not replay history
+        // for a terminal that is still alive, so nothing refilled it: the pane
+        // showed a bare cursor until a tab switch remounted the tree.
         // Stream output (replay + live) until exit or unmount.
         const stream = ideTools.terminalOutput(sessionId, id, ctrl.signal)
         void (async () => {
@@ -707,13 +725,29 @@ function TerminalPanelImpl({
     }
 
     return () => {
-      // On unmount, abort all streams but keep xterm instances alive (they get
-      // disposed by the per-ID cleanup above when terminalIds shrinks, or by
-      // the full panel close effect). This avoids re-creating terminals on
-      // every React re-render.
+      // Abort the streams and FORGET which ids were attached, but keep the
+      // xterm instances: the panel must re-attach (and therefore re-replay the
+      // log) if this effect ever re-runs with the same ids.
+      //
+      // The re-run that matters is a client hot reload (pnpm run bundle while
+      // the terminal is open, e.g. npm publish triggering prepublishOnly): the
+      // module is re-evaluated, `ideTools` becomes a new object, this effect
+      // fires again — but the old ref still said "already attached", so nothing
+      // resubscribed and the live output stopped reaching the screen. The panel
+      // looked blank and dead until a tab switch remounted it.
+      //
+      // xterm disposal stays with the per-ID cleanup above (terminal closes) and
+      // the panel-close effect, so re-attaching keeps the scrollback.
+      for (const id of terminalIds) {
+        abortsRef.current.get(id)?.abort()
+        abortsRef.current.delete(id)
+        attachedRef.current.delete(id)
+        echoBackRefs.current.delete(id)
+        termsDispatchRef.current.delete(id)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, ideTools, terminalIds.join(',')])
+  }, [sessionId, ideTools, terminalIds.join(','), attachEpoch])
 
   /** Fit the xterm viewport to its host div and forward the new cols/rows
    *  to the host PTY so the shell's COLUMNS/LINES match what the user sees.
@@ -722,6 +756,9 @@ function TerminalPanelImpl({
   const fitAndResize = useCallback((id: string) => {
     const entry = termsRef.current.get(id)
     if (entry === undefined) return
+    // The degraded face has no terminalResize: calling it threw inside a
+    // ResizeObserver callback and broke the rest of the fit pass.
+    if ((ideTools as unknown as { __isStub?: boolean }).__isStub === true) return
     try { entry.fit.fit() } catch { /* zero-size host during layout */ }
     const { cols, rows } = entry.term
     void ideTools.terminalResize(sessionId, id, cols, rows).catch(() => undefined)
