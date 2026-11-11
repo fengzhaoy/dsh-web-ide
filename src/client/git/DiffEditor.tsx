@@ -394,7 +394,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         fontSize: 13,
         lineHeight: 20,
         scrollBeyondLastLine: false,
-        fontFamily: 'var(--ds-font-family-code, Menlo, Consolas, monospace)',
+        // A concrete font stack: Monaco measures glyph widths on the canvas and a
+        // CSS var forces a style recompute per measurement, which shows up as
+        // scroll jank on large diffs. The var resolves to this same stack.
+        fontFamily: 'Menlo, Consolas, "Courier New", monospace',
         renderSideBySide: true,
         // Monaco silently switches to the inline (unified) view when the editor
         // is narrower than renderSideBySideInlineBreakpoint (900px), which is
@@ -404,6 +407,17 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         // VS Code's default: the improved diff algorithm (better move/align).
         diffAlgorithm: 'advanced',
         minimap: { enabled: false },
+        // Scroll-performance options, matching the VS Code desktop diff:
+        // cap the diff computation (VS Code maxComputationTime default), skip
+        // the overview ruler (the minimap is already off) and the gutter
+        // revert icon / gutter menu widgets VS Code draws per hunk row.
+        maxComputationTime: 5000,
+        renderOverviewRuler: false,
+        renderMarginRevertIcon: false,
+        renderGutterMenu: false,
+        // VS Code default: unchanged regions stay expanded (hideUnchangedRegions
+        // is opt-in there); only the perf knobs above diverge from its defaults.
+        hideUnchangedRegions: { enabled: false, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
       } as Monaco.editor.IDiffEditorConstructionOptions)
       editor.setModel({ original: oldModel, modified: newModel })
       // VS Code parity: once the diff is computed, auto-scroll the modified
