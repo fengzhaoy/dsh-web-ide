@@ -101,14 +101,10 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
           <button className="ide-dialog-button ide-dialog-button-quiet" title={t('settings.close')} onClick={onClose}>{Icons.close}</button>
         </div>
         <div className="ide-settings-body">
-          <SettingsSection title={t('settings.section.theme')} visible={sectionVisible(t('settings.section.theme'), [t('settings.theme'), t('settings.uiLocale')])}>
-            <SettingsRow label={t('settings.theme')} visible={rowVisible(t('settings.theme'))}>
-              <select className="ide-settings-select" value={settings.theme} onChange={(e) => set('theme', e.target.value as IdeSettings['theme'])} data-testid="ide-settings-theme">
-                <option value="dark-2026">{t('settings.theme.dark2026')}</option>
-                <option value="dark-modern">{t('settings.theme.dark')}</option>
-                <option value="light-modern">{t('settings.theme.light')}</option>
-              </select>
-            </SettingsRow>
+          <SettingsSection title={t('settings.section.theme')} visible={sectionVisible(t('settings.section.theme'), [t('settings.uiLocale')])}>
+            {/* Color theme moved to View > Appearance > Color Theme (VS Code
+                placement). Keeping it here too would give the same setting two
+                homes with different labels. */}
             {/* Only rendered when the host actually exposes a locale switch.
                 It used to render unconditionally while IdeView passed no
                 callback at all, so picking English silently did nothing — a

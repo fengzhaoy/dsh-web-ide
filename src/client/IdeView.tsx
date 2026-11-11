@@ -251,6 +251,9 @@ function sameGitEntries(a: readonly import('./types.js').GitStatusEntry[] | unde
 // scripts/gen-version.mjs). A local constant used to shadow it here and the
 // About dialog silently reported a stale number.
 
+/** The bundled color themes, in the order VS Code lists them. */
+const THEME_CHOICES = ['dark-modern', 'light-modern', 'dark-2026'] as const
+
 /** The activity bar's selectable sidebar panels. */
 type SidebarView = 'explorer' | 'search' | 'git' | 'extensions' | 'run' | 'vscode'
 
@@ -2324,6 +2327,20 @@ export function IdeView(props: IdeViewInjected & {
     showContextMenu(x, y, [
       { id: 'palette', label: t('manage.commandPalette'), icon: Icons.terminal, onClick: () => setPaletteOpen(true) },
       { id: 'settings', label: t('manage.settings'), icon: Icons.gear, onClick: () => setSettingsOpen(true) },
+      // VS Code bundles Color Theme in this same Manage (gear) menu, right after
+      // Settings, as a submenu of the available themes.
+      {
+        id: 'color-theme',
+        label: t('manage.colorTheme'),
+        children: THEME_CHOICES.map((choice) => ({
+          id: 'theme-' + choice,
+          label: (ideSettings.getSnapshot().theme === choice ? '\u2713 ' : '   ') + t('theme.' + choice),
+          onClick: () => {
+            ideSettings.update({ theme: choice })
+            notifications.info(t('theme.changed', { name: t('theme.' + choice) }))
+          },
+        })),
+      },
       { id: 'keybindings', label: t('manage.keybindings'), icon: Icons.bell, onClick: () => setKeybindingsOpen(true) },
       { id: 'snippets', label: t('manage.snippets'), icon: Icons.copy, onClick: () => setSnippetsOpen(true) },
       { id: 'sep1', label: '', separator: true },
@@ -2449,7 +2466,7 @@ export function IdeView(props: IdeViewInjected & {
           const ia = SECTION_ORDER.indexOf(a[0]); const ib = SECTION_ORDER.indexOf(b[0])
           return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
         })
-        .map(([label, list]) => ({ id: 'section-' + label, label, children: list.map((c) => ({ id: c.id, label: c.label, onClick: c.run })) }))
+        .map(([label, list]) => ({ id: 'section-' + label, label, children: list.map((c) => ({ id: c.id, label: c.label, run: c.run })) }))
       showContextMenu(x, y, items)
     }
   })

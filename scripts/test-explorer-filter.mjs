@@ -153,5 +153,12 @@ check('guide has a retry button', /ide-vscode-retry/.test(vscodeTab))
 check('retry re-detects instead of restarting', /onRetry=\{\(\) => \{ void openVscode\(false\) \}\}/.test(ide))
 check('host reports searched paths with the error', /searchedPaths: codeServerCandidates\(\)/.test(hostSrc))
 
+// --- color theme lives in the gear (Manage) menu, not in Settings ---
+check('settings dialog no longer offers the color theme', !/settings\.theme/.test(readFileSync(new URL('../src/client/SettingsDialogs.tsx', import.meta.url), 'utf8')))
+check('gear menu has a color theme submenu', /manage\.colorTheme/.test(ide))
+check('the submenu lists every bundled theme', /THEME_CHOICES = \['dark-modern', 'light-modern', 'dark-2026'\]/.test(ide))
+check('the active theme is marked with a check', /\\u2713/.test(ide))
+check('theme submenu sits right after Settings in the gear menu', ide.indexOf("'settings', label: t('manage.settings')") < ide.indexOf("id: 'color-theme'"))
+
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)
