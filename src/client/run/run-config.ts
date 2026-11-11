@@ -266,7 +266,7 @@ export function workspaceAbsolutePath(path: string, root: string): string {
 
 /* ---------------------------------------------------------------- storage -- */
 
-const STORAGE_KEY = 'dsh-ide.run-recents'
+const STORAGE_KEY = 'dsh-web-ide.run-recents'
 
 /** Remember a task the user ran (P0-3), newest first, capped. */
 export function rememberTask(task: RunTask, workspaceKey: string): void {

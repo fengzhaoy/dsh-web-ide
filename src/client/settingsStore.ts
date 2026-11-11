@@ -66,6 +66,9 @@ export interface IdeSettings {
   'appearance.appMenuIcon': boolean
   /** Show the VS Code (code-server) launcher icon in the activity bar. */
   'appearance.vscodeIcon': boolean
+  /** Which activity-bar icon opens with the IDE view. VS Code restores the
+   *  last used view; this pins the first one instead (default: Source Control). */
+  'appearance.defaultSidebarView': 'explorer' | 'search' | 'git' | 'run' | 'extensions' | 'vscode'
 }
 
 export const DEFAULT_SETTINGS: IdeSettings = {
@@ -92,14 +95,17 @@ export const DEFAULT_SETTINGS: IdeSettings = {
   'appearance.breadcrumbs': true,
   'appearance.stickyScroll': true,
   'appearance.renderControlCharacters': false,
-  // Off by default: user preference is a clean activity bar, the two launcher
-  // icons stay available through Settings > Appearance (and the command
-  // palette entries that flip them).
+  // The application-menu icon stays hidden by default (clean activity bar); it
+  // remains available from Settings > Appearance and the palette command.
   'appearance.appMenuIcon': false,
-  'appearance.vscodeIcon': false,
+  // Visible by default: the VS Code launcher is a first-class entry point now,
+  // not an opt-in extra.
+  'appearance.vscodeIcon': true,
+  // VS Code opens on Source Control when no previous view was stored; same here.
+  'appearance.defaultSidebarView': 'git',
 }
 
-const STORAGE_KEY = 'dsh-ide.settings'
+const STORAGE_KEY = 'dsh-web-ide.settings'
 
 /** Window-parked store so a client hot-reload (pnpm run bundle) keeps the
  *  in-memory settings and subscribers — same lifetime trick as
@@ -143,23 +149,25 @@ class SettingsStore {
 }
 
 /** Bumped when a default flips in a way existing users should follow.
- *  v2: the application-menu icon and the VS Code launcher icon default to hidden. */
-const SETTINGS_VERSION = 2
-const VERSION_KEY = 'dsh-ide.settingsVersion'
+ *  v2: the application-menu icon and the VS Code launcher icon default to hidden.
+ *  v3: the VS Code launcher defaults to VISIBLE again (it is a first-class
+ *      entry point); the stored v2 value is ambiguous, so it is re-seeded. */
+const SETTINGS_VERSION = 3
+const VERSION_KEY = 'dsh-web-ide.settingsVersion'
 
 function loadPersisted(): Partial<IdeSettings> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
     const parsed = sanitize(JSON.parse(raw))
-    // One-time migration: these two icons used to default to visible, so a
-    // stored `true` is ambiguous (old default vs. deliberate choice). The new
-    // default is hidden, so reset once and let the user opt back in from
-    // Settings > Appearance (or the palette command).
+    // One-time migration. v2 hid both launcher icons; v3 brings the VS Code
+    // launcher back (the menu icon stays hidden). A stored value from an older
+    // version is ambiguous, so the defaults are re-seeded once per version.
     const version = Number(localStorage.getItem(VERSION_KEY))
     if (!(version >= SETTINGS_VERSION)) {
       parsed['appearance.appMenuIcon'] = false
-      parsed['appearance.vscodeIcon'] = false
+      // v3: the launcher is visible again; re-seed so v2 users follow it.
+      parsed['appearance.vscodeIcon'] = true
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
         localStorage.setItem(VERSION_KEY, String(SETTINGS_VERSION))
@@ -207,6 +215,9 @@ function sanitize(raw: unknown): IdeSettings {
   if (typeof r['appearance.renderControlCharacters'] === 'boolean') out['appearance.renderControlCharacters'] = r['appearance.renderControlCharacters']
   if (typeof r['appearance.appMenuIcon'] === 'boolean') out['appearance.appMenuIcon'] = r['appearance.appMenuIcon']
   if (typeof r['appearance.vscodeIcon'] === 'boolean') out['appearance.vscodeIcon'] = r['appearance.vscodeIcon']
+  const dsv = r['appearance.defaultSidebarView']
+  if (dsv === 'explorer' || dsv === 'search' || dsv === 'git'
+    || dsv === 'run' || dsv === 'extensions' || dsv === 'vscode') out['appearance.defaultSidebarView'] = dsv
   return out
 }
 
@@ -297,7 +308,7 @@ export function xtermThemeFor(theme: IdeSettings['theme']): Record<string, strin
  */
 export interface Keybinding { command: string; keys: string }
 
-const KB_STORAGE_KEY = 'dsh-ide.keybindings'
+const KB_STORAGE_KEY = 'dsh-web-ide.keybindings'
 
 /** Default bindings: serialized key chords, platform-agnostic "Mod" prefix
  *  (Mod = Cmd on macOS, Ctrl elsewhere). */
@@ -405,7 +416,7 @@ export function chordMatches(chord: string, e: KeyboardEvent, isMac: boolean): b
  */
 export interface SnippetDef { prefix: string; body: string[]; description?: string }
 
-const SN_STORAGE_KEY = 'dsh-ide.snippets'
+const SN_STORAGE_KEY = 'dsh-web-ide.snippets'
 
 class SnippetStore {
   private listeners = new Set<() => void>()

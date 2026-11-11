@@ -11,7 +11,7 @@ const empty = fileURLToPath(new URL('../empty-module.js', import.meta.url))
  */
 function neutralizeMonacoAssets() {
   return {
-    name: 'dsh-ide-neutralize-monaco-assets',
+    name: 'dsh-web-ide-neutralize-monaco-assets',
     resolveId(source: string) {
       if (/\.(?:ttf|woff2?|eot)$/.test(source)) return { id: empty, external: false }
       if (/vs\/base\/browser\/ui\/codicons\/codicon\/codicon\.css$/.test(source)) return { id: empty, external: false }

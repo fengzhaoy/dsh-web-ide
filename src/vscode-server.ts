@@ -48,6 +48,10 @@ export function codeServerCandidates(env: Record<string, string | undefined> = p
   out.push('/usr/local/bin/code-server')
   out.push(join(home, '.local', 'bin', 'code-server'))
   out.push(join(home, 'Library', 'pnpm', 'code-server'))
+  // Windows: npm/volta/pnpm globals live outside the usual PATH list.
+  out.push(join(home, 'AppData', 'Roaming', 'npm', 'code-server.cmd'))
+  out.push(join(home, 'AppData', 'Local', 'pnpm', 'code-server.cmd'))
+  out.push(join(home, 'AppData', 'Local', 'Volta', 'bin', 'code-server.exe'))
   const path = env.PATH
   if (path !== undefined && path !== '') {
     for (const dir of path.split(delimiter)) {

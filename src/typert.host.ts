@@ -169,6 +169,14 @@ const _ide_tools_ideTools_gitTimeline_result$schema = z.object({
   }).readonly()).readonly(),
 }).readonly()
 
+const _ide_tools_ideTools_gitWaitChanged_parameter_1$schema = z.object({
+  'since': z.number().readonly(),
+  'timeoutMs': z.number().optional(),
+}).readonly()
+const _ide_tools_ideTools_gitWaitChanged_result$schema = z.object({
+  'version': z.number().readonly(),
+}).readonly()
+
 const _ide_tools_ideTools_gitCommitDetails_parameter_1$schema = z.string()
 const _ide_tools_ideTools_gitCommitDetails_result$schema = z.object({
   'hash': z.string().readonly(),
@@ -812,6 +820,33 @@ export const TYPERT = {
         create: () => _ide_tools_ideTools_gitTimeline_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 1715, column: 3 },
+    },
+{
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitWaitChanged',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitWaitChanged',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('gitWaitChanged', 0, '@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'options',
+          wire: 'options',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitWaitChanged:options',
+            create: () => _ide_tools_ideTools_gitWaitChanged_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitWaitChanged:result',
+        create: () => _ide_tools_ideTools_gitWaitChanged_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 1528, column: 3 },
     },
 {
       id: '@zhaoyang10/dsh-web-ide#ideTools/gitCommitDetails',

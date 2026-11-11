@@ -23,7 +23,7 @@ export function installCodiconFont(): void {
   injected = true
   const doc = document
   const style = doc.createElement('style')
-  style.setAttribute('data-dsh-ide-codicon', '')
+  style.setAttribute('data-dsh-web-ide-codicon', '')
   // Mirror of monaco-editor's codicon.css: @font-face + the .codicon base
   // class rules the dynamic codepoint selectors rely on.
   style.textContent =

@@ -207,14 +207,61 @@ export function SourceControlPanel({ sessionId, cwd, ideTools, onOpenDiff, onOpe
   // Load on mount and when the session/cwd changes.
   useEffect(() => { void refresh() }, [refresh])
 
-  // Auto-refresh every 15s while the panel is mounted (cheap status poll).
-  // Freshness mostly comes from event bumps (writes, diff saves) via refreshKey
-  // — polling stays slow so the panel never churns (VS Code uses watchers, not
-  // fast polling; the silent refresh above keeps even a hit flicker-free).
+  // VS Code never polls git: the repository rescans on FILE EVENTS (an fs.watch
+  // in the host, surfaced here as gitWaitChanged), on window focus, and after
+  // git operations. The timer below is only a slow net for a hidden page.
   useEffect(() => {
-    const id = setInterval(() => { void refresh() }, 15000)
-    return () => clearInterval(id)
+    let id: ReturnType<typeof setInterval> | undefined
+    const start = (): void => {
+      if (id !== undefined) return
+      id = setInterval(() => { void refresh() }, 60000)
+    }
+    const stop = (): void => {
+      if (id === undefined) return
+      clearInterval(id)
+      id = undefined
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') { void refresh(); start() } else stop()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.visibilityState === 'visible') start()
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [refresh])
+
+  // Event-driven refresh: long-poll the host file watcher while the panel is
+  // on screen, so a git command run in the terminal shows up immediately.
+  useEffect(() => {
+    type WaitFn = (s: string, o: { since: number; timeoutMs?: number }, sig: AbortSignal)
+      => Promise<{ version?: number }>
+    const raw = (ideTools as unknown as { gitWaitChanged?: WaitFn } | undefined)?.gitWaitChanged
+    if (typeof raw !== 'function' || !sessionId) return
+    const waitChanged = raw.bind(ideTools)
+    const ctrl = new AbortController()
+    let version: number | undefined
+    let stopped = false
+    void (async () => {
+      while (!stopped) {
+        try {
+          const res = await waitChanged(sessionId, { since: version ?? 0, timeoutMs: 25000 }, ctrl.signal)
+          if (stopped) return
+          if (typeof res.version !== 'number') return
+          if (version === undefined) { version = res.version; continue }
+          if (res.version > version) {
+            version = res.version
+            void refresh()
+          }
+        } catch {
+          if (stopped) return
+          await new Promise((r) => setTimeout(r, 5000))
+        }
+      }
+    })()
+    return () => { stopped = true; ctrl.abort() }
+  }, [ideTools, sessionId, refresh])
 
   // External-activity bumps (file-watcher hits, diff saves) refetch at once.
   const firstRefreshKey = useRef(refreshKey)

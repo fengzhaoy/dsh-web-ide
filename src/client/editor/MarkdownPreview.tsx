@@ -14,11 +14,11 @@ import { imageMimeOf, joinRelativePath, renderMarkdown } from './markdown.js'
 import { DiagramManager } from './mermaidDiagram.js'
 import { mermaidToolbarIcons } from './mermaidIcons.js'
 
-/** Embedded mermaid IIFE source (virtual:dsh-ide-mermaid-iife, see
+/** Embedded mermaid IIFE source (virtual:dsh-web-ide-mermaid-iife, see
  * tsdown.config.ts embedMermaidIife): the official prebuilt browser bundle of
  * mermaid, inlined as a string so it never touches the bundler's CJS interop
  * and needs no extra served file. */
-import { MERMAID_IIFE } from 'virtual:dsh-ide-mermaid-iife'
+import { MERMAID_IIFE } from 'virtual:dsh-web-ide-mermaid-iife'
 
 /** Shape of the window.mermaid API the preview uses. */
 interface MermaidLike {

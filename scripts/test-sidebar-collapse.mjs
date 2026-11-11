@@ -37,8 +37,9 @@ check('a collapsed panel reopens on single click', /if \(collapsed\) \{\s*setSid
 check('filter header action sits before new file', ide.indexOf('ide-explorer-filter') < ide.indexOf('ide-explorer-new-file'))
 
 // --- interaction semantics ---
-check('clicking the shown view hides the panel', /if \(sidebarView === view\) return true/.test(ide))
-check('clicking another view switches without collapsing', /setSidebarView\(view\)\s*return false/.test(ide))
+check('clicking the shown view hides the panel (toggle)', /if \(sidebarView === view\) return true/.test(ide))
+check('VS Code icon always collapses instead of toggling',
+  /if \(view === 'vscode'\) \{[\s\S]{0,120}setSidebarCollapsed\(true\)/.test(ide))
 
 // --- the other two icons stay untouched ---
 check('terminal icon still toggles the bottom panel', /onClick=\{\(\) => setTerminalOpen\(\(v\) => !v\)\}/.test(ide))

@@ -24,7 +24,7 @@ export interface Breakpoint {
   line: number
 }
 
-const STORAGE_KEY = 'dsh-ide.run-debug'
+const STORAGE_KEY = 'dsh-web-ide.run-debug'
 
 interface RunDebugWindow { __dshIdeRunDebug?: RunDebugStore }
 const win = window as unknown as RunDebugWindow

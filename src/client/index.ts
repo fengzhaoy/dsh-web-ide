@@ -7,6 +7,7 @@
 import type { IdeClientContext, IdeToolsRemote, IdeViewInjected, WorkspaceFilesWriteRemote } from './types.js'
 import { IdeView } from './IdeView.js'
 import { installSidebarBridge, uninstallSidebarBridge } from './sidebarBridge.js'
+import { migrateLegacyStorage } from './storageMigration.js'
 import { TYPERT_REMOTE } from '../typert.remote-client.js'
 import { NS, zh, en } from './locales.js'
 import React, { useEffect, useRef } from 'react'
@@ -160,6 +161,7 @@ const stubIdeTools = {
   gitStatus: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitBranches: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitLog: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
+  gitWaitChanged: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitCommitDetails: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitCommitFileDiff: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   gitCheckout: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
@@ -198,6 +200,9 @@ const stubIdeTools = {
  * independently; the IDE view reads ctx.remote.ideTools lazily at render time
  * (via a getter with a stub fallback), by which point it has settled. */
 export async function apply(ctx: IdeClientContext) {
+  // BEFORE anything reads an 'dsh-web-ide.*' key: carry the old 'dsh-ide.*'
+  // values over once, so the rename does not wipe stored preferences.
+  migrateLegacyStorage()
   const mountPromise = ctx.remote.$mount(TYPERT_REMOTE).catch((mountError: unknown) => {
     console.error('[ui-ide] ideTools $mount failed:', mountError)
   })

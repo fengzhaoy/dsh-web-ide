@@ -31,7 +31,9 @@ import { CommandPalette } from './CommandPalette.js'
 import { ExtensionsView } from './ExtensionsView.js'
 import { ProblemsPanel, type ProblemItem } from './editor/ProblemsPanel.js'
 import { useTaskRunner, mergeProblems } from './run/use-task-runner.js'
-import { VscodeTab } from './VscodeTab.js'
+import { VscodeTab, type VscodePaneError } from './VscodeTab.js'
+import { IDE_VERSION } from './version.js'
+import { destroyVscodeFrame, parkVscodeFrame, reshowVscodeFrame } from './vscodeFrameHost.js'
 import { RunView } from './run/RunView.js'
 import { useDebugger } from './run/use-debugger.js'
 import { useRunDebug, runDebug } from './run/run-debug-store.js'
@@ -217,6 +219,16 @@ type MdPreviewMode = 'off' | 'split' | 'full'
  * re-evaluation, so the dock reopens with the same still-running terminals.
  */
 const __win = window as unknown as { __dshIdeSessionTerminals?: Map<string, { open: boolean; ids: string[]; activeIdx: number }> }
+
+/**
+ * Draft commit messages, parked per session in a WINDOW slot (same trick as
+ * terminals/tabs): the view ring unmounts IdeView when the user leaves the IDE
+ * tab, and plain React state would drop whatever was typed or generated in the
+ * Source Control box. A window slot outlives both the unmount and a module
+ * re-evaluation (pnpm bundle during development).
+ */
+const __winCommit = window as unknown as { __dshIdeCommitDrafts?: Map<string, string> }
+const commitDrafts: Map<string, string> = __winCommit.__dshIdeCommitDrafts ??= new Map()
 const sessionTerminals: Map<string, { open: boolean; ids: string[]; activeIdx: number }> =
   __win.__dshIdeSessionTerminals ??= new Map()
 
@@ -235,10 +247,42 @@ function sameGitEntries(a: readonly import('./types.js').GitStatusEntry[] | unde
 }
 
 /** Plugin version for the About dialog (package.json version, inlined at build). */
-const IDE_VERSION = '0.1.3'
+// IDE_VERSION is imported from ./version.ts (generated from package.json by
+// scripts/gen-version.mjs). A local constant used to shadow it here and the
+// About dialog silently reported a stale number.
 
 /** The activity bar's selectable sidebar panels. */
-type SidebarView = 'explorer' | 'search' | 'git' | 'extensions' | 'run'
+type SidebarView = 'explorer' | 'search' | 'git' | 'extensions' | 'run' | 'vscode'
+
+/** The side-bar view the user last had open (validated), or undefined. */
+const SIDEBAR_VIEW_STORE = 'dsh-web-ide.sidebarViewByProject'
+
+/** Per-project activity-bar selection. Keyed by workspace root so switching
+ *  to another project starts from ITS OWN remembered icon (and falls back to
+ *  the configured default), instead of inheriting the previous project's view. */
+function readSavedSidebarView(projectKey: string | undefined): SidebarView | undefined {
+  if (projectKey === undefined || projectKey.length === 0) return undefined
+  try {
+    const raw = localStorage.getItem(SIDEBAR_VIEW_STORE)
+    if (raw === null) return undefined
+    const map = JSON.parse(raw) as Record<string, unknown>
+    const saved = map[projectKey]
+    const known = ['explorer', 'search', 'git', 'extensions', 'run', 'vscode']
+    if (typeof saved === 'string' && known.indexOf(saved) !== -1) return saved as SidebarView
+  } catch { /* storage denied or corrupt */ }
+  return undefined
+}
+
+/** Persist one project's selection without touching the other projects. */
+function writeSavedSidebarView(projectKey: string | undefined, view: SidebarView): void {
+  if (projectKey === undefined || projectKey.length === 0) return
+  try {
+    const raw = localStorage.getItem(SIDEBAR_VIEW_STORE)
+    const map = raw === null ? {} : JSON.parse(raw) as Record<string, string>
+    map[projectKey] = view
+    localStorage.setItem(SIDEBAR_VIEW_STORE, JSON.stringify(map))
+  } catch { /* storage denied */ }
+}
 
 /**
  * Last activity-bar selection, module-level so the view ring's remounts (and a
@@ -255,7 +299,7 @@ let lastSidebarView: SidebarView = 'git'
 const SIDEBAR_WIDTH_MIN = 170
 const SIDEBAR_WIDTH_MAX = 560
 const SIDEBAR_WIDTH_DEFAULT = 240
-const SIDEBAR_WIDTH_KEY = 'dsh-ide.sidebar-width'
+const SIDEBAR_WIDTH_KEY = 'dsh-web-ide.sidebar-width'
 
 function clampSidebarWidth(px: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(px)))
@@ -283,9 +327,9 @@ function storeKeyOf(cwd: string | undefined): string | null {
 }
 
 /** Create a Monaco model for the path, reusing (and refilling) any model that
- * survived from an earlier view mount under the same dsh-ide URI. */
+ * survived from an earlier view mount under the same dsh-web-ide URI. */
 function createOrReuseModel(m: MonacoNS, path: string, text: string, language: string): MonacoTextModel {
-  const uri = m.Uri.parse(`dsh-ide:${path}`)
+  const uri = m.Uri.parse(`dsh-web-ide:${path}`)
   const existing = m.editor.getModel(uri)
   if (existing) {
     existing.setValue(text)
@@ -413,6 +457,12 @@ export function IdeView(props: IdeViewInjected & {
   completeViewRequest?: () => void
 }) {
   const { sessionId, cwd, workspaceFiles, workspaceFilesWrite, model } = props
+  /** Identity of the PROJECT (workspace root) this IDE view shows. Used as the
+   *  key for per-project UI memory, so switching to another project starts from
+   *  that project's own remembered state rather than inheriting this one. */
+  const projectKey = cwd !== undefined && cwd.length > 0
+    ? cwd.replace(/[\/\\]+$/, '')
+    : undefined
   // Lazy namespace getter resolved at render (after boot settles); see types.
   // Reopening the IDE (especially the maximized right sidebar) briefly reports
   // no cwd while the panel's session attribute re-attaches. Rendering the
@@ -434,8 +484,15 @@ export function IdeView(props: IdeViewInjected & {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<ReturnType<MonacoNS['editor']['create']> | null>(null)
   const [tabs, setTabs] = useState<OpenTab[]>([])
-  /** True when the left panel is hidden (activity bar stays visible). */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /**
+   * Derived from the remembered view instead of being stored on its own: the VS
+   * Code icon owns the whole pane (collapsed), every other icon needs the side
+   * bar visible. An independent flag let a collapsed state survive into a view
+   * that requires the panel - the "opens with no side bar" bug.
+   */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
+    () => readSavedSidebarView(projectKey) === 'vscode',
+  )
   const [activePath, setActivePath] = useState<string | undefined>(undefined)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
   const [monacoReady, setMonacoReady] = useState(false)
@@ -451,7 +508,49 @@ export function IdeView(props: IdeViewInjected & {
   /** Pending dirty-tab close awaiting the user's save/discard choice. */
   const [confirmClose, setConfirmClose] = useState<{ path: string; name: string } | null>(null)
   /** Which sidebar panel the activity bar selected; seeded from the last mount. */
-  const [sidebarView, setSidebarViewState] = useState<SidebarView>(lastSidebarView)
+  const [sidebarView, setSidebarViewState] = useState<SidebarView>(() => {
+    // Priority: the view the user left the IDE on, then the configured default,
+    // then Source Control (VS Code's own first-run view).
+    // Priority: THIS PROJECT's own last selection, then the configured
+    // default, then Source Control (VS Code's own first-run view).
+    const saved = readSavedSidebarView(projectKey)
+    if (saved !== undefined) return saved
+    const configured = ideSettings.getSnapshot()['appearance.defaultSidebarView']
+    return (configured ?? lastSidebarView) as SidebarView
+  })
+  useEffect(() => {
+    writeSavedSidebarView(projectKey, sidebarView)
+  }, [projectKey, sidebarView])
+
+  // Switching to another PROJECT restores that project's own selection. The
+  // component may stay mounted across such a switch, so the initial state above
+  // is not enough: re-seed from the new key and fall back to the configured
+  // default when the project has never been opened.
+  // One-time migration from the old GLOBAL key: seed this project's entry so the
+  // user keeps the selection they were looking at before the upgrade.
+  useEffect(() => {
+    if (projectKey === undefined) return
+    try {
+      const legacy = localStorage.getItem('dsh-ide.sidebarView')
+      const known = ['explorer', 'search', 'git', 'extensions', 'run', 'vscode']
+      if (legacy !== null && known.indexOf(legacy) !== -1) {
+        writeSavedSidebarView(projectKey, legacy as SidebarView)
+        localStorage.removeItem('dsh-ide.sidebarView')
+      }
+    } catch { /* storage denied */ }
+  }, [projectKey])
+
+  const projectKeyRef = useRef(projectKey)
+  useEffect(() => {
+    if (projectKeyRef.current === projectKey) return
+    projectKeyRef.current = projectKey
+    if (projectKey === undefined) return
+    const saved = readSavedSidebarView(projectKey)
+    const configured = ideSettings.getSnapshot()['appearance.defaultSidebarView']
+    const next = (saved ?? configured ?? 'git') as SidebarView
+    setSidebarViewState(next)
+    setSidebarCollapsed(next === 'vscode')
+  }, [projectKey])
   /** Select a panel and remember it, so the next IDE mount reopens it. */
   const setSidebarView = useCallback((view: SidebarView) => {
     lastSidebarView = view
@@ -594,13 +693,13 @@ export function IdeView(props: IdeViewInjected & {
   /** Outline / Timeline section collapse state (persisted; both default
    *  COLLAPSED exactly like VS Code registers them: collapsed: true). */
   const [outlineOpen, setOutlineOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('dsh-ide.outlineOpen') === '1' } catch { return false }
+    try { return localStorage.getItem('dsh-web-ide.outlineOpen') === '1' } catch { return false }
   })
   const [timelineOpen, setTimelineOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('dsh-ide.timelineOpen') === '1' } catch { return false }
+    try { return localStorage.getItem('dsh-web-ide.timelineOpen') === '1' } catch { return false }
   })
-  useEffect(() => { try { localStorage.setItem('dsh-ide.outlineOpen', outlineOpen ? '1' : '0') } catch { /* denied */ } }, [outlineOpen])
-  useEffect(() => { try { localStorage.setItem('dsh-ide.timelineOpen', timelineOpen ? '1' : '0') } catch { /* denied */ } }, [timelineOpen])
+  useEffect(() => { try { localStorage.setItem('dsh-web-ide.outlineOpen', outlineOpen ? '1' : '0') } catch { /* denied */ } }, [outlineOpen])
+  useEffect(() => { try { localStorage.setItem('dsh-web-ide.timelineOpen', timelineOpen ? '1' : '0') } catch { /* denied */ } }, [timelineOpen])
   /** Timeline entries for the ACTIVE file (VS Code's timeline tracks the
    *  active editor's resource). Refetched on file change and git refresh. */
   const [timelineEntries, setTimelineEntries] = useState<readonly import('./types.js').GitTimelineEntry[] | null>(null)
@@ -630,7 +729,24 @@ export function IdeView(props: IdeViewInjected & {
   // Lifted SCM commit-message state: held by the view (not the panel) so that
   // switching the sidebar to the explorer and back — which unmounts/remounts
   // <SourceControlPanel> — does not wipe a typed or AI-generated message.
-  const [scmCommitMessage, setScmCommitMessage] = useState('')
+  const [scmCommitMessage, setScmCommitMessageState] = useState<string>(
+    () => (sessionId === undefined ? '' : commitDrafts.get(sessionId) ?? ''),
+  )
+  // Mirror every edit into the window slot so leaving the IDE tab keeps the draft.
+  const setScmCommitMessage = useCallback((value: string) => {
+    setScmCommitMessageState(value)
+    if (sessionId === undefined) return
+    if (value === '') commitDrafts.delete(sessionId)
+    else commitDrafts.set(sessionId, value)
+  }, [sessionId])
+  // Switching to another session in the same mount: adopt that session
+  // draft instead of carrying the previous one over.
+  const draftSessionRef = useRef(sessionId)
+  useEffect(() => {
+    if (draftSessionRef.current === sessionId) return
+    draftSessionRef.current = sessionId
+    setScmCommitMessageState(sessionId === undefined ? '' : commitDrafts.get(sessionId) ?? '')
+  }, [sessionId])
   /** Source Control views to force open (status bar → Branches). A fresh
    *  object per request so clicking twice after collapsing re-opens it. */
   const [scmOpenViewsRequest, setScmOpenViewsRequest] = useState<Partial<ScmOpenViews> | undefined>(undefined)
@@ -664,8 +780,11 @@ export function IdeView(props: IdeViewInjected & {
   /** Scheme C: one VS Code Server tab per workspace, opened on demand. */
   const [vscodeInfo, setVscodeInfo] = useState<IdeVscodeInfo | undefined>(undefined)
   const [vscodeLoading, setVscodeLoading] = useState(false)
-  const [vscodeError, setVscodeError] = useState<string | null>(null)
+  /** Structured failure for the VS Code pane. 'missing' renders the install
+   *  guide; 'start' is a plain startup failure. */
+  const [vscodeError, setVscodeError] = useState<VscodePaneError | null>(null)
   const VSCODE_TAB = 'dsh://vscode'
+
 
   const openVscode = useCallback(async (restart = false) => {
     // Every early exit below must be VISIBLE: a silent return made the button
@@ -685,22 +804,38 @@ export function IdeView(props: IdeViewInjected & {
       dirty: false, kind: 'vscode' as const,
     }])
     setActivePath(VSCODE_TAB)
+    // Mark the activity bar: the VS Code icon is the user's current view, and
+    // that selection is what must survive a tab switch.
+    setSidebarView('vscode')
+    // VS Code is an immersive surface: give it the whole pane instead of
+    // squeezing the 1024px workbench next to the explorer.
+    setSidebarCollapsed(true)
     try {
       const res = await ideTools.vscodeOpen(sessionId, { restart })
       if (!res.ok) {
-        const message = res.error.code === 'ide-tools/vscode-missing'
-          ? t('vscode.notInstalled')
-          : (res.error.message ?? res.error.code)
         // Surface it as a notification too: vscodeError only renders inside the
         // VS Code tab, which does not exist yet when startup fails.
-        setVscodeError(message)
-        notifications.error(message)
+        if (res.error.code === 'ide-tools/vscode-missing') {
+          const details = (res.error as unknown as {
+            details?: { searchedPaths?: string[]; platform?: string }
+          }).details
+          setVscodeError({
+            kind: 'missing',
+            searchedPaths: details?.searchedPaths ?? [],
+            platform: details?.platform ?? 'unknown',
+          })
+          notifications.error(t('vscode.notInstalled'))
+        } else {
+          const message = res.error.message ?? res.error.code
+          setVscodeError({ kind: 'start', message })
+          notifications.error(message)
+        }
         return
       }
       setVscodeInfo(res.value)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setVscodeError(message)
+      setVscodeError({ kind: 'start', message })
       notifications.error(message)
     } finally {
       setVscodeLoading(false)
@@ -708,6 +843,9 @@ export function IdeView(props: IdeViewInjected & {
   }, [sessionId, ideTools, t])
 
   const stopVscode = useCallback(async () => {
+    // The frame is not React-owned: tear it down explicitly so a stopped
+    // server is not left painted on screen.
+    destroyVscodeFrame()
     if (sessionId === undefined || ideTools === undefined) return
     try { await ideTools.vscodeStop(sessionId) } catch { /* already gone */ }
     setVscodeInfo(undefined)
@@ -717,6 +855,20 @@ export function IdeView(props: IdeViewInjected & {
 
   const activeIsVscode = activePath === VSCODE_TAB
 
+  // Coming back to the VS Code tab re-shows the parked overlay. The frame itself
+  // was never destroyed (hiding only sets display:none), so this is instant and
+  // does not reload the workbench.
+  useEffect(() => {
+    if (activeIsVscode) reshowVscodeFrame()
+  }, [activeIsVscode])
+
+  // Switching AWAY from the VS Code tab does NOT unmount this view (DSH hides the
+  // inactive tab), so the frame host cleanup never runs. Park the overlay here or
+  // it stays painted at its last rect and follows the viewport, which is the
+  // stray box that used to stretch the page.
+  useEffect(() => {
+    if (!activeIsVscode) parkVscodeFrame()
+  }, [activeIsVscode])
   /** Scheme B debugger. Node's inspector is the only target for now. */
   const debuggerApi = useDebugger({ sessionId, ideTools, cwd, t })
   const debuggable = activePath !== undefined && /\.[cm]?[jt]sx?$/.test(activePath)
@@ -777,6 +929,12 @@ export function IdeView(props: IdeViewInjected & {
     }
     return () => { document.head.removeChild(style) }
   }, [])
+
+  // The code-server frame lives outside this tree; when the IDE view unmounts
+  // (DSH tab switch) it must be HIDDEN, never torn down, so switching back
+  // re-shows the same workbench without a reload.
+  useEffect(() => () => { parkVscodeFrame() }, [])
+
 
   // Theme hot-apply: settings.theme changes re-write the CSS vars on the root
   // and switch the Monaco theme on the singleton editor + the diff editor.
@@ -1411,11 +1569,100 @@ export function IdeView(props: IdeViewInjected & {
       })
     }
     fetch()
-    // Poll every 15s as a slow fallback. Fast freshness comes from event
-    // bumps (file writes, diff saves) — and every fetch is deduped in
-    // applyGitEntries, so a no-change result never re-renders anything.
-    const id = setInterval(fetch, 15000)
-    return () => { cancelled = true; ctrl.abort(); clearInterval(id) }
+    // VS Code never polls git: its repository rescans on FILE EVENTS (fs.watch),
+    // on window focus, and after git operations. We follow the same shape and
+    // keep this timer only as a slow safety net (60s) that does NOT run while
+    // the page is hidden.
+    let id: ReturnType<typeof setInterval> | undefined
+    const start = (): void => {
+      if (id !== undefined) return
+      id = setInterval(fetch, 60000)
+    }
+    const stop = (): void => {
+      if (id === undefined) return
+      clearInterval(id)
+      id = undefined
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        fetch()
+        start()
+        // Resume the event stream too: restarting here keeps a long-poll
+        // from being held open while the tab is in the background.
+        watchVersion = undefined
+        void pollChanges()
+      } else {
+        stop()
+        watchAbort?.abort()
+      }
+    }
+    // Window focus is the other refresh trigger: the user may have run git in
+    // a terminal behind another window.
+    const onFocus = (): void => { if (document.visibilityState === 'visible') fetch() }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    if (document.visibilityState === 'visible') start()
+    // Event-driven refresh (VS Code parity): long-poll the workspace watcher
+    // while the IDE is visible. The server answers the moment a debounced file
+    // event lands, so a git command typed in the terminal refreshes the SCM
+    // view immediately instead of waiting for the 60s net.
+    let watchAbort: AbortController | undefined
+    let watchVersion: number | undefined
+    let watchRunning = false
+    const pollChanges = async (): Promise<void> => {
+      if (watchRunning) return
+      watchRunning = true
+      // ideTools is undefined until the runtime injects it, and the method may
+      // be missing on an older host: both cases silently leave the 60s net.
+      type WaitFn = (s: string, o: { since: number; timeoutMs?: number }, sig: AbortSignal)
+        => Promise<{ version: number }>
+      const raw = (ideTools as unknown as { gitWaitChanged?: WaitFn } | undefined)?.gitWaitChanged
+      if (typeof raw !== 'function' || sessionId === undefined) {
+        watchRunning = false
+        return
+      }
+      // Bind once: an optional property would otherwise be re-read after every
+      // await, and TS drops the narrowing across awaits.
+      const waitChanged: WaitFn = raw.bind(ideTools)
+      const sid = sessionId
+      try {
+        while (!cancelled) {
+          watchAbort = new AbortController()
+          try {
+            const rawRes = await waitChanged(sid, { since: watchVersion ?? 0, timeoutMs: 25000 }, watchAbort.signal)
+            const res = rawRes as { version?: number; ok?: boolean }
+            if (cancelled) return
+            // The degraded stub answers { ok: false } without a version: the
+            // namespace is not mounted, so stop instead of spinning.
+            if (typeof res.version !== 'number') {
+              watchRunning = false
+              return
+            }
+            // First answer only primes the version: nothing has changed yet.
+            if (watchVersion === undefined) { watchVersion = res.version; continue }
+            if (res.version > watchVersion) {
+              watchVersion = res.version
+              void fetch()
+            }
+          } catch {
+            if (cancelled) return
+            // Transport hiccup: back off so a dead server is not hammered.
+            await new Promise((r) => setTimeout(r, 5000))
+          }
+        }
+      } finally {
+        watchRunning = false
+      }
+    }
+    void pollChanges()
+    return () => {
+      cancelled = true
+      ctrl.abort()
+      stop()
+      watchAbort?.abort()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [sessionId, cwd, ideTools, gitRefreshKey, applyGitEntries, sidebarView])
 
   // External-change fallback watch: a slow silent stat pass over the open
@@ -1476,8 +1723,27 @@ export function IdeView(props: IdeViewInjected & {
         }).catch(() => { /* transient transport errors: next tick retries */ })
       }
     }
-    const id = setInterval(poll, 15000)
-    return () => { ctrl.abort(); clearInterval(id); if (bumpTimer !== undefined) clearTimeout(bumpTimer) }
+    // Same visibility gate as the git poll: no stats while the page is hidden.
+    let id: ReturnType<typeof setInterval> | undefined
+    const start = (): void => {
+      if (id !== undefined) return
+      id = setInterval(poll, 15000)
+    }
+    const stop = (): void => {
+      if (id === undefined) return
+      clearInterval(id)
+      id = undefined
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') { poll(); start() } else stop()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.visibilityState === 'visible') start()
+    return () => {
+      ctrl.abort(); stop()
+      if (bumpTimer !== undefined) clearTimeout(bumpTimer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [sessionId, workspaceFiles, cwd])
 
   // Register this mount with the sidebar bridge so sidebar clicks can route
@@ -2339,13 +2605,24 @@ export function IdeView(props: IdeViewInjected & {
    *  click on the already-showing view hides the panel again. Double-clicking
    *  is deliberately gone: the second click of a double click is itself a
    *  single click, so hide-then-show would immediately reopen the panel. */
+  /**
+   * Activity-bar click. Clicking the view that is already showing (and open)
+   * hides the side bar, clicking anything else switches to it and opens the
+   * bar. The VS Code icon is the exception: it owns the whole pane, so it
+   * always collapses the bar instead of toggling.
+   */
   const toggleSidebarFor = useCallback((view: SidebarView) => {
+    if (view === 'vscode') {
+      setSidebarView(view)
+      setSidebarCollapsed(true)
+      return
+    }
     setSidebarCollapsed((collapsed) => {
       if (collapsed) {
         setSidebarView(view)
         return false
       }
-      // Already showing this view: click again means "hide it".
+      // Already showing this view: a second click means "hide it".
       if (sidebarView === view) return true
       setSidebarView(view)
       return false
@@ -2402,7 +2679,11 @@ export function IdeView(props: IdeViewInjected & {
           </div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'run'} title={t('debug.title')} onClick={() => toggleSidebarFor('run')} data-testid="ide-activitybar-run">{Icons.debug}</div>
           <div className="ide-activitybar-icon" data-active={sidebarView === 'extensions'} title={t('extensions.title')} onClick={() => toggleSidebarFor('extensions')} data-testid="ide-activitybar-extensions">{Icons.extensions}</div>
-                     {settings['appearance.vscodeIcon'] && <div className="ide-activitybar-icon" title={t('vscode.title')} onClick={() => { void openVscode() }} data-testid="ide-activitybar-vscode">{Icons.vscodeLogo}</div>}
+                     {settings['appearance.vscodeIcon'] && <div className="ide-activitybar-icon"
+              data-active={sidebarView === 'vscode'}
+              title={t('vscode.title')}
+              onClick={() => { void openVscode() }}
+              data-testid="ide-activitybar-vscode">{Icons.vscodeLogo}</div>}
           <div className="ide-activitybar-spacer" />
           <div
             className="ide-activitybar-icon"
@@ -2437,7 +2718,7 @@ export function IdeView(props: IdeViewInjected & {
             </div>
           ) : sidebarView === 'extensions' ? (
             <div className="ide-sidebar-view">
-              <ExtensionsView t={t} />
+              <ExtensionsView t={t} onOpenVscode={() => { void openVscode() }} />
             </div>
           ) : sidebarView === 'git' ? (
             sessionId ? (
@@ -2655,7 +2936,9 @@ export function IdeView(props: IdeViewInjected & {
             <span className="ide-sidebar-resizer-icon">{Icons.splitEditor}</span>
           </div>
         </div>
-        <div className="ide-editor-area">
+        <div className="ide-editor-area" data-vscode={activeIsVscode || undefined}>
+          {/* VS Code is the whole surface there: the IDE toolbar (find / layout
+              toggles) would float above an iframe that already has its own UI. */}
           <div className="ide-editor-toolbar">
             <button
               className="ide-tabbar-action"
@@ -2744,7 +3027,10 @@ export function IdeView(props: IdeViewInjected & {
               info={vscodeInfo}
               error={vscodeError}
               loading={vscodeLoading}
-              onRetry={() => { void openVscode(true) }}
+              // A plain retry re-runs detection. 'restart' is meaningless when no
+              // instance exists, and after installing code-server the user needs
+              // the probe to run again, not a server restart.
+              onRetry={() => { void openVscode(false) }}
               onStop={() => { void stopVscode() }}
               t={t}
             />
@@ -2922,7 +3208,9 @@ export function IdeView(props: IdeViewInjected & {
             )}
           </div>
         )}
-        <StatusBar
+        {/* VS Code owns the whole pane and carries its own status bar, so the
+            IDE one steps aside exactly like the editor toolbar does. */}
+        {settings['appearance.statusBar'] && !activeIsVscode && (<StatusBar
           activeTab={activeTab}
           encoding={activeTab?.encoding}
           cursor={cursor}
@@ -2952,7 +3240,7 @@ export function IdeView(props: IdeViewInjected & {
           onSetIndent={(tabSize, insertSpaces) => { const model = editorRef.current?.getModel(); if (model) { model.updateOptions({ tabSize, insertSpaces }); syncModelMeta() } }}
           eol={modelEol}
           onSetEol={(eol) => { const model = editorRef.current?.getModel(); if (model) { model.pushEOL(eol === '\r\n' ? Monaco.editor.EndOfLineSequence.CRLF : Monaco.editor.EndOfLineSequence.LF); syncModelMeta() } }}
-        />
+        />)}
       </div>
     </div>
   )

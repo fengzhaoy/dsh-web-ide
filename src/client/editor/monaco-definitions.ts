@@ -22,7 +22,7 @@ interface Services { get(service: unknown): unknown }
 interface Instantiation { invokeFunction<T>(fn: (services: Services) => T): T }
 
 export interface MonacoDefinitionLocation {
-  /** The model URI string, e.g. `dsh-ide:/abs/path.ts`. */
+  /** The model URI string, e.g. `dsh-web-ide:/abs/path.ts`. */
   uri: string
   line: number
   column: number
@@ -60,9 +60,9 @@ export async function lookupDefinitions(
 }
 
 /** Map a Monaco model URI back to the absolute path the host uses. Models are
- *  created as `dsh-ide:<absolute path>` (see createOrReuseModel). */
+ *  created as `dsh-web-ide:<absolute path>` (see createOrReuseModel). */
 export function pathFromModelUri(uri: string): string | null {
-  const prefix = 'dsh-ide:'
+  const prefix = 'dsh-web-ide:'
   if (!uri.startsWith(prefix)) return null
   const path = uri.slice(prefix.length)
   return path.length > 0 ? path : null

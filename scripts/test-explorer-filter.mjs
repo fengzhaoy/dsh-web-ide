@@ -78,7 +78,7 @@ const settingsStore = readFileSync(new URL('../src/client/settingsStore.ts', imp
 const dialogs = readFileSync(new URL('../src/client/SettingsDialogs.tsx', import.meta.url), 'utf8')
 
 check('app-menu icon defaults to hidden', /'appearance\.appMenuIcon': false,/.test(settingsStore))
-check('vscode icon defaults to hidden', /'appearance\.vscodeIcon': false,/.test(settingsStore))
+check('vscode icon defaults to VISIBLE', /'appearance\.vscodeIcon': true,/.test(settingsStore))
 check('both settings still exist in the panel', dialogs.includes('ide-settings-appmenu-icon') && dialogs.includes('ide-settings-vscode-icon'))
 check('hidden icons are removed, not blanked', /\{settings\['appearance\.appMenuIcon'\] && \(/.test(ide))
 check('vscode icon is conditionally rendered too', /\{settings\['appearance\.vscodeIcon'\] && /.test(ide))
@@ -117,6 +117,41 @@ check('badge uses a filtered change count', ide.includes('const changeCount = us
 check('badge excludes ignored entries', /filter\(\(e\) => e\.kind !== 'ignored'\)\.length/.test(ide))
 check('badge renders changeCount, not raw entries', ide.includes('{changeCount}') && !ide.includes('{gitEntries.length}</span>'))
 check('tree still receives raw entries for muted ignored coloring', ide.includes('gitEntries={gitEntries}'))
+
+// --- VS Code tab: IDE chrome (toolbar + sidebar) yields to the workbench ---
+const css = readFileSync(new URL('../src/client/theme.ts', import.meta.url), 'utf8')
+const settings = readFileSync(new URL('../src/client/settingsStore.ts', import.meta.url), 'utf8')
+const frameHost = readFileSync(new URL('../src/client/vscodeFrameHost.ts', import.meta.url), 'utf8')
+const hostSrc = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+check('editor area is flagged while VS Code is active', ide.includes("data-vscode={activeIsVscode || undefined}"))
+check('IDE toolbar is hidden over the VS Code iframe', /\.ide-editor-area\[data-vscode\] \.ide-editor-toolbar\{display:none\}/.test(css))
+check('opening VS Code collapses the primary sidebar', /setSidebarCollapsed\(true\)/.test(ide))
+
+// --- git status refresh is event-driven, not a 15s poll (VS Code parity) ---
+check('git status falls back to a 60s net, not 15s', /setInterval\(fetch, 60000\)/.test(ide))
+check('no 15s git poll remains', !/setInterval\(fetch, 15000\)/.test(ide))
+check('git poll is gated on page visibility', /visibilitychange/.test(ide) && /document\.visibilityState === 'visible'/.test(ide))
+check('window focus triggers a git refresh', /addEventListener\('focus', onFocus\)/.test(ide))
+
+// --- three fixes: default view setting, status bar, iframe restore ---
+check('default sidebar view is a setting, defaulting to Source Control',
+  /'appearance\.defaultSidebarView': 'git'/.test(settings) && /appearance\.defaultSidebarView/.test(ide))
+check('status bar yields to the VS Code workbench',
+  /!activeIsVscode && \(<StatusBar/.test(ide))
+check('overlay re-resolves its anchor every frame (stale ref = blank pane)',
+  /querySelector\('\[data-testid="ide-vscode-anchor"\]'\)/.test(frameHost))
+check('park keeps the frame alive (hide only, never detach)',
+  /parkVscodeFrame[\s\S]{0,600}display = 'none'/.test(frameHost))
+
+// --- code-server missing: install guide, searched paths, retry ---
+const vscodeTab = readFileSync(new URL('../src/client/VscodeTab.tsx', import.meta.url), 'utf8')
+check('missing code-server renders an install guide', /ide-vscode-missing-guide/.test(vscodeTab))
+check('guide offers both brew and npm commands', /brew install code-server/.test(vscodeTab) && /npm install -g code-server/.test(vscodeTab))
+check('guide can copy each command', /ide-vscode-copy-command/.test(vscodeTab))
+check('guide lists the paths that were searched', /searchedPaths/.test(vscodeTab))
+check('guide has a retry button', /ide-vscode-retry/.test(vscodeTab))
+check('retry re-detects instead of restarting', /onRetry=\{\(\) => \{ void openVscode\(false\) \}\}/.test(ide))
+check('host reports searched paths with the error', /searchedPaths: codeServerCandidates\(\)/.test(hostSrc))
 
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

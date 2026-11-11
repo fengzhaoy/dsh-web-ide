@@ -15,7 +15,7 @@ const mermaidIife = fileURLToPath(new URL('./vendor/mermaid-iife.js', import.met
  */
 function neutralizeMonacoAssets() {
   return {
-    name: 'dsh-ide-neutralize-monaco-assets',
+    name: 'dsh-web-ide-neutralize-monaco-assets',
     resolveId(source: string) {
       if (/\.(?:ttf|woff2?|eot)$/.test(source)) return { id: empty, external: false }
       if (/vs\/base\/browser\/ui\/codicons\/codicon\/codicon\.css$/.test(source)) return { id: empty, external: false }
@@ -32,7 +32,7 @@ function neutralizeMonacoAssets() {
  * bundle (the index wrapper executes before the constants wrapper registers). */
 function shimNodeCrypto() {
   return {
-    name: 'dsh-ide-shim-node-crypto',
+    name: 'dsh-web-ide-shim-node-crypto',
     resolveId(source: string) {
       if (source === 'node:crypto' || source === 'crypto') return { id: shim, external: false }
       if (source === '@braintree/sanitize-url') return { id: vendoredSanitizeUrl, external: false }
@@ -46,9 +46,9 @@ function shimNodeCrypto() {
  * ordering bugs (UMD wrappers boot before their deps register), so the md
  * preview instead evaluates this prebuilt single-file IIFE on demand. */
 function embedMermaidIife() {
-  const virtualId = 'virtual:dsh-ide-mermaid-iife'
+  const virtualId = 'virtual:dsh-web-ide-mermaid-iife'
   return {
-    name: 'dsh-ide-embed-mermaid-iife',
+    name: 'dsh-web-ide-embed-mermaid-iife',
     resolveId(source: string) {
       if (source === virtualId) return { id: virtualId, external: false }
       return null
@@ -70,7 +70,7 @@ function embedMermaidIife() {
  */
 function inlineCss() {
   return {
-    name: 'dsh-ide-inline-css',
+    name: 'dsh-web-ide-inline-css',
     generateBundle(_opts: unknown, bundle: Record<string, { type: string; code?: string; source?: string | Uint8Array }>) {
       let clientKey: string | undefined
       let cssKey: string | undefined
@@ -81,7 +81,7 @@ function inlineCss() {
       }
       if (clientKey && cssKey && cssText) {
         const chunk = bundle[clientKey]
-        const injector = `;(function(){var d=document;var s=d.createElement('style');s.setAttribute('data-dsh-ide','');s.textContent=${JSON.stringify(cssText)};(d.head||d.documentElement).appendChild(s);})();`
+        const injector = `;(function(){var d=document;var s=d.createElement('style');s.setAttribute('data-dsh-web-ide','');s.textContent=${JSON.stringify(cssText)};(d.head||d.documentElement).appendChild(s);})();`
         ;(chunk as { code: string }).code = injector + (chunk.code ?? '')
         delete bundle[cssKey]
       }
@@ -96,7 +96,7 @@ function inlineCss() {
  * The index (host) entry is left untouched. */
 function wrapModuleLoader() {
   return {
-    name: 'dsh-ide-wrap-module-loader',
+    name: 'dsh-web-ide-wrap-module-loader',
     renderChunk(code: string, info: { fileName: string }) {
       if (!/client\.js$/.test(info.fileName)) return null
       const wrapped = [

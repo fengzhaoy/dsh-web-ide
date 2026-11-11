@@ -58,7 +58,7 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'dsh-ide-settings.json'
+    a.download = 'dsh-web-ide-settings.json'
     a.click()
     URL.revokeObjectURL(url)
   }, [])
@@ -131,6 +131,24 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
               visible={rowVisible(t('settings.appearance.appMenuIcon'))} onChange={(v) => set('appearance.appMenuIcon', v)} />
             <ToggleRow label={t('settings.appearance.vscodeIcon')} value={settings['appearance.vscodeIcon']} testid="ide-settings-vscode-icon"
               visible={rowVisible(t('settings.appearance.vscodeIcon'))} onChange={(v) => set('appearance.vscodeIcon', v)} />
+            {/* Which icon the IDE opens on. VS Code restores the last view;
+                this setting pins the first one instead. */}
+            <SettingsRow label={t('settings.appearance.defaultSidebarView')}
+              visible={rowVisible(t('settings.appearance.defaultSidebarView'))}>
+              <select
+                className="ide-settings-select"
+                value={settings['appearance.defaultSidebarView']}
+                onChange={(e) => set('appearance.defaultSidebarView', e.target.value as IdeSettings['appearance.defaultSidebarView'])}
+                data-testid="ide-settings-default-sidebar-view"
+              >
+                <option value="explorer">{t('settings.sidebarView.explorer')}</option>
+                <option value="search">{t('settings.sidebarView.search')}</option>
+                <option value="git">{t('settings.sidebarView.git')}</option>
+                <option value="run">{t('settings.sidebarView.run')}</option>
+                <option value="extensions">{t('settings.sidebarView.extensions')}</option>
+                <option value="vscode">{t('settings.sidebarView.vscode')}</option>
+              </select>
+            </SettingsRow>
           </SettingsSection>
 
           <SettingsSection title={t('settings.section.editor')} visible={sectionVisible(t('settings.section.editor'), [t('settings.editor.fontSize'), t('settings.editor.lineHeight'), t('settings.editor.minimap'), t('settings.editor.wordWrap'), t('settings.editor.renderWhitespace'), t('settings.editor.lineNumbers'), t('settings.editor.cursorBlinking'), t('settings.editor.smoothScrolling')])}>

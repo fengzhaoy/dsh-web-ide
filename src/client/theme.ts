@@ -353,6 +353,8 @@ export const IDE_STYLES = `
    editor.background block — the toolbar loses its separator line and the
    action buttons float on the same #1F1F1F, like VS Code's empty group. */
 .ide-editor-area[data-empty='true'] .ide-editor-toolbar{border-bottom-color:transparent}
+/* The VS Code iframe brings its own chrome: hide the IDE toolbar above it. */
+.ide-editor-area[data-vscode] .ide-editor-toolbar{display:none}
 .ide-editor-stack{flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-editor-overlay{position:absolute;inset:0;pointer-events:none;display:flex}
 .ide-editor-overlay:empty{display:none}
@@ -555,7 +557,7 @@ export const IDE_STYLES = `
 .ide-dialog-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:40;pointer-events:auto}
 /* Window-level modal variant (Explorer delete confirm): fixed to the viewport so
    it does not scroll away inside the tree's scroll container. */
-.ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:60}
+.ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:70}
 .ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:var(--ide-fg,#cccccc);font-size:13px}
 .ide-dialog-body{color:var(--ide-fg-muted,#9d9d9d);font-size:12px;line-height:1.6;margin-bottom:16px}
@@ -949,7 +951,7 @@ export const IDE_STYLES = `
 .ide-snippets-editor{width:100%;min-height:220px;background:var(--ide-bg);border:1px solid var(--ide-border);border-radius:4px;color:var(--ide-fg);font:12px/1.5 var(--ds-font-family-code,Menlo,monospace);padding:8px;resize:vertical;box-sizing:border-box}
 .ide-snippets-status{color:#4ec9b0;font-size:12px;padding:4px 0}
 /* ── Command palette ───────────────────────────────────────────────── */
-.ide-palette-backdrop{position:fixed;inset:0;z-index:70;display:flex;justify-content:center;padding-top:10vh;background:rgba(0,0,0,.25);pointer-events:auto}
+.ide-palette-backdrop{position:fixed;inset:0;z-index:75;display:flex;justify-content:center;padding-top:10vh;background:rgba(0,0,0,.25);pointer-events:auto}
 .ide-palette{width:min(560px,92vw);background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:60vh;overflow:hidden}
 .ide-palette-input{margin:8px;padding:7px 10px;background:var(--ide-bg);border:1px solid var(--ide-accent);border-radius:4px;color:var(--ide-fg);font-size:13px;outline:none}
 .ide-palette-list{overflow:auto;padding-bottom:6px}
@@ -966,7 +968,7 @@ export const IDE_STYLES = `
 .ide-notify-root{position:relative;display:inline-flex}
 .ide-notify-bell{position:relative}
 .ide-notify-bell[data-has-unseen='true']::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:#f14c4c}
-.ide-notify-panel{position:absolute;bottom:24px;right:0;width:320px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:80;overflow:hidden}
+.ide-notify-panel{position:absolute;bottom:24px;right:0;width:320px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:85;overflow:hidden}
 .ide-notify-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;font-size:12px;font-weight:600;color:var(--ide-fg);border-bottom:1px solid var(--ide-border)}
 .ide-notify-clear{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;cursor:pointer}
 .ide-notify-clear:hover{color:var(--ide-fg)}
@@ -979,7 +981,7 @@ export const IDE_STYLES = `
 .ide-notify-msg{flex:1;color:var(--ide-fg);word-break:break-word}
 .ide-notify-time{color:var(--ide-fg-dim);font-size:11px}
 .ide-notify-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
-.ide-toasts{position:absolute;right:12px;bottom:30px;display:flex;flex-direction:column;gap:6px;z-index:90;pointer-events:none}
+.ide-toasts{position:absolute;right:12px;bottom:30px;display:flex;flex-direction:column;gap:6px;z-index:95;pointer-events:none}
 .ide-toast{display:flex;align-items:center;gap:8px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-left:3px solid var(--ide-accent);border-radius:4px;padding:8px 12px;font-size:12px;color:var(--ide-fg);box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;max-width:360px}
 .ide-toast-error{border-left-color:#f14c4c}
 .ide-toast-warning{border-left-color:#cca700}
@@ -1009,7 +1011,32 @@ export const IDE_STYLES = `
 .ide-vscode-actions{display:flex;gap:4px;flex:none}
 .ide-vscode-action{background:none;border:1px solid var(--ide-border);border-radius:3px;color:var(--ide-fg);font-size:11px;padding:2px 8px;cursor:pointer}
 .ide-vscode-action:hover{background:var(--ide-tree-hover)}
-.ide-vscode-frame{flex:1;width:100%;border:none;background:var(--ide-bg,#1f1f1f)}
+.ide-vscode-anchor{flex:1;min-height:0;background:var(--ide-bg,#1f1f1f)}
+/* The code-server frame lives OUTSIDE the React tree, pinned over the anchor.
+   Hiding it must never detach it: display:none keeps the loaded document. */
+.ide-vscode-overlay{position:fixed;top:0;left:0;z-index:60;display:block;
+  /* 0x0 until showVscodeFrame() writes a rect: a fixed box with auto offsets
+     would otherwise lay out at the end of the document and stretch the page. */
+  width:0;height:0;overflow:hidden}
+.ide-vscode-overlay[data-hidden='true']{display:none}
+.ide-vscode-overlay>.ide-vscode-frame{display:block;width:100%;height:100%;border:none;background:var(--ide-bg,#1f1f1f)}
+.ide-vscode-guide{flex:1;min-height:0;overflow:auto;padding:24px 32px;font-size:13px;line-height:1.6;color:var(--ide-fg,#cccccc);max-width:760px}
+.ide-vscode-guide-title{font-size:15px;font-weight:600;margin-bottom:8px}
+.ide-vscode-guide-reason{margin:0 0 14px;color:var(--ide-fg-muted,#9d9d9d)}
+.ide-vscode-guide-subtitle{font-weight:600;margin:16px 0 8px}
+.ide-vscode-guide-paths{margin:0 0 14px;color:var(--ide-fg-muted,#9d9d9d)}
+.ide-vscode-guide-paths summary{cursor:pointer}
+.ide-vscode-guide-paths ul{margin:6px 0 0;padding-left:20px}
+.ide-vscode-guide-paths li{margin:2px 0}
+.ide-vscode-install-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+.ide-vscode-install-cmd{background:var(--ide-panel-bg,#1e1e1e);border:1px solid var(--ide-border,#2b2b2b);
+  border-radius:4px;padding:4px 10px;font-family:Menlo,Consolas,"Courier New",monospace;user-select:all}
+.ide-vscode-install-note{color:var(--ide-fg-muted,#9d9d9d);font-size:12px}
+.ide-vscode-guide-hint{margin:10px 0 0;color:var(--ide-fg-muted,#9d9d9d)}
+.ide-vscode-guide-hint code,.ide-vscode-guide-reason code{background:var(--ide-panel-bg,#1e1e1e);padding:1px 5px;border-radius:3px}
+.ide-vscode-guide-retry{margin-top:18px;padding:6px 18px;cursor:pointer;border:1px solid var(--ide-accent,#0e639c);
+  background:var(--ide-accent,#0e639c);color:#fff;border-radius:3px}
+.ide-vscode-guide-retry:hover{filter:brightness(1.1)}
 .ide-vscode-loading,.ide-vscode-error{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;flex:1;font-size:12px;color:var(--ide-fg-muted);padding:20px;text-align:center}
 .ide-vscode-error{color:var(--ide-fg)}
 .ide-debug{padding:0 0 4px}
@@ -1078,6 +1105,18 @@ export const IDE_STYLES = `
 .ide-problems-pos{color:var(--ide-fg-dim);font-size:11px}
 /* ── Extensions view ───────────────────────────────────────────────── */
 .ide-extensions{padding:12px}
+.ide-extensions-callout{border:1px solid var(--ide-border,#2b2b2b);border-left:3px solid var(--ide-accent,#0e639c);
+  border-radius:6px;padding:12px 14px;margin-bottom:16px;background:var(--ide-tree-hover,rgba(255,255,255,.04))}
+.ide-extensions-callout-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;
+  color:var(--ide-fg,#cccccc);margin-bottom:8px}
+.ide-extensions-callout-icon{flex:none;width:16px;height:16px;border-radius:50%;background:var(--ide-accent,#0e639c);
+  color:#fff;font-size:11px;font-style:italic;font-weight:700;display:grid;place-items:center;line-height:1}
+.ide-extensions-callout-body{margin:0 0 8px;font-size:12px;line-height:1.65;color:var(--ide-fg-muted,#9d9d9d)}
+.ide-extensions-callout-action{display:inline-flex;align-items:center;gap:8px;margin-top:4px;padding:5px 12px;
+  font-size:12px;cursor:pointer;border-radius:3px;border:1px solid var(--ide-accent,#0e639c);
+  background:var(--ide-accent,#0e639c);color:#fff}
+.ide-extensions-callout-action:hover{filter:brightness(1.12)}
+.ide-extensions-callout-action svg{width:14px;height:14px;fill:currentColor}
 .ide-extensions-note{font-size:12px;color:var(--ide-fg-muted);line-height:1.6;margin-bottom:12px}
 .ide-extensions-list{display:flex;flex-direction:column;gap:6px}
 .ide-extensions-item{display:flex;align-items:center;gap:10px;background:var(--ide-tree-hover);border-radius:6px;padding:10px 12px}

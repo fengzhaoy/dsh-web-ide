@@ -23,7 +23,7 @@ export function installSetiFont(): void {
   fontInstalled = true
   const doc = document
   const style = doc.createElement('style')
-  style.setAttribute('data-dsh-ide-seti', '')
+  style.setAttribute('data-dsh-web-ide-seti', '')
   style.textContent =
     '@font-face{font-family:"seti";font-display:block;' +
     'src:url(data:font/woff;base64,' + setiFontBase64 + ') format("woff")}'

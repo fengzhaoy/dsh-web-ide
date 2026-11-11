@@ -13,14 +13,14 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import type { IdeDebugOpenResult } from './client/types.js'
 import type { IdeVscodeInfo } from './client/types.js'
-import { codeServerArgs, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
+import { codeServerArgs, codeServerCandidates, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
 // declaration-merged into the typert protocol's extensible
@@ -40,6 +40,12 @@ import {
   SEARCH_STDERR_MAX_BYTES,
   GREP_MAX_LINE_BYTES,
 } from '@deepseek-ai/dsh-tool-fs-search'
+
+import { closeGitWatch, pauseGitWatch, resumeGitWatch, waitForGitChange } from './git-watch.js'
+
+// Re-exported so scripts/test-git-watch.mjs can exercise the watcher rules
+// against the built bundle (the module itself is inlined by the bundler).
+export { closeGitWatch, currentGitVersion, pauseGitWatch, resumeGitWatch, waitForGitChange } from './git-watch.js'
 
 /** Prototype marker the typert protocol's Remote decorators write; declared
  * here as a plain property so this package needs no decorator lowering
@@ -688,6 +694,25 @@ export function findSafeReplayStart(text: string): number {
 /** Cap the returned matches per search. */
 const MAX_RESULTS = 250
 
+
+/**
+ * Rename the legacy `~/.dsh-ide` state directory to `~/.dsh-web-ide`.
+ *
+ * code-server keeps its user-data and extensions under that path; leaving the
+ * old directory behind would silently start the user with no extensions.
+ * Runs once: when the new directory already exists nothing is touched.
+ */
+function migrateLegacyStateDir(): void {
+  try {
+    const legacy = join(homedir(), '.dsh-ide')
+    const next = join(homedir(), '.dsh-web-ide')
+    if (!existsSync(legacy) || existsSync(next)) return
+    renameSync(legacy, next)
+  } catch {
+    // Read-only home or a racing instance: fall back to a fresh directory.
+  }
+}
+
 export class IdeTools extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'typert', 'llm', 'agentDefaultModel', 'fs']
 
@@ -752,6 +777,7 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitGenerateCommitMessage', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitTimeline', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitLog', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitWaitChanged', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCommitDetails', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCommitFileDiff', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCheckout', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -1019,10 +1045,19 @@ export class IdeTools extends TypertRemoteService {
 
     const bin = findCodeServer()
     if (bin === null) {
-      throw new RemoteError('ide-tools/vscode-missing', 'code-server is not installed on this machine', {})
+      // Hand the client the paths we actually probed: a user who installs and
+      // still sees this error needs to know where we looked.
+      throw new RemoteError('ide-tools/vscode-missing', 'code-server is not installed on this machine', {
+        searchedPaths: codeServerCandidates(),
+        platform: process.platform,
+      })
     }
     const port = nextFreePort(8787, [...this.vscodeServers.values()].map((e) => e.port))
-    const stateDir = join(homedir(), '.dsh-ide', 'code-server')
+    // The state directory was renamed with the plugin. Move an existing
+    // ~/.dsh-ide aside ONCE so a user's installed extensions and settings
+    // survive the rename instead of being recreated empty.
+    migrateLegacyStateDir()
+    const stateDir = join(homedir(), '.dsh-web-ide', 'code-server')
     const origin = 'http://127.0.0.1:' + String(port)
     const handle = this.ctx.subprocess.spawn({
       argv: [bin, ...codeServerArgs({
@@ -1497,6 +1532,9 @@ export class IdeTools extends TypertRemoteService {
       notARepo: true, branch: undefined, upstream: undefined, ahead: 0, behind: 0,
       detached: false, entries: [], clean: true,
     }
+    // Our own git command touches .git/index, so suspend the watcher for its
+    // duration: otherwise every status fetch schedules the next one.
+    if (cwd) pauseGitWatch(cwd)
     try {
       if (!cwd) return { ...EMPTY, notARepo: false }
       // --ignored=matching surfaces the '!' records so the explorer can paint
@@ -1510,7 +1548,32 @@ export class IdeTools extends TypertRemoteService {
     } catch (err) {
       if (err instanceof RemoteError && err.code === 'ide-tools/not-a-repo') return EMPTY
       throw err
+    } finally {
+      if (cwd) resumeGitWatch(cwd)
     }
+  }
+
+  /**
+   * Long-poll for a workspace change that could affect git status.
+   *
+   * The RPC layer is request/response only, so the file watcher is exposed as a
+   * long-poll: it resolves the moment a debounced file event lands, or after
+   * `timeoutMs` with the unchanged version. The client loops on it while the
+   * IDE is on screen, which reproduces VS Code's event-driven rescans without
+   * adding a push transport.
+   */
+  async gitWaitChanged(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    options: { since: number; timeoutMs?: number },
+    signal: AbortSignal | undefined,
+  ): Promise<{ version: number }> {
+    const root = workspaceFileScope.workspaceRoot
+    if (!root) return { version: options.since }
+    // Clamp the wait: a shorter poll keeps aborts responsive, a longer one
+    // saves requests. 25s sits under every common proxy idle timeout.
+    const timeout = Math.min(Math.max(options.timeoutMs ?? 25000, 1000), 60000)
+    const version = await waitForGitChange(root, options.since, timeout, signal)
+    return { version }
   }
 
   /** List local branches with ahead/behind and last-commit metadata. */
