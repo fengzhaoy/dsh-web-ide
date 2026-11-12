@@ -25,6 +25,8 @@ class NotificationCenter {
   private listeners = new Set<Listener>()
   private items: IdeNotification[] = []
   private unseen = 0
+  /** Do Not Disturb: keep recording, but never raise a toast. */
+  private dnd = false
   private nextId = 1
   /** Cached snapshot object: getSnapshot must return a stable reference
    *  between changes or useSyncExternalStore loops forever. */
@@ -40,12 +42,14 @@ class NotificationCenter {
   }
 
   notify(severity: NotifySeverity, message: string): void {
-    const item: IdeNotification = { id: this.nextId++, severity, message, at: Date.now(), toast: true }
+    // Do Not Disturb records the entry (so it still shows in the center) but
+    // skips the toast entirely — VS Code's DND behaves the same way.
+    const item: IdeNotification = { id: this.nextId++, severity, message, at: Date.now(), toast: !this.dnd }
     this.items = [item, ...this.items].slice(0, MAX_HISTORY)
     this.unseen += 1
     this.emit()
     // Auto-dismiss the toast (history keeps the entry).
-    setTimeout(() => { this.dismissToast(item.id) }, TOAST_MS)
+    if (item.toast) setTimeout(() => { this.dismissToast(item.id) }, TOAST_MS)
   }
 
   info(message: string): void { this.notify('info', message) }
@@ -71,6 +75,22 @@ class NotificationCenter {
   clearHistory(): void {
     this.items = []
     this.unseen = 0
+    this.emit()
+  }
+
+  /** Remove one entry (VS Code's per-row dismiss in the notification center). */
+  remove(id: number): void {
+    const next = this.items.filter((it) => it.id !== id)
+    if (next.length === this.items.length) return
+    this.items = next
+    this.emit()
+  }
+
+  /** Do Not Disturb: new notifications are recorded but never toast. */
+  get doNotDisturb(): boolean { return this.dnd }
+  setDoNotDisturb(value: boolean): void {
+    if (this.dnd === value) return
+    this.dnd = value
     this.emit()
   }
 

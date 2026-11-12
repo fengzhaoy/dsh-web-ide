@@ -293,6 +293,87 @@ export const IDE_CSS_VARS_2026: Record<string, string> = {
 
 /** Inline stylesheet injected once when the IDE mounts. VSCode-style geometry. */
 export const IDE_STYLES = `
+// ── About dialog: centred identity block, left-aligned prose below ──
+.ide-about-body{padding:4px 2px 2px;text-align:left}
+.ide-about-hero{text-align:center;padding:6px 0 14px;border-bottom:1px solid var(--ide-border,#2b2b2b);margin-bottom:14px}
+.ide-about-logo{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;
+  background:var(--ide-accent,#0e639c);color:#fff;font-size:13px;font-weight:700;letter-spacing:.5px;margin-bottom:9px}
+.ide-about-name{font-size:16px;font-weight:600;color:var(--ide-fg,#cccccc);letter-spacing:.2px}
+.ide-about-version{display:inline-block;margin-top:5px;padding:1px 8px;border-radius:10px;font-size:11px;
+  color:var(--ide-fg-dim,#9d9d9d);background:var(--ide-input-bg,#2d2d2d);font-family:Menlo,Consolas,monospace}
+.ide-about-lead{font-size:12.5px;line-height:1.7;color:var(--ide-fg-dim,#9d9d9d);margin:0 0 16px}
+.ide-about-why-title{font-size:12px;font-weight:600;color:var(--ide-fg,#cccccc);margin-bottom:10px;
+  text-transform:uppercase;letter-spacing:.6px;font-size:10.5px}
+.ide-about-why-list{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:10px}
+.ide-about-why-list li{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:baseline}
+.ide-about-why-list strong{font-size:12px;font-weight:600;color:var(--ide-fg,#cccccc)}
+.ide-about-why-list span{font-size:12px;line-height:1.65;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-about-meta{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;border-top:1px solid var(--ide-border,#2b2b2b);
+  border-bottom:1px solid var(--ide-border,#2b2b2b);margin-bottom:14px}
+.ide-about-meta>span{display:inline-flex;align-items:baseline;gap:5px;padding:2px 9px;border-radius:10px;
+  background:var(--ide-input-bg,#2d2d2d);font-size:11px}
+.ide-about-meta dt{color:var(--ide-fg-dim,#9d9d9d);margin:0}
+.ide-about-meta dd{margin:0;color:var(--ide-fg,#cccccc);font-family:Menlo,Consolas,monospace;font-size:11px}
+.ide-about-plugins-title{font-size:10.5px;font-weight:600;color:var(--ide-fg-dim,#9d9d9d);margin-bottom:8px;
+  text-transform:uppercase;letter-spacing:.6px}
+.ide-about-plugin-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.ide-about-plugin{display:flex;flex-direction:column;gap:3px;padding-left:10px;
+  border-left:2px solid var(--ide-accent,#0e639c)}
+.ide-about-plugin code{font-family:Menlo,Consolas,monospace;font-size:11.5px;color:var(--ide-accent,#3794ff)}
+.ide-about-plugin span{font-size:11.5px;line-height:1.6;color:var(--ide-fg-dim,#9d9d9d)}
+
+/* ── Notification center (VS Code notificationsCenter + notifications.css) ──
+   Colours: notifications.background #1F1F1F, notifications.border #2B2B2B,
+   notificationCenterHeader.background #1F1F1F, Icon.foreground from the
+   theme default (error #f48771, warning #CCA700, info #3a94bc). */
+.ide-notify-panel{position:fixed;width:420px;max-height:440px;display:flex;flex-direction:column;flex:none;
+  background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-border,#2b2b2b);border-radius:6px;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:85;overflow:hidden}
+.ide-notify-header{display:flex;align-items:center;gap:6px;flex:none;padding:6px 8px 6px 14px;font-size:12px;font-weight:600;
+  color:var(--ide-fg,#cccccc);background:var(--ide-menu-bg,#1f1f1f);border-bottom:1px solid var(--ide-border,#2b2b2b)}
+.ide-notify-header>span:first-child{flex:1;min-width:0}
+.ide-notify-actions{display:flex;align-items:center;gap:1px;flex:none}
+.ide-notify-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;
+  cursor:pointer;border:0;border-radius:4px;background:transparent;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-notify-action svg{width:14px;height:14px}
+.ide-notify-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+.ide-notify-action[data-active]{background:var(--ide-accent,#0e639c);color:#fff}
+.ide-notify-list{flex:1;min-height:0;overflow:auto}
+.ide-notify-empty{padding:18px 14px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);text-align:center}
+.ide-notify-item{display:flex;align-items:flex-start;gap:9px;padding:9px 10px 9px 14px;border-bottom:1px solid var(--ide-border,#2b2b2b);
+  font-size:12px;line-height:1.5;color:var(--ide-fg,#cccccc);position:relative}
+.ide-notify-item:hover{background:var(--ide-tree-hover,#2a2d2e)}
+.ide-notify-sev{flex:none;display:inline-flex;margin-top:1px}
+.ide-notify-sev svg{width:14px;height:14px}
+.ide-notify-error .ide-notify-sev{color:#f48771}
+.ide-notify-warning .ide-notify-sev{color:#cca700}
+.ide-notify-info .ide-notify-sev{color:#3a94bc}
+.ide-notify-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.ide-notify-msg{word-break:break-word}
+.ide-notify-source{font-size:11px;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-notify-dismiss{visibility:hidden;flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  padding:0;cursor:pointer;border:0;border-radius:3px;background:transparent;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-notify-dismiss svg{width:12px;height:12px}
+.ide-notify-dismiss:hover{background:var(--ide-tree-active,#04395e);color:var(--ide-fg,#cccccc)}
+.ide-notify-item:hover .ide-notify-dismiss{visibility:visible}
+
+
+.ide-note{margin:8px 10px 4px;padding:0;border-radius:4px;background:var(--ide-input-bg,#252526);
+  border:1px solid var(--ide-border,#3b3b3b);font-size:11.5px;line-height:1.55;overflow:hidden}
+.ide-note-toggle{display:flex;align-items:center;gap:5px;width:100%;padding:8px 10px;cursor:pointer;
+  background:transparent;border:0;text-align:left;color:var(--ide-fg,#cccccc);font-size:11.5px;font-weight:600}
+.ide-note-toggle:hover{background:var(--ide-tree-hover,#2a2d2e)}
+.ide-note-chevron{display:inline-flex;transition:transform .12s ease}
+.ide-note-chevron[data-open]{transform:rotate(90deg)}
+.ide-note-icon{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;
+  border-radius:50%;background:var(--ide-accent,#0e639c);color:#fff;font-size:9px;font-weight:700;flex:none}
+.ide-note-title{flex:1;min-width:0}
+.ide-note-body{padding:0 10px 10px 28px;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-note-body p{margin:0 0 6px}
+.ide-note-body p:last-child{margin-bottom:0}
+.ide-note-body code{display:inline-block;margin-left:4px;padding:0 5px;border-radius:3px;
+  background:var(--ide-menu-bg,#1f1f1f);font-family:Menlo,Consolas,monospace;font-size:11px;
+  color:var(--ide-accent,#3794ff)}
 /* While the IDE view is mounted in the conversation ring, take the full
    column: the session container stretches and the composer seat + width
    handles hide — same approach as the git-graph view. */
@@ -493,7 +574,7 @@ export const IDE_STYLES = `
 .ide-editor-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ide-fg-dim);font-size:13px;flex-direction:column;gap:8px}
 .ide-editor-empty svg{width:48px;height:48px;opacity:.4}
 .ide-statusbar{height:22px;flex:none;display:flex;align-items:center;background:var(--ide-statusbar-bg);color:var(--ide-statusbar-fg);font-size:12px;padding:0 8px;gap:12px}
-.ide-statusbar-left,.ide-statusbar-right{display:flex;align-items:center;gap:12px}
+.ide-statusbar-left,.ide-statusbar-right{display:flex;align-items:center;gap:12px;min-width:0;flex:none}
 .ide-statusbar-right{margin-left:auto}
 .ide-statusbar-item{display:flex;align-items:center;gap:4px;white-space:nowrap;background:transparent;border:none;color:inherit;font:inherit;cursor:default;padding:0}
 /* Icon glyphs default to the codicon base size (16px, VS Code status bar);
@@ -562,12 +643,7 @@ export const IDE_STYLES = `
    it does not scroll away inside the tree's scroll container. */
 .ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:70}
 .ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}.ide-dialog-wide{max-width:640px}
-.ide-about-plugins{margin-top:14px;padding-top:12px;border-top:1px solid var(--ide-border,#3b3b3b)}
-.ide-about-plugins-title{font-size:12px;font-weight:600;color:var(--ide-fg-dim,#9d9d9d);margin-bottom:8px}
-.ide-about-plugin-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.ide-about-plugin{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.5}
-.ide-about-plugin code{font-family:Menlo,Consolas,monospace;font-size:11.5px;color:var(--ide-accent,#3794ff)}
-.ide-about-plugin span{color:var(--ide-fg-dim,#9d9d9d)}
+// ── About: "why this over code-server" block ──
 
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:var(--ide-fg,#cccccc);font-size:13px}
 .ide-dialog-body{color:var(--ide-fg-muted,#9d9d9d);font-size:12px;line-height:1.6;margin-bottom:16px}
@@ -970,14 +1046,6 @@ export const IDE_STYLES = `
 .ide-settings-toggle input:checked + span:before{transform:translateX(16px);background:var(--ide-toggle-knob-on,#ffffff)}
 .ide-settings-actions{display:flex;gap:8px}
 .ide-settings-error{color:#f14c4c;font-size:12px;padding:4px 0}
-.ide-about-body{text-align:center;padding:8px 0}
-.ide-about-logo{font-size:24px;font-weight:700;color:var(--ide-accent);margin-bottom:4px}
-.ide-about-name{font-size:15px;font-weight:600;color:var(--ide-fg)}
-.ide-about-version{font-size:12px;color:var(--ide-fg-muted);margin-bottom:12px}
-.ide-about-rows{display:flex;flex-direction:column;gap:4px;text-align:left}
-.ide-about-rows div{display:flex;justify-content:space-between;font-size:12px}
-.ide-about-rows dt{color:var(--ide-fg-muted)}
-.ide-about-rows dd{color:var(--ide-fg);margin:0}
 .ide-kb-list{display:flex;flex-direction:column}
 .ide-kb-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--ide-border)}
 .ide-kb-command{flex:1;color:var(--ide-fg);font-size:12px}
@@ -1003,22 +1071,20 @@ export const IDE_STYLES = `
 .ide-palette-item[data-selected='true'] .ide-palette-keys{color:var(--ide-selection-fg,rgba(255,255,255,.75))}
 .ide-palette-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
 /* ── Notifications ─────────────────────────────────────────────────── */
-.ide-notify-root{position:relative;display:inline-flex}
+// The panel is PORTALLED to <body> and positioned with fixed against the
+// viewport (see NotificationCenter.tsx). Nothing here can affect it, and it can
+// affect nothing here: the bell keeps its exact 16px box, so opening the centre
+// never re-flows the status bar.
+.ide-notify-root{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
+.ide-notify-root>.ide-notify-bell{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center}
 .ide-notify-bell{position:relative}
-.ide-notify-bell[data-has-unseen='true']::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:#f14c4c}
-.ide-notify-panel{position:absolute;bottom:24px;right:0;width:320px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:85;overflow:hidden}
-.ide-notify-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;font-size:12px;font-weight:600;color:var(--ide-fg);border-bottom:1px solid var(--ide-border)}
-.ide-notify-clear{background:transparent;border:none;color:var(--ide-fg-muted);font-size:11px;cursor:pointer}
-.ide-notify-clear:hover{color:var(--ide-fg)}
-.ide-notify-list{max-height:280px;overflow:auto}
-.ide-notify-item{display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-bottom:1px solid var(--ide-border);font-size:12px}
-.ide-notify-sev svg{width:13px;height:13px}
-.ide-notify-error .ide-notify-sev{color:#f14c4c}
-.ide-notify-warning .ide-notify-sev{color:#cca700}
-.ide-notify-info .ide-notify-sev{color:#3794ff}
-.ide-notify-msg{flex:1;color:var(--ide-fg);word-break:break-word}
-.ide-notify-time{color:var(--ide-fg-dim);font-size:11px}
-.ide-notify-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
+// Unread marker: VS Code's status bar has no red badge on the bell, it just
+// swaps bell → bell-dot. The dot follows the status bar foreground
+// (statusBar.foreground, dark_modern.json) so it reads as white-on-dark.
+.ide-notify-bell[data-has-unseen='true']::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--ide-statusbar-fg,#cccccc)}
+.ide-notify-error 
+.ide-notify-warning 
+.ide-notify-info 
 .ide-toasts{position:absolute;right:12px;bottom:30px;display:flex;flex-direction:column;gap:6px;z-index:95;pointer-events:none}
 .ide-toast{display:flex;align-items:center;gap:8px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-left:3px solid var(--ide-accent);border-radius:4px;padding:8px 12px;font-size:12px;color:var(--ide-fg);box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;max-width:360px}
 .ide-toast-error{border-left-color:#f14c4c}
@@ -1143,27 +1209,8 @@ export const IDE_STYLES = `
 .ide-problems-pos{color:var(--ide-fg-dim);font-size:11px}
 /* ── Extensions view ───────────────────────────────────────────────── */
 .ide-extensions{padding:12px}
-.ide-extensions-callout{border:1px solid var(--ide-border,#2b2b2b);border-left:3px solid var(--ide-accent,#0e639c);
-  border-radius:6px;padding:12px 14px;margin-bottom:16px;background:var(--ide-tree-hover,rgba(255,255,255,.04))}
-.ide-extensions-callout-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;
-  color:var(--ide-fg,#cccccc);margin-bottom:8px}
-.ide-extensions-callout-icon{flex:none;width:16px;height:16px;border-radius:50%;background:var(--ide-accent,#0e639c);
-  color:#fff;font-size:11px;font-style:italic;font-weight:700;display:grid;place-items:center;line-height:1}
-.ide-extensions-callout-body{margin:0 0 8px;font-size:12px;line-height:1.65;color:var(--ide-fg-muted,#9d9d9d)}.ide-extensions-options{display:flex;flex-direction:column;gap:10px;margin-top:10px}
-.ide-extensions-option{padding:10px 12px;border-radius:4px;background:var(--ide-input-bg,#2d2d2d);
-  border:1px solid var(--ide-border,#3b3b3b)}
-.ide-extensions-option-head{font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ide-fg,#cccccc)}
-.ide-extensions-option code{display:inline-block;margin:4px 0;padding:1px 6px;border-radius:3px;
-  background:var(--ide-input-bg,#3c3c3c);font-family:Menlo,Consolas,monospace;font-size:11.5px;
-  color:var(--ide-accent,#3794ff)}
-.ide-extensions-option-body{font-size:12px;line-height:1.55;color:var(--ide-fg-dim,#9d9d9d)}
 
 
-.ide-extensions-callout-action{display:inline-flex;align-items:center;gap:8px;margin-top:4px;padding:5px 12px;
-  font-size:12px;cursor:pointer;border-radius:3px;border:1px solid var(--ide-accent,#0e639c);
-  background:var(--ide-accent,#0e639c);color:#fff}
-.ide-extensions-callout-action:hover{filter:brightness(1.12)}
-.ide-extensions-callout-action svg{width:14px;height:14px;fill:currentColor}
 .ide-extensions-note{font-size:12px;color:var(--ide-fg-muted);line-height:1.6;margin-bottom:12px}
 .ide-extensions-list{display:flex;flex-direction:column;gap:6px}
 .ide-extensions-item{display:flex;align-items:center;gap:10px;background:var(--ide-tree-hover);border-radius:6px;padding:10px 12px}

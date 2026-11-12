@@ -198,7 +198,12 @@ check('reorder keeps focus on the same terminal', /next\.indexOf\(terminalIds\[p
 check('extensions callout offers two textual routes', /market\.choice1/.test(extViewSrc) && /market\.choice2/.test(extViewSrc))
 check('extensions callout has no action button', !/ide-extensions-callout-action/.test(extViewSrc))
 check('extensions callout names the companion plugin', /@zhaoyang10\/dsh-web-vscode/.test(extViewSrc))
-check('extensions option CSS exists', /ide-extensions-option/.test(css))
+// Both side-bar notes share ONE primitive: any per-view class would drift.
+check('both notes use the shared CollapsibleNote primitive',
+  /CollapsibleNote/.test(extViewSrc) && /CollapsibleNote/.test(readFileSync(new URL('../src/client/run/RunView.tsx', import.meta.url), 'utf8')))
+check('neither note carries a per-view style class',
+  !/className="ide-extensions-callout"/.test(extViewSrc) && !/className="ide-runview-note"/.test(readFileSync(new URL('../src/client/run/RunView.tsx', import.meta.url), 'utf8')))
+check('the shared note styles exist', /\.ide-note-toggle/.test(css) && /\.ide-note-body/.test(css))
 
 // --- sidebar view must scroll, not stretch the pane ---
 const svMatch = /\.ide-sidebar-view\{([^}]*)\}/.exec(css)
@@ -230,6 +235,16 @@ check('save sends the version it loaded', /kind: 'replaceIfVersion', version: ve
 check('workbench fallback yields to the editor binding', /if \(inEditor \|\| inInput\) return \/\/ the editor binding or native handling wins/.test(ide))
 check('diff save has an in-flight lock', /if \(savingRef\.current\) return/.test(diffSrc))
 check('the lock is released on failure, success and throw', (diffSrc.match(/savingRef\.current = false/g) ?? []).length >= 3)
+
+// --- the notification panel must not shift the bell when it opens ---
+const bellRule = /\.ide-notify-root\{([^}]*)\}/.exec(css)
+check('notification root is explicitly sized (a shrink-to-fit parent would grow)', bellRule !== null && /width:\s*16px/.test(bellRule[1]) && /height:\s*16px/.test(bellRule[1]))
+check('notification root never shrinks the status bar item', bellRule !== null && /flex:\s*none/.test(bellRule[1]))
+// The panel is portalled to <body> and fixed to the viewport, so it cannot
+// re-flow the status bar it was opened from.
+check('notification panel is portalled out of the status bar',
+  /createPortal\(/.test(readFileSync(new URL('../src/client/NotificationCenter.tsx', import.meta.url), 'utf8')))
+check('notification panel is fixed to the viewport', /\.ide-notify-panel\{[^}]*position:\s*fixed/.test(css))
 
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

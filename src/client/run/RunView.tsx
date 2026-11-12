@@ -10,6 +10,7 @@ import { Icons } from '../icons.js'
 import { runDebug, useRunDebug } from './run-debug-store.js'
 import { describeState } from './task-output.js'
 import { DebugPanel } from './DebugPanel.js'
+import { CollapsibleNote } from '../CollapsibleNote.js'
 import type { DebugController, DebugState } from './use-debugger.js'
 import type { RunTask } from './run-config.js'
 
@@ -43,6 +44,15 @@ export function RunView({ tasks, loading, recents, onRun, onOpenBreakpoint, debu
 
   return (
     <div className="ide-runview" data-testid="ide-runview">
+      {/* Scope note for the built-in debugger. It attaches over the V8
+          Inspector, so it can pause, step and show the call stack, but it has
+          no variables tree, watch expressions, conditional breakpoints or
+          non-Node support. Rather than half-build a second DAP client, point at
+          the plugin that ships the real thing. */}
+      <CollapsibleNote title={t('run.debugScopeTitle')} testId="ide-runview-debug-scope">
+        <p>{t('run.debugScopeBody')}</p>
+        <p>{t('run.debugScopeHow')}<code>@zhaoyang10/dsh-web-vscode</code></p>
+      </CollapsibleNote>
       <DebugPanel
         debug={debug}
         state={debugState}

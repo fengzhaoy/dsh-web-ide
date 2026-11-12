@@ -279,14 +279,32 @@ export function AboutDialog({ t, version, monacoVersion, branch, onClose }: {
       <div className="ide-dialog ide-dialog-wide" role="dialog" data-testid="ide-about-dialog">
         <div className="ide-dialog-title">{t('about.title')}</div>
         <div className="ide-about-body">
-          <div className="ide-about-logo">{t('view.ide')}</div>
-          <div className="ide-about-name">dsh-web-ide</div>
-          <div className="ide-about-version">{t('about.version', { version })}</div>
-          <dl className="ide-about-rows">
-            <div><dt>Monaco</dt><dd>{monacoVersion}</dd></div>
-            <div><dt>{t('about.branch')}</dt><dd>{branch || '—'}</dd></div>
-            <div><dt>{t('about.runtime')}</dt><dd>DSH sidebar view</dd></div>
-          </dl>
+          {/* Identity block: the ONLY centred part of the dialog. */}
+          <div className="ide-about-hero">
+            <div className="ide-about-logo">{t('view.ide')}</div>
+            <div className="ide-about-name">dsh-web-ide</div>
+            <div className="ide-about-version">{version}</div>
+          </div>
+
+          {/* Everything below is left-aligned: prose reads badly centred. */}
+          <div className="ide-about-lead">{t('about.lead')}</div>
+
+          <div className="ide-about-why" data-testid="ide-about-why">
+            <div className="ide-about-why-title">{t('about.whyTitle')}</div>
+            <ul className="ide-about-why-list">
+              <li><strong>{t('about.why1Title')}</strong><span>{t('about.why1')}</span></li>
+              <li><strong>{t('about.why2Title')}</strong><span>{t('about.why2')}</span></li>
+              <li><strong>{t('about.why3Title')}</strong><span>{t('about.why3')}</span></li>
+              <li><strong>{t('about.why4Title')}</strong><span>{t('about.why4')}</span></li>
+            </ul>
+          </div>
+
+          <div className="ide-about-meta">
+            <span><dt>Monaco</dt><dd>{monacoVersion}</dd></span>
+            <span><dt>{t('about.branch')}</dt><dd>{branch || '—'}</dd></span>
+            <span><dt>{t('about.runtime')}</dt><dd>DSH sidebar view</dd></span>
+          </div>
+
           <div className="ide-about-plugins">
             <div className="ide-about-plugins-title">{t('about.plugins')}</div>
             <ul className="ide-about-plugin-list">

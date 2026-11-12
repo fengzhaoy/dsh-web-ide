@@ -9,6 +9,7 @@
  * to wonder why nothing installs here.
  */
 import { Icons } from './icons.js'
+import { CollapsibleNote } from './CollapsibleNote.js'
 
 type T = (key: string, params?: Record<string, string | number>) => string
 
@@ -29,24 +30,19 @@ export function ExtensionsView({ t }: {
       {/* The one thing a user needs to know before trying to install here:
           this pane has no extension host. Two textual routes instead of a
           button, because both paths leave this pane. */}
-      <div className="ide-extensions-callout" data-testid="ide-extensions-marketplace-note">
-        <div className="ide-extensions-callout-title">
-          <span className="ide-extensions-callout-icon" aria-hidden="true">i</span>
-          {t('extensions.market.title')}
-        </div>
-        <p className="ide-extensions-callout-body">{t('extensions.market.body')}</p>
-        <div className="ide-extensions-options">
-          <div className="ide-extensions-option" data-testid="ide-extensions-option-vscode-icon">
-            <div className="ide-extensions-option-head">{t('extensions.market.choice1')}</div>
-            <div className="ide-extensions-option-body">{t('extensions.market.choice1Body')}</div>
-          </div>
-          <div className="ide-extensions-option" data-testid="ide-extensions-option-plugin">
-            <div className="ide-extensions-option-head">{t('extensions.market.choice2')}</div>
-            <code>@zhaoyang10/dsh-web-vscode</code>
-            <div className="ide-extensions-option-body">{t('extensions.market.choice2Body')}</div>
-          </div>
-        </div>
-      </div>
+      <CollapsibleNote title={t('extensions.market.title')} testId="ide-extensions-marketplace-note">
+        <p>{t('extensions.market.body')}</p>
+        {/* Same body shape as the run/debug note: plain paragraphs, one per
+            route, with the package name inline in <code>. */}
+        <p data-testid="ide-extensions-option-vscode-icon">
+          <strong>{t('extensions.market.choice1')}</strong>
+          {' ' + t('extensions.market.choice1Body')}
+        </p>
+        <p data-testid="ide-extensions-option-plugin">
+          <strong>{t('extensions.market.choice2')}</strong>
+          {' ' + t('extensions.market.choice2Body')}<code>@zhaoyang10/dsh-web-vscode</code>
+        </p>
+      </CollapsibleNote>
 
       <div className="ide-extensions-note">{t('extensions.note')}</div>
       <div className="ide-extensions-list">
