@@ -70,6 +70,10 @@ function ensureFrame(url: string): HTMLIFrameElement {
   frame.title = 'VS Code'
   frame.setAttribute('data-testid', 'ide-vscode-frame')
   frame.setAttribute('allow', 'clipboard-read; clipboard-write')
+  // Keep the embedded workbench inside its own origin: without sandbox the
+  // frame inherits this document's capabilities. allow-scripts + same-origin
+  // is what code-server needs to run; downloads and popups stay denied.
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads')
   frame.src = url
   s.container.appendChild(frame)
   s.frame = frame
@@ -124,7 +128,11 @@ export function showVscodeFrame(url: string, anchor: HTMLElement): void {
         st.container.style.height = '0px'
       }
       last = ''
-      st.raf = requestAnimationFrame(tick)
+      // The pane is on another view tab. Keep polling (DSH hides instead of
+      // unmounting, so this loop is what notices the pane coming back) but at
+      // 4 Hz instead of 60: at 60 the querySelector + getBoundingClientRect
+      // below forced a layout on EVERY frame while the user was elsewhere.
+      setTimeout(() => { st.raf = requestAnimationFrame(tick) }, 250)
       return
     }
     const r = a.getBoundingClientRect()

@@ -112,6 +112,19 @@ export interface IdeSearchResult {
   readonly truncated: boolean
   readonly totalMatches: number
 }
+/** Outcome of a workspace replace. */
+export interface IdeSearchReplaceResult {
+  /** Files actually rewritten. */
+  readonly changed: readonly string[]
+  /** Total replacements made across those files. */
+  readonly replacements: number
+  /** Files skipped because they changed since they were read. */
+  readonly skipped: readonly IdeSearchSkip[]
+}
+export interface IdeSearchSkip {
+  readonly path: string
+  readonly reason: string
+}
 export interface IdeTerminalOpenResult {
   readonly terminalId: string
   readonly pid: number
@@ -330,9 +343,15 @@ export interface GitDiffResult {
 export interface IdeToolsRemote {
   search(
     sessionId: SessionId,
-    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean },
+    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchResult>>
+  /** Replace every match in the workspace (or under one path). */
+  searchReplace(
+    sessionId: SessionId,
+    query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    signal?: AbortSignal,
+  ): Promise<RemoteResult<IdeSearchReplaceResult>>
   /** Start or reuse a code-server for this workspace (Scheme C). */
   vscodeOpen(sessionId: SessionId, spec: { restart?: boolean }, signal?: AbortSignal): Promise<RemoteResult<IdeVscodeInfo>>
   /** Current code-server state, or null when none is running. */

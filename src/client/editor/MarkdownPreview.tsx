@@ -116,6 +116,14 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
     return () => { el.removeEventListener('scroll', report) }
   }, [onScrollRatio, html])
 
+/** Cap on the resolved-image cache. Every entry holds a full base64 data
+ *  URI, so a documentation folder with many screenshots grew this map without
+ *  bound for the lifetime of the preview pane. Past the cap the map is
+ *  dropped wholesale: re-resolving a visible image is one read, keeping tens
+ *  of megabytes of base64 alive is not.
+ */
+const IMAGE_CACHE_LIMIT = 64
+
   // Resolve every relative image target against the workspace.
   useEffect(() => {
     if (!sessionId) return
@@ -141,6 +149,7 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
         } catch {
           if (!cancelled) resolvedRef.current.set(rel, '')
         }
+        if (resolvedRef.current.size > IMAGE_CACHE_LIMIT) resolvedRef.current.clear()
         setResolveTick((n) => n + 1)
       }
     })()
@@ -304,6 +313,17 @@ export function MarkdownPreview({ sessionId, workspaceFiles, basePath, content, 
         const heading = doc.querySelector('#' + CSS.escape(decoded)) ?? doc.querySelector('#' + CSS.escape(rawId))
         heading?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
+      return
+    }
+    // External link (http/https/mailto). Letting the browser handle it
+    // replaced the WHOLE workbench with the target page, because this anchor
+    // lives in the app document, not inside an iframe. Open it in a new tab
+    // and keep the preview where it is (VS Code routes these to
+    // openExternal for the same reason).
+    const href = anchor.getAttribute('href') ?? ''
+    if (/^(https?:|mailto:)/i.test(href)) {
+      e.preventDefault()
+      window.open(href, '_blank', 'noopener,noreferrer')
     }
   }, [baseDir, onOpenPath])
 

@@ -1819,7 +1819,12 @@ export function IdeView(props: IdeViewInjected & {
 
   // Latest-values refs so the Monaco command and listeners never run stale closures.
   const activePathRef = useRef(activePath)
+  /** Latest session id, for callbacks that outlive their effect. */
+  const sessionRef = useRef(sessionId)
+  useEffect(() => { sessionRef.current = sessionId }, [sessionId])
   useEffect(() => { activePathRef.current = activePath }, [activePath])
+  /** Go-to-Definition, exposed to Monaco keybindings and mouse gestures. */
+  const goToDefinitionRef = useRef<() => Promise<void>>(async () => {})
   const saveRef = useRef<(path: string) => Promise<boolean>>(async () => false)
   // Repoint the cross-mount keybinding bridge at THIS mount's live closures
   // (session switches make the old ones stale: they would save into the
@@ -1829,7 +1834,10 @@ export function IdeView(props: IdeViewInjected & {
     ideKeyCommands.gotoDefinition = () => { void goToDefinitionRef.current() }
     ;(window as unknown as { __dshIdeCmd?: typeof ideKeyCommands }).__dshIdeCmd = ideKeyCommands
     return () => { if (ideKeyCommands.save !== undefined) ideKeyCommands.save = undefined }
-  })
+    // No dependencies on purpose: the handlers read refs only, so re-running
+    // is harmless -- but it re-assigned two globals on EVERY render. Mount
+    // once; the refs stay current by themselves.
+  }, [])
   // VS Code parity: Ctrl/Cmd+S works even when the editor does NOT have
   // focus (the keybinding is workbench-level). Monaco only sees keys while
   // focused, so a window-level fallback routes the same command id
@@ -1855,9 +1863,7 @@ export function IdeView(props: IdeViewInjected & {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  })
-  /** Go-to-Definition, exposed to Monaco keybindings and mouse gestures. */
-  const goToDefinitionRef = useRef<() => Promise<void>>(async () => {})
+  }, [])
   useEffect(() => { saveRef.current = saveFile })
   const reopenRef = useRef<(path: string) => Promise<void>>(async () => {})
   useEffect(() => { reopenRef.current = reopenFile })
@@ -2454,6 +2460,14 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.snippets', category: t('category.preferences'), label: t('command.snippets'), run: () => setSnippetsOpen(true) },
       { id: 'ide.about', category: t('category.help'), label: t('command.about'), run: () => setAboutOpen(true) },
       { id: 'ide.find', category: t('category.editor'), label: t('command.find'), run: triggerFind },
+      // Quick-input entry point for the palette's ':' prefix. Monaco binds
+      // Ctrl+G natively; this makes the same jump reachable without it.
+      { id: 'ide.gotoLine', category: t('category.editor'), label: t('command.gotoLine'), run: () => {
+        const ed = editorRef.current
+        if (ed === null || ed === undefined) return
+        ed.focus()
+        ed.trigger('palette', 'editor.action.gotoLine', null)
+      } },
       { id: 'ide.save', category: t('category.editor'), label: t('command.save'), run: () => { if (activePath !== undefined) void saveRef.current(activePath) } },
       { id: 'ide.toggleTerminal', category: t('category.view'), label: t('command.toggleTerminal'), run: () => { setTerminalOpen((v) => !v); setBottomTab('terminal') } },
       // Terminal commands (VS Code terminal actions). The panel exposes them;
@@ -2477,7 +2491,11 @@ export function IdeView(props: IdeViewInjected & {
         revealTerminal()
         terminalPanelRef.current?.sendText(text)
       } },
-      { id: 'ide.toggleSidebar', category: t('category.view'), label: t('command.toggleSidebar'), run: () => setSidebarView('explorer') },
+      // VS Code workbench.action.toggleSidebarVisibility: flips the side bar's
+      // VISIBILITY and leaves the active view alone. Switching the view to
+      // explorer (the old body) was a different command entirely, so Mod+B
+      // never collapsed anything.
+      { id: 'ide.toggleSidebar', category: t('category.view'), label: t('command.toggleSidebar'), run: () => setSidebarCollapsed((v) => !v) },
       { id: 'ide.toggleRightSidebar', category: t('category.view'), label: t('command.toggleRightSidebar'), run: () => setRightSidebarOpen((v) => !v) },
       { id: 'ide.runFile', category: t('category.run'), label: t('command.runFile'), run: () => runCurrentFile() },
       { id: 'ide.runTask', category: t('category.run'), label: t('command.runTask'), run: () => { void openTasksMenu() } },
@@ -2946,11 +2964,19 @@ export function IdeView(props: IdeViewInjected & {
                       setBottomTab('terminal')
                       setActiveTerminalIdx(terminalIds.length)
                       const cdLine = 'cd ' + ("'" + absDir.replace(/'/g, "'\\''") + "'") + '\r'
+                      // Give the shell a moment to reach its prompt. The timer is
+                      // not cancellable from here (this callback outlives the
+                      // effect), so guard the WRITE instead: if the user switched
+                      // sessions in the meantime this closure would otherwise type
+                      // `cd` into a terminal that belongs to another workspace.
+                      const openedFor = sessionId
+                      const openedTools = ideTools
                       window.setTimeout(() => {
+                        if (sessionRef.current !== openedFor) return
                         const bytes = new TextEncoder().encode(cdLine)
                         let bin = ''
                         for (const byte of bytes) bin += String.fromCharCode(byte)
-                        void ideTools.terminalWrite(sessionId, res.value.terminalId, btoa(bin))
+                        void openedTools.terminalWrite(openedFor, res.value.terminalId, btoa(bin)).catch(() => undefined)
                       }, 600)
                     }).catch((err) => { notifications.error(err instanceof Error ? err.message : String(err)) })
                   }}

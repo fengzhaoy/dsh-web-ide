@@ -12,6 +12,8 @@ import { delimiter, join } from 'node:path'
 
 /** One managed code-server process. */
 export interface VscodeServerEntry {
+  /** Per-server credential the iframe URL carries. */
+  readonly grant: string
   readonly port: number
   readonly origin: string
   readonly handle: import('@deepseek-ai/dsh-subprocess').SubprocessHandle
@@ -85,7 +87,11 @@ export function codeServerArgs(options: {
 }): string[] {
   return [
     '--bind-addr', '127.0.0.1:' + String(options.port),
-    '--auth', 'none',
+    // code-server default ('*') reads the password from CODE_SERVER_PASSWORD.
+    // `--auth none` trusted the loopback interface, which is NOT a boundary:
+    // any other page or process on this machine can reach 127.0.0.1 and would
+    // have driven a workbench with full filesystem and process access.
+    '--auth', '*',
     '--user-data-dir', options.userDataDir,
     '--extensions-dir', options.extensionsDir,
     '--disable-workspace-trust',
@@ -94,9 +100,16 @@ export function codeServerArgs(options: {
   ]
 }
 
-/** Build the iframe URL that opens `folder` in the workbench. */
-export function workspaceUrl(origin: string, folder: string): string {
-  return origin + '/?folder=' + encodeURIComponent(folder)
+/** Child env carrying the per-server password. It must travel through the
+ *  environment, never argv: `ps` shows argv to every user on the machine. */
+export function codeServerEnv(password: string): Record<string, string> {
+  return { CODE_SERVER_PASSWORD: password }
+}
+
+/** Build the iframe URL that opens `folder`, authenticated with the
+ *  per-server password code-server accepts as `?tkn=`. */
+export function workspaceUrl(origin: string, folder: string, password: string): string {
+  return origin + '/?tkn=' + encodeURIComponent(password) + '&folder=' + encodeURIComponent(folder)
 }
 
 /** Pick a free-ish port deterministically from a base, avoiding a range the

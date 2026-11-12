@@ -140,6 +140,10 @@ export async function waitForGitChange(
     const done = (): void => {
       state.waiters.delete(done)
       clearTimeout(timer)
+      // Detach the abort listener too: `once` only removes it when the abort
+      // ACTUALLY fires, so every timeout-completed long poll used to leave one
+      // listener behind on the request signal.
+      signal?.removeEventListener('abort', done)
       resolve()
     }
     const timer = setTimeout(done, timeoutMs)

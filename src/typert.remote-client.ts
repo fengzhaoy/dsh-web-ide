@@ -10,6 +10,7 @@ const _ide_tools_ideTools_search_parameter_1$schema = z.object({
   'include': z.string().optional(),
   'path': z.string().optional(),
   'caseSensitive': z.boolean().readonly(),
+  'regex': z.boolean().optional().readonly(),
 })
 const _ide_tools_ideTools_search_result$schema = z.object({
   'matches': z.array(z.object({
@@ -19,6 +20,23 @@ const _ide_tools_ideTools_search_result$schema = z.object({
   }).readonly()).readonly(),
   'truncated': z.boolean().readonly(),
   'totalMatches': z.number().readonly(),
+}).readonly()
+
+const _ide_tools_ideTools_searchReplace_parameter_1$schema = z.object({
+  'pattern': z.string().readonly(),
+  'replacement': z.string().readonly(),
+  'include': z.string().optional(),
+  'path': z.string().optional(),
+  'caseSensitive': z.boolean().readonly(),
+  'regex': z.boolean().optional().readonly(),
+})
+const _ide_tools_ideTools_searchReplace_result$schema = z.object({
+  'changed': z.array(z.string().readonly()).readonly(),
+  'replacements': z.number().readonly(),
+  'skipped': z.array(z.object({
+    'path': z.string().readonly(),
+    'reason': z.string().readonly(),
+  }).readonly()).readonly(),
 }).readonly()
 
 const _ide_tools_ideTools_debugOpen_parameter_1$schema = z.object({
@@ -400,6 +418,33 @@ export const TYPERT_REMOTE = {
         create: () => _ide_tools_ideTools_search_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 119, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/searchReplace',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'searchReplace',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'query',
+          wire: 'query',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/searchReplace:query',
+            create: () => _ide_tools_ideTools_searchReplace_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#IdeSearchReplaceResult',
+        create: () => _ide_tools_ideTools_searchReplace_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 863, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/debugOpen',

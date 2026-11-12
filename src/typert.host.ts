@@ -11,6 +11,7 @@ const _ide_tools_ideTools_search_parameter_1$schema = z.object({
   'include': z.string().optional(),
   'path': z.string().optional(),
   'caseSensitive': z.boolean().readonly(),
+  'regex': z.boolean().optional().readonly(),
 })
 const _ide_tools_ideTools_search_result$schema = z.object({
   'matches': z.array(z.object({
@@ -1743,9 +1744,16 @@ export const TYPERT = {
           {
             kind: 'method',
             name: 'search',
-            signature: "@Remote async search( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; include?: string; path?: string; caseSensitive: boolean }, signal: AbortSignal, ): Promise<IdeSearchResult>",
+            signature: "@Remote async search( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean }, signal: AbortSignal, ): Promise<IdeSearchResult>",
             summary: 'Grep the workspace via the shared ripgrep machinery.',
             jsDoc: '/** Grep the workspace via the shared ripgrep machinery. */',
+          },
+          {
+            kind: 'method',
+            name: 'searchReplace',
+            signature: "@Remote async searchReplace( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean }, signal: AbortSignal, ): Promise<{ changed: string[]; replacements: number; skipped: { path: string; reason: string }[] }>",
+            summary: 'Replace every match in the workspace, skipping files that changed on disk.',
+            jsDoc: '/** Replace every match in the workspace, skipping files that changed on disk. */',
           },
           {
             kind: 'method',

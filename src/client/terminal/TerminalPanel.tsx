@@ -530,7 +530,7 @@ function TerminalPanelImpl({
     ensuredInitialRef.current = true
     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
       if (res.ok) onTerminalOpened(res.value.terminalId)
-    }).catch(() => undefined).catch(() => {
+    }).catch(() => {
       // Leave the latch set: a failed spawn should not turn into a retry storm.
     })
   }, [sessionId, ideTools, terminalIds.length, onTerminalOpened])
@@ -1137,8 +1137,13 @@ function TerminalPanelImpl({
       ev.preventDefault()
       ev.stopPropagation()
     }
-    panelRef.current?.addEventListener('keydown', onKey, true)
-    return () => { panelRef.current?.removeEventListener('keydown', onKey, true) }
+    // Capture the element NOW. Reading panelRef.current in the cleanup was
+    // too late: React has already nulled the ref by then, so the listener was
+    // never removed and every open/close of the find bar stacked another one.
+    const panel = panelRef.current
+    if (panel === null) return
+    panel.addEventListener('keydown', onKey, true)
+    return () => { panel.removeEventListener('keydown', onKey, true) }
   }, [findFor, shellMenuOpen, closeFind])
 
   /** Toggle one of the three find modifiers (re-run happens in the effect). */

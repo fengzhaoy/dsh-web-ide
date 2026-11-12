@@ -800,6 +800,13 @@ export const IDE_STYLES = `
 .ide-diff-image{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 
 /* ── Search panel ─────────────────────────────────────────────────────── */
+.ide-search-replace{flex:1;min-width:0}
+.ide-search-note{font-size:11.5px;padding:4px 10px;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-search-file-replace{margin-left:auto;flex:none;font-size:11px;padding:1px 8px;cursor:pointer;
+  border-radius:3px;border:1px solid var(--ide-border,#3b3b3b);background:transparent;
+  color:var(--ide-fg-dim,#9d9d9d);visibility:hidden}
+.ide-search-file:hover .ide-search-file-replace{visibility:visible}
+.ide-search-file-replace:hover{background:var(--ide-input-bg,#2d2d2d);color:var(--ide-fg,#cccccc)}
 .ide-search-panel{display:flex;flex-direction:column;height:100%;min-height:0}
 .ide-search-inputs{padding:8px;border-bottom:1px solid var(--ide-border,#2b2b2b);display:flex;flex-direction:column;gap:6px}
 .ide-search-row{display:flex;gap:6px;align-items:stretch}

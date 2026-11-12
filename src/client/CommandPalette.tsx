@@ -18,8 +18,17 @@ export function CommandPalette({ t, onClose }: { t: T; onClose: () => void }) {
   const listRef = useRef<HTMLDivElement>(null)
   const isMac = useMemo(() => navigator.platform.toLowerCase().includes('mac'), [])
 
+  // VS Code Quick Open modes: '>' commands (also the default), ':' go to line,
+  // '@' symbols (unsupported here — falls back to commands with a notice),
+  // '#' workspace symbols (same). The prefix is stripped before matching.
+  const mode = query.startsWith('>') ? 'commands'
+    : query.startsWith(':') ? 'line'
+    : query.startsWith('@') ? 'symbols'
+    : query.startsWith('#') ? 'workspaceSymbols'
+    : 'commands'
+  const stripped = mode === 'commands' ? query.replace(/^>/, '') : query.slice(1)
   const filtered = useMemo(() => {
-    const q = query.trim()
+    const q = stripped.trim()
     const list: { cmd: IdeCommand; score: number }[] = []
     for (const cmd of commands) {
       const label = cmd.category + ': ' + cmd.label
@@ -29,7 +38,7 @@ export function CommandPalette({ t, onClose }: { t: T; onClose: () => void }) {
     }
     list.sort((a, b) => b.score - a.score)
     return list.map((x) => x.cmd)
-  }, [commands, query])
+  }, [commands, stripped])
 
   useEffect(() => { setSelected(0) }, [query])
 
@@ -38,6 +47,25 @@ export function CommandPalette({ t, onClose }: { t: T; onClose: () => void }) {
     const el = listRef.current?.querySelector('[data-selected="true"]')
     if (el) el.scrollIntoView({ block: 'nearest' })
   }, [selected])
+
+  /** Execute the Quick Open mode currently typed. Returns true when handled. */
+  const runMode = (): boolean => {
+    if (mode === 'line') {
+      const n = Number(stripped.trim())
+      if (!Number.isFinite(n) || n < 1) return false
+      const cmd = ideCommands.byId('ide.gotoLine')
+      if (cmd !== undefined) { onClose(); setTimeout(() => { cmd.run() }, 0); return true }
+      return false
+    }
+    if (mode === 'symbols' || mode === 'workspaceSymbols') {
+      // Not implemented in this build: run the closest equivalent instead of
+      // silently doing nothing.
+      const cmd = ideCommands.byId(mode === 'symbols' ? 'ide.find' : 'ide.findInFiles')
+      if (cmd !== undefined) { onClose(); setTimeout(() => { cmd.run() }, 0); return true }
+      return false
+    }
+    return false
+  }
 
   const runCommand = (cmd: IdeCommand) => {
     onClose()
@@ -48,7 +76,7 @@ export function CommandPalette({ t, onClose }: { t: T; onClose: () => void }) {
   const onKeydown = (e: React.KeyboardEvent): void => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((s) => Math.min(s + 1, filtered.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((s) => Math.max(s - 1, 0)) }
-    else if (e.key === 'Enter') { e.preventDefault(); const cmd = filtered[selected]; if (cmd) runCommand(cmd) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (runMode()) return; const cmd = filtered[selected]; if (cmd) runCommand(cmd) }
     else if (e.key === 'Escape') { e.preventDefault(); onClose() }
   }
 
@@ -61,7 +89,7 @@ export function CommandPalette({ t, onClose }: { t: T; onClose: () => void }) {
           className="ide-palette-input"
           data-testid="ide-palette-input"
           autoFocus
-          placeholder={t('palette.placeholder')}
+          placeholder={t(mode === 'line' ? 'palette.linePlaceholder' : mode === 'commands' ? 'palette.placeholder' : 'palette.unsupportedPlaceholder')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeydown}

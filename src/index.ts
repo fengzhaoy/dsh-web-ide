@@ -14,13 +14,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync, renameSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import type { IdeDebugOpenResult } from './client/types.js'
 import type { IdeVscodeInfo } from './client/types.js'
-import { codeServerArgs, codeServerCandidates, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
+import { codeServerArgs, codeServerCandidates, codeServerEnv, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
 // declaration-merged into the typert protocol's extensible
@@ -241,8 +242,19 @@ const INLINE_TIMEOUT_MS = 8000
  * The two calls this file makes are `resolve` (path → opaque target token) and
  * `writeText` (the guarded whole-file write).
  */
+/** Escape a literal so it can be used as a RegExp source. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 interface FsWriteSeam {
   resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<unknown>
+  /** Read a whole file as text together with the version it carried when read.
+   *  Older hosts returned the bare string, so callers must handle both. */
+  readText(
+    target: unknown,
+    signal?: AbortSignal,
+  ): Promise<string | { readonly text: string; readonly version: string }>
   writeText(
     target: unknown,
     content: string,
@@ -744,6 +756,7 @@ export class IdeTools extends TypertRemoteService {
         version: 1,
         methods: Object.freeze([
           Object.freeze({ method: 'search', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'searchReplace', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'terminalOpen', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'debugOpen', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'vscodeOpen', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -800,7 +813,7 @@ export class IdeTools extends TypertRemoteService {
   /** Workspace grep reusing dsh-tool-fs-search's ripgrep machinery verbatim. */
   async search(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
-    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean },
+    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
     signal: AbortSignal,
   ): Promise<IdeSearchResult> {
     const { workspaceRoot } = workspaceFileScope
@@ -816,7 +829,13 @@ export class IdeTools extends TypertRemoteService {
       const abs = resolveWorkspacePath(workspaceRoot, query.path)
       input.path = relative(workspaceRoot, abs).split(sep).join('/')
     }
+    // ripgrep treats the pattern as a REGEX by default; buildGrepCommand's
+    // --fixed-strings keeps the VS Code default (literal search). A regex
+    // search must drop that flag so the pattern reaches rg uncompiled.
     let argv = buildGrepCommand(input)
+    if (query.regex !== true) {
+      argv = ['-F', ...argv]
+    }
     if (!query.caseSensitive) argv = ['-i', ...argv]
     // runRipgrep reads only exec.signal and exec.agent.session.header.cwd at runtime
     // (see @deepseek-ai/dsh-tool-fs-search search-core). Its TS type widened to a full
@@ -832,6 +851,76 @@ export class IdeTools extends TypertRemoteService {
       truncated: total > kept.length,
       totalMatches: total,
     }
+  }
+
+  /**
+   * Replace every match of `pattern` in the workspace, or under one path.
+   *
+   * Each file is rewritten through the fs seam carrying the version it had when
+   * it was read. A file that changed underneath us is SKIPPED and reported, not
+   * clobbered — the caller lists the skips so the user can retry them.
+   */
+  async searchReplace(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    signal: AbortSignal,
+  ): Promise<{ changed: string[]; replacements: number; skipped: { path: string; reason: string }[] }> {
+    const { workspaceRoot } = workspaceFileScope
+    if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty', {})
+    const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
+    if (query.include !== undefined && query.include.length > 0) input.include = query.include
+    if (query.path !== undefined && query.path.length > 0) {
+      const abs = resolveWorkspacePath(workspaceRoot, query.path)
+      input.path = relative(workspaceRoot, abs).split(sep).join('/')
+    }
+    // Ask rg for the FILE LIST only: the per-file rewrite below must decide the
+    // hit count itself, and a second full parse would be wasted work.
+    let listArgv = buildGrepCommand(input).filter((a) => !a.startsWith('--regexp='))
+    if (query.regex !== true) listArgv = ['-F', ...listArgv]
+    if (!query.caseSensitive) listArgv = ['-i', ...listArgv]
+    listArgv.push('--files-with-matches', '--regexp=' + query.pattern)
+    const exec = { signal, agent: { session: { header: { cwd: workspaceRoot } } } }
+    const run = await runRipgrep(this.ctx as never, exec as never, 'grep', listArgv, RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_STDERR_MAX_BYTES)
+    const files = run.noMatches ? [] : run.stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+
+    let matcher: RegExp
+    try {
+      matcher = new RegExp(query.regex === true ? query.pattern : escapeRegExp(query.pattern), query.caseSensitive ? 'g' : 'gi')
+    } catch {
+      throw new RemoteError('ide-tools/bad-request', 'invalid pattern', {})
+    }
+
+    const fs = (this.ctx as unknown as { fs: FsWriteSeam }).fs
+    const changed: string[] = []
+    const skipped: { path: string; reason: string }[] = []
+    let replacements = 0
+    for (const file of files) {
+      if (signal.aborted) break
+      const abs = resolveWorkspacePath(workspaceRoot, file)
+      try {
+        const target = await fs.resolve(abs, { cwd: resolve(workspaceRoot), signal })
+        const read = await fs.readText(target, signal)
+        const before = typeof read === 'string' ? read : read.text
+        const version = typeof read === 'string' ? undefined : read.version
+        matcher.lastIndex = 0
+        let hits = 0
+        const after = before.replace(matcher, () => { hits += 1; return query.replacement })
+        if (hits === 0 || after === before) continue
+        await fs.writeText(
+          target,
+          after,
+          version === undefined ? undefined : { kind: 'replaceIfVersion', version },
+          signal,
+          writePolicyFor(this.ctx as never, workspaceFileScope),
+        )
+        changed.push(file)
+        replacements += hits
+      } catch (err) {
+        const code = (err as { code?: unknown }).code
+        skipped.push({ path: file, reason: code === 'FS_STALE_VERSION' ? 'changed on disk' : 'write failed' })
+      }
+    }
+    return { changed, replacements, skipped }
   }
 
   /** Spawn one interactive login shell in the workspace root. */
@@ -1042,7 +1131,7 @@ export class IdeTools extends TypertRemoteService {
     const existing = this.vscodeServers.get(sessionId)
     if (existing !== undefined && spec.restart !== true) {
       const ready = await this.probeVscode(existing)
-      return { url: workspaceUrl(existing.origin, workspaceRoot), port: existing.port, ready }
+      return { url: workspaceUrl(existing.origin, workspaceRoot, existing.grant), port: existing.port, ready }
     }
     if (existing !== undefined) await this.stopVscode(sessionId)
 
@@ -1062,6 +1151,9 @@ export class IdeTools extends TypertRemoteService {
     migrateLegacyStateDir()
     const stateDir = join(homedir(), '.dsh-web-ide', 'code-server')
     const origin = 'http://127.0.0.1:' + String(port)
+    // Fresh credential per server: the iframe URL carries it, and lockfile conns
+    // ( --auth * reads it from CODE_SERVER_* ) reject anyone else on loopback.
+    const grant = randomBytes(24).toString('base64url')
     const handle = this.ctx.subprocess.spawn({
       argv: [bin, ...codeServerArgs({
         port,
@@ -1069,10 +1161,13 @@ export class IdeTools extends TypertRemoteService {
         extensionsDir: join(stateDir, 'extensions'),
       })],
       cwd: workspaceRoot,
+      // The credential travels in the child env, never argv: ps shows argv to
+      // every user on the machine.
+      env: codeServerEnv(grant),
       stdio: { stdin: 'ignore' as const, stdout: { maxBytes: 200_000 }, stderr: { maxBytes: 200_000 } },
       graceMs: 5000,
     } as never)
-    this.vscodeServers.set(sessionId, { port, origin, handle, startedAt: Date.now(), ready: false })
+    this.vscodeServers.set(sessionId, { port, origin, grant, handle, startedAt: Date.now(), ready: false })
     void handle.done.then(() => { this.vscodeServers.delete(sessionId) }).catch(() => undefined)
 
     // Poll until the workbench answers; a cold start measured ~1.5s.
@@ -1081,7 +1176,7 @@ export class IdeTools extends TypertRemoteService {
       if (server === undefined) break
       if (await this.probeVscode(server)) {
         server.ready = true
-        return { url: workspaceUrl(origin, workspaceRoot), port, ready: true }
+        return { url: workspaceUrl(origin, workspaceRoot, grant), port, ready: true }
       }
       await new Promise((r) => setTimeout(r, 150))
     }
@@ -1097,7 +1192,7 @@ export class IdeTools extends TypertRemoteService {
     const server = this.vscodeServers.get(workspaceFileScope.sessionId)
     if (server === undefined) return null
     return {
-      url: workspaceUrl(server.origin, workspaceFileScope.workspaceRoot),
+      url: workspaceUrl(server.origin, workspaceFileScope.workspaceRoot, server.grant),
       port: server.port,
       ready: await this.probeVscode(server),
     }
