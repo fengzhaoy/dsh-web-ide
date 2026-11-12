@@ -141,6 +141,8 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
   const [saveError, setSaveError] = useState<string | null>(null)
   /** The worktree file's version at load time — the save's replaceIfVersion guard. */
   const versionRef = useRef<string | undefined>(undefined)
+  /** True while a save round-trip is in flight (dedupes duplicate keybindings). */
+  const savingRef = useRef(false)
   /** Whether the right side holds the COMPLETE worktree file (a truncated
    *  page must never be saved back). */
   const completeRef = useRef(false)
@@ -179,6 +181,12 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     if (!editable || !workspaceFilesWrite || commitSha !== undefined) return
     const model = modifiedRef.current
     if (!model || !dirtyRef.current || !completeRef.current) return
+    // One write in flight at a time. The same chord can reach this function
+    // through more than one binding (this pane binds Cmd+S on every mount);
+    // every call after the first would carry the PRE-write version and be
+    // refused as stale even though the first save succeeded.
+    if (savingRef.current) return
+    savingRef.current = true
     setSavePhase('saving')
     setSaveError(null)
     const content = model.getValue()
@@ -191,6 +199,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     try {
       const res = await workspaceFilesWrite.write(sessionId, path, content, intent)
       if (!res.ok) {
+        savingRef.current = false
         setSavePhase('error')
         setSaveError(res.error.code === 'workspace-file-write/stale-version'
           ? t('diff.staleError')
@@ -200,8 +209,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       versionRef.current = res.value.version
       dirtyRef.current = false
       setDirty(false)
+      savingRef.current = false
       setSavePhase('idle')
     } catch (err) {
+      savingRef.current = false
       setSavePhase('error')
       setSaveError(t('diff.saveError', { message: err instanceof Error ? err.message : String(err) }))
       return
@@ -408,11 +419,14 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         diffAlgorithm: 'advanced',
         minimap: { enabled: false },
         // Scroll-performance options, matching the VS Code desktop diff:
-        // cap the diff computation (VS Code maxComputationTime default), skip
-        // the overview ruler (the minimap is already off) and the gutter
-        // revert icon / gutter menu widgets VS Code draws per hunk row.
+        // cap the diff computation (VS Code maxComputationTime default) and
+        // drop the per-hunk-row gutter widgets VS Code draws.
         maxComputationTime: 5000,
-        renderOverviewRuler: false,
+        // The overview ruler STAYS ON: it is the right-hand strip of change
+        // blocks, and it is the only way to jump to a hunk without scrolling.
+        // Switching it off with the other two (a scroll-jank experiment) took
+        // that navigation away from the user.
+        renderOverviewRuler: true,
         renderMarginRevertIcon: false,
         renderGutterMenu: false,
         // VS Code default: unchanged regions stay expanded (hideUnchangedRegions
@@ -573,7 +587,14 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
           }
           absentRef.current = false
           if (versionRef.current !== undefined && res.value.version !== versionRef.current) {
-            versionRef.current = res.value.version
+            // Do NOT adopt the new version here. reloadRef() bails out when the
+            // pane has unsaved edits (it returns before touching the models),
+            // so updating versionRef first would leave the guard pointing at a
+            // version whose CONTENT this pane never loaded: the next save would
+            // either be refused as stale (the version slid under the user) or,
+            // worse, pass the guard and overwrite the external edit with a model
+            // built from the old bytes. reloadRef() owns versionRef: it updates
+            // it only after it actually replaced the content.
             void reloadRef.current()
             onExternalChange?.()
           }

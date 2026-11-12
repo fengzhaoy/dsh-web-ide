@@ -21,31 +21,31 @@ const BUILT_IN = [
   { id: 'settings', needs: 'settings.title' },
 ]
 
-export function ExtensionsView({ t, onOpenVscode }: {
+export function ExtensionsView({ t }: {
   t: T
-  /** Opens (or focuses) the VS Code pane, where the real marketplace lives. */
-  onOpenVscode?: () => void
 }) {
   return (
     <div className="ide-extensions" data-testid="ide-extensions">
-      {/* The one thing a user needs to know before trying to install here. */}
+      {/* The one thing a user needs to know before trying to install here:
+          this pane has no extension host. Two textual routes instead of a
+          button, because both paths leave this pane. */}
       <div className="ide-extensions-callout" data-testid="ide-extensions-marketplace-note">
         <div className="ide-extensions-callout-title">
           <span className="ide-extensions-callout-icon" aria-hidden="true">i</span>
           {t('extensions.market.title')}
         </div>
         <p className="ide-extensions-callout-body">{t('extensions.market.body')}</p>
-        <p className="ide-extensions-callout-body">{t('extensions.market.howto')}</p>
-        {onOpenVscode !== undefined && (
-          <button
-            className="ide-extensions-callout-action"
-            onClick={onOpenVscode}
-            data-testid="ide-extensions-open-vscode"
-          >
-            {Icons.vscodeLogo}
-            <span>{t('extensions.market.openVscode')}</span>
-          </button>
-        )}
+        <div className="ide-extensions-options">
+          <div className="ide-extensions-option" data-testid="ide-extensions-option-vscode-icon">
+            <div className="ide-extensions-option-head">{t('extensions.market.choice1')}</div>
+            <div className="ide-extensions-option-body">{t('extensions.market.choice1Body')}</div>
+          </div>
+          <div className="ide-extensions-option" data-testid="ide-extensions-option-plugin">
+            <div className="ide-extensions-option-head">{t('extensions.market.choice2')}</div>
+            <code>@zhaoyang10/dsh-web-vscode</code>
+            <div className="ide-extensions-option-body">{t('extensions.market.choice2Body')}</div>
+          </div>
+        </div>
       </div>
 
       <div className="ide-extensions-note">{t('extensions.note')}</div>

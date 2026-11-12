@@ -276,7 +276,7 @@ export function AboutDialog({ t, version, monacoVersion, branch, onClose }: {
   useEscapeToClose(true, onClose)
   return (
     <div className="ide-dialog-backdrop ide-dialog-modal" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="ide-dialog" role="dialog" data-testid="ide-about-dialog">
+      <div className="ide-dialog ide-dialog-wide" role="dialog" data-testid="ide-about-dialog">
         <div className="ide-dialog-title">{t('about.title')}</div>
         <div className="ide-about-body">
           <div className="ide-about-logo">{t('view.ide')}</div>
@@ -287,6 +287,19 @@ export function AboutDialog({ t, version, monacoVersion, branch, onClose }: {
             <div><dt>{t('about.branch')}</dt><dd>{branch || '—'}</dd></div>
             <div><dt>{t('about.runtime')}</dt><dd>DSH sidebar view</dd></div>
           </dl>
+          <div className="ide-about-plugins">
+            <div className="ide-about-plugins-title">{t('about.plugins')}</div>
+            <ul className="ide-about-plugin-list">
+              <li className="ide-about-plugin">
+                <code>@zhaoyang10/dsh-web-vscode</code>
+                <span>{t('about.plugin.dshWebVscode')}</span>
+              </li>
+              <li className="ide-about-plugin">
+                <code>@zhaoyang10/dsh-best-workspace</code>
+                <span>{t('about.plugin.dshBestWorkspace')}</span>
+              </li>
+            </ul>
+          </div>
         </div>
         <div className="ide-dialog-actions">
           <button className="ide-dialog-button" onClick={onClose} data-testid="ide-about-close">{t('settings.close')}</button>

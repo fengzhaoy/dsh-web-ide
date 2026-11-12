@@ -122,9 +122,7 @@ const ideEditor = {
   models: new Map<string, MonacoTextModel>(),
   /** Saved-content baseline per open path; the dirty flag compares against it. */
   saved: new Map<string, string>(),
-  /** Keybinding commands are bound ONCE on the singleton; remounts only
-   *  repoint the bridge (see ideKeyCommands below). */
-  commandsBound: false,  /** Create-or-adopt: returns a live editor attached inside the container. */
+  /** Create-or-adopt: returns a live editor attached inside the container. */
   async attach(container: HTMLElement): Promise<ReturnType<MonacoNS['editor']['create']>> {
     const m = await loadMonaco()
     const EDITOR_OPTIONS = {
@@ -1041,16 +1039,17 @@ export function IdeView(props: IdeViewInjected & {
         // collapses into one push.
         scheduleDirtyFlush()
       })
-      // addCommand's return value is not a stable IDisposable across Monaco
-      // builds; keybinding commands live with the singleton editor anyway.
-      // VS Code binds keybindings once on the workbench and routes them to the
-      // ACTIVE view; remounting must never stack stale closures, so the
-      // handlers only call through the cross-mount bridge.
-      if (!ideEditor.commandsBound) {
-        ideEditor.commandsBound = true
-        editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { ideKeyCommands.save?.() })
-        editor.addCommand(Monaco.KeyCode.F12, () => { ideKeyCommands.gotoDefinition?.() })
-      }
+      // Bind the save/definition chords on EVERY editor we create, not once.
+      // `ideEditor` is a module-level singleton and `commandsBound` latched on
+      // the first instance, so any later instance (tab switch, remount, hot
+      // reload, a file opened from the search panel) had no Cmd+S handler at
+      // all — while the window-level fallback below deliberately ignores keys
+      // that land inside .monaco-editor, leaving save dead in both places.
+      // Re-registering is safe: each call belongs to this editor instance and
+      // dies with it. The handlers only go through the cross-mount bridge, so
+      // they can never capture a stale closure.
+      editor.addCommand(Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS, () => { ideKeyCommands.save?.() })
+      editor.addCommand(Monaco.KeyCode.F12, () => { ideKeyCommands.gotoDefinition?.() })
       // Ctrl/Cmd+Click on a symbol goes to its definition, like VS Code.
       editor.onMouseDown((e) => {
         if (e.event.leftButton && (e.event.ctrlKey || e.event.metaKey) && e.target.position !== null) {
@@ -1842,6 +1841,13 @@ export function IdeView(props: IdeViewInjected & {
         const tag = el?.tagName?.toLowerCase()
         const inEditor = el?.closest(".monaco-editor") !== null
         const inInput = tag === 'input' || tag === 'textarea' || el?.isContentEditable === true
+        // Both the normal editor and the diff editor now register their OWN
+        // Monaco Cmd+S command, so a keypress inside either one already
+        // dispatches exactly one save. Firing the fallback there as well made
+        // one keypress issue THREE writes: the first succeeded and bumped the
+        // file version, the other two still carried the pre-write version and
+        // were rejected as stale. This handler covers only the case Monaco
+        // cannot: the workbench-level chord while no editor has focus.
         if (inEditor || inInput) return // the editor binding or native handling wins
         e.preventDefault()
         ideKeyCommands.save?.() // workbench.action.files.save
@@ -2789,7 +2795,7 @@ export function IdeView(props: IdeViewInjected & {
             </div>
           ) : sidebarView === 'extensions' ? (
             <div className="ide-sidebar-view">
-              <ExtensionsView t={t} onOpenVscode={() => { void openVscode() }} />
+              <ExtensionsView t={t} />
             </div>
           ) : sidebarView === 'git' ? (
             sessionId ? (

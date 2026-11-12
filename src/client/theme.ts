@@ -320,7 +320,8 @@ export const IDE_STYLES = `
 .ide-activitybar-icon:hover{color:var(--ide-fg)}
 .ide-activitybar-icon svg{width:24px;height:24px}
 .ide-activitybar-badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--ide-accent,#0078d4);color:#fff;font-size:9px;font-weight:600;line-height:16px;text-align:center;box-sizing:border-box;font-family:var(--ds-font-family-sans,-apple-system,'Segoe UI',sans-serif)}
-.ide-sidebar{position:relative;width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}
+.ide-sidebar{position:relative;width:var(--ide-sidebar-width,240px);min-width:170px;max-width:560px;flex:none;background:var(--ide-sidebar-bg);display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--ide-border)}.ide-sidebar-view{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column}
+
 /* Collapsed left panel: the activity bar stays, the panel takes no space.
    The hidden attribute cannot do this — the element is display:flex, which
    overrides the attribute display:none. */
@@ -558,7 +559,14 @@ export const IDE_STYLES = `
 /* Window-level modal variant (Explorer delete confirm): fixed to the viewport so
    it does not scroll away inside the tree's scroll container. */
 .ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:70}
-.ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}.ide-dialog-wide{max-width:640px}
+.ide-about-plugins{margin-top:14px;padding-top:12px;border-top:1px solid var(--ide-border,#3b3b3b)}
+.ide-about-plugins-title{font-size:12px;font-weight:600;color:var(--ide-fg-dim,#9d9d9d);margin-bottom:8px}
+.ide-about-plugin-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ide-about-plugin{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.5}
+.ide-about-plugin code{font-family:Menlo,Consolas,monospace;font-size:11.5px;color:var(--ide-accent,#3794ff)}
+.ide-about-plugin span{color:var(--ide-fg-dim,#9d9d9d)}
+
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:var(--ide-fg,#cccccc);font-size:13px}
 .ide-dialog-body{color:var(--ide-fg-muted,#9d9d9d);font-size:12px;line-height:1.6;margin-bottom:16px}
 .ide-dialog-actions{display:flex;gap:8px;justify-content:flex-end}
@@ -1127,7 +1135,16 @@ export const IDE_STYLES = `
   color:var(--ide-fg,#cccccc);margin-bottom:8px}
 .ide-extensions-callout-icon{flex:none;width:16px;height:16px;border-radius:50%;background:var(--ide-accent,#0e639c);
   color:#fff;font-size:11px;font-style:italic;font-weight:700;display:grid;place-items:center;line-height:1}
-.ide-extensions-callout-body{margin:0 0 8px;font-size:12px;line-height:1.65;color:var(--ide-fg-muted,#9d9d9d)}
+.ide-extensions-callout-body{margin:0 0 8px;font-size:12px;line-height:1.65;color:var(--ide-fg-muted,#9d9d9d)}.ide-extensions-options{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.ide-extensions-option{padding:10px 12px;border-radius:4px;background:var(--ide-input-bg,#2d2d2d);
+  border:1px solid var(--ide-border,#3b3b3b)}
+.ide-extensions-option-head{font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ide-fg,#cccccc)}
+.ide-extensions-option code{display:inline-block;margin:4px 0;padding:1px 6px;border-radius:3px;
+  background:var(--ide-input-bg,#3c3c3c);font-family:Menlo,Consolas,monospace;font-size:11.5px;
+  color:var(--ide-accent,#3794ff)}
+.ide-extensions-option-body{font-size:12px;line-height:1.55;color:var(--ide-fg-dim,#9d9d9d)}
+
+
 .ide-extensions-callout-action{display:inline-flex;align-items:center;gap:8px;margin-top:4px;padding:5px 12px;
   font-size:12px;cursor:pointer;border-radius:3px;border:1px solid var(--ide-accent,#0e639c);
   background:var(--ide-accent,#0e639c);color:#fff}
@@ -1279,6 +1296,13 @@ export const MONACO_DARK_MODERN = {
     'scrollbarSlider.hoverBackground': '#646464b3',
     'scrollbarSlider.activeBackground': '#bfbfbf66',
     'minimap.background': '#1f1f1f',
+    // The overview ruler is where a diff shows its change blocks and where a
+    // click jumps to that hunk, so it must be visible and match VS Code Dark
+    // Modern (extensions/theme-defaults/themes/dark_modern.json).
+    'editorOverviewRuler.border': '#010409',
+    'editorGutter.addedBackground': '#2ea043',
+    'editorGutter.modifiedBackground': '#0078d4',
+    'editorGutter.deletedBackground': '#f85149',
   },
 }
 

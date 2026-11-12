@@ -46,7 +46,9 @@ check('terminal icon still toggles the bottom panel', /onClick=\{\(\) => setTerm
 check('gear icon still opens the manage menu', /onClick=\{openManageMenu\}/.test(ide))
 
 // --- Ctrl+S save commands bind ONCE on the singleton (stale-closure fix) ---
-check('keybinding commands bind once via commandsBound flag', ide.includes('commandsBound: false') && ide.includes('if (!ideEditor.commandsBound)'))
+// The old latch bound Cmd+S on the FIRST editor only and stranded every later
+// instance (save dead). Each editor now binds its own chord.
+check('keybinding commands bind on every editor instance', ide.includes('Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.KeyS') && !ide.includes('if (!ideEditor.commandsBound)'))
 check('save keybinding routes through the cross-mount bridge', ide.includes('ideKeyCommands.save?.()'))
 check('bridge refresh effect points save at the live view', ide.includes('ideKeyCommands.save = () => {') && ide.includes('activePathRef.current'))
 check('global Ctrl+S fallback exists for non-editor focus', ide.includes('workbench.action.files.save'))

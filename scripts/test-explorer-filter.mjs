@@ -120,6 +120,7 @@ check('tree still receives raw entries for muted ignored coloring', ide.includes
 
 // --- VS Code tab: IDE chrome (toolbar + sidebar) yields to the workbench ---
 const css = readFileSync(new URL('../src/client/theme.ts', import.meta.url), 'utf8')
+const extViewSrc = readFileSync(new URL('../src/client/ExtensionsView.tsx', import.meta.url), 'utf8')
 const settings = readFileSync(new URL('../src/client/settingsStore.ts', import.meta.url), 'utf8')
 const frameHost = readFileSync(new URL('../src/client/vscodeFrameHost.ts', import.meta.url), 'utf8')
 const hostSrc = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
@@ -192,6 +193,43 @@ check('terminal offers Copy as HTML', /terminal\.copyHtml/.test(term))
 check('run selected text is a command', /ide\.runSelectionInTerminal/.test(ide) && /sendText/.test(term))
 check('terminal list supports drag reorder', /onDragStart/.test(term) && /onReorderTerminal/.test(ide))
 check('reorder keeps focus on the same terminal', /next\.indexOf\(terminalIds\[prevIdx\]/.test(ide))
+
+// --- extensions pane advertises the companion plugin ---
+check('extensions callout offers two textual routes', /market\.choice1/.test(extViewSrc) && /market\.choice2/.test(extViewSrc))
+check('extensions callout has no action button', !/ide-extensions-callout-action/.test(extViewSrc))
+check('extensions callout names the companion plugin', /@zhaoyang10\/dsh-web-vscode/.test(extViewSrc))
+check('extensions option CSS exists', /ide-extensions-option/.test(css))
+
+// --- sidebar view must scroll, not stretch the pane ---
+const svMatch = /\.ide-sidebar-view\{([^}]*)\}/.exec(css)
+check('the sidebar view container exists', svMatch !== null)
+if (svMatch !== null) {
+  const rule = svMatch[1]
+  check('sidebar view scrolls its own overflow', /overflow:\s*auto/.test(rule))
+  check('sidebar view can shrink below its content (min-height:0)', /min-height:\s*0/.test(rule))
+  check('sidebar view fills the remaining height (flex)', /flex:\s*1/.test(rule))
+}
+
+// --- diff overview ruler (click a block to jump to that hunk) ---
+const diffSrc = readFileSync(new URL('../src/client/git/DiffEditor.tsx', import.meta.url), 'utf8')
+check('diff editor keeps the overview ruler on', /renderOverviewRuler:\s*true/.test(diffSrc))
+check('diff editor does not disable the ruler anywhere', !/renderOverviewRuler:\s*false/.test(diffSrc))
+check('overview ruler border colour comes from VS Code', /editorOverviewRuler\.border/.test(css))
+
+// --- Cmd+S must work on every editor instance, not just the first ---
+check('save chord is bound per editor instance', /editor\.addCommand\(Monaco\.KeyMod\.CtrlCmd \| Monaco\.KeyCode\.KeyS/.test(ide))
+check('no commandsBound latch can strand later editors', !/ideEditor\.commandsBound/.test(ide) && !/commandsBound:/.test(ide))
+// (removed) fallback must NOT fire inside the editor: it duplicated the editor binding
+
+// --- diff save: versionRef must follow the CONTENT, never the poll ---
+check('external-change poll does not adopt a version it did not load', !/versionRef\.current = res\.value\.version\s*\n\s*void reloadRef\.current\(\)/.test(diffSrc))
+check('reload owns versionRef (updates after setValue)', /newText = decodeBytesUtf8\(fileRes\.value\.data\)\s*\n\s*versionRef\.current = fileRes\.value\.version/.test(diffSrc))
+check('save sends the version it loaded', /kind: 'replaceIfVersion', version: versionRef\.current/.test(diffSrc))
+
+// --- one Cmd+S must produce exactly one write ---
+check('workbench fallback yields to the editor binding', /if \(inEditor \|\| inInput\) return \/\/ the editor binding or native handling wins/.test(ide))
+check('diff save has an in-flight lock', /if \(savingRef\.current\) return/.test(diffSrc))
+check('the lock is released on failure, success and throw', (diffSrc.match(/savingRef\.current = false/g) ?? []).length >= 3)
 
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)
