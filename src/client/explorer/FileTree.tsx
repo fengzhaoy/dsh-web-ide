@@ -245,6 +245,41 @@ function findRow(path: string): HTMLElement | null {
 }
 
 export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileTree({ sessionId, rootDir, workspaceFiles, activePath, onOpenFile, t, gitEntries, ideToolsFull, onFileRenamed, onFileDeleted, onOpenInTerminal }, ref) {
+  /**
+   * Multi-selection (VS Code explorer): plain click replaces the set, Ctrl/Cmd
+   * click toggles one row, Shift click extends from the anchor. The set only
+   * drives highlighting and drag-move; opening a file still follows the plain
+   * click so a range selection does not spam tabs.
+   */
+  const [selection, setSelection] = useState<ReadonlySet<string>>(() => new Set())
+  const anchorRef = useRef<string | null>(null)
+  /** Rows in visible order, for Shift-range between anchor and target. */
+  const orderRef = useRef<string[]>([])
+  const applyClickSelection = useCallback((path: string, e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    const additive = e.metaKey || e.ctrlKey
+    if (e.shiftKey && anchorRef.current !== null) {
+      const order = orderRef.current
+      const from = order.indexOf(anchorRef.current)
+      const to = order.indexOf(path)
+      if (from >= 0 && to >= 0) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        setSelection(new Set(order.slice(lo, hi + 1)))
+        return
+      }
+    }
+    if (additive) {
+      setSelection((prev) => {
+        const next = new Set(prev)
+        if (next.has(path)) next.delete(path)
+        else next.add(path)
+        return next
+      })
+      anchorRef.current = path
+      return
+    }
+    anchorRef.current = path
+    setSelection(new Set([path]))
+  }, [])
   // Root directory state, listed from the absolute workspace root.
   const [rootState, setRootState] = useState<DirState>({ entries: [], truncated: false, loading: true, error: null })
   // The workspace root renders as its own expandable row (VS Code shows the
@@ -688,6 +723,8 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
   // loads lazily per directory so this is the single source of truth for both
   // ↑/↓ keyboard movement and "does this directory contain a visible match".
   const [visiblePaths, setVisiblePaths] = useState<readonly string[]>([])
+  // Shift-range needs the on-screen order; visiblePaths is exactly that.
+  useEffect(() => { orderRef.current = [...visiblePaths] }, [visiblePaths])
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       const rows = Array.from(document.querySelectorAll<HTMLElement>('.ide-explorer-tree .ide-tree-row[data-path]'))
@@ -847,6 +884,9 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
             setFocusPath={setFocusPath}
             filterText={filterText}
             visiblePaths={visiblePaths}
+            selectedPaths={selection}
+            onClickSelection={applyClickSelection}
+            dragPathsFor={(p) => selection.has(p) ? [...selection] : [p]}
           />
         ))}
         {state.truncated && <div className="ide-tree-truncated">{t('tree.truncated')}</div>}
@@ -1022,6 +1062,12 @@ interface TreeNodeProps {
   filterText?: string
   /** Flat visible-paths list for keyboard navigation (↑↓ movement). */
   visiblePaths?: readonly string[]
+  /** Rows in the current multi-selection (highlighted like VS Code). */
+  selectedPaths?: ReadonlySet<string>
+  /** Click routing for multi-select (plain / Ctrl / Shift). */
+  onClickSelection?: (path: string, e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void
+  /** All paths a drag should carry (a multi-selection drags as a group). */
+  dragPathsFor?: (path: string) => string[]
 }
 
 /** Everything the inline-create input needs, threaded from FileTree. */
@@ -1174,7 +1220,7 @@ function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPa
   )
 }
 
-function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths, onDirLoaded }: TreeNodeProps) {
+function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths, onDirLoaded, selectedPaths, onClickSelection, dragPathsFor }: TreeNodeProps) {
   const childPath = joinPath(dirPath, entry.name)
   const isDir = entry.type === 'directory'
   const isOpen = expanded.has(childPath)
@@ -1200,7 +1246,11 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
     setChildState(null)
   }, [refreshKey])
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    // Multi-select first: it only updates the highlight set.
+    onClickSelection?.(childPath, e)
+    const additive = e.metaKey || e.ctrlKey
+    if (e.shiftKey || additive) return // a range/toggle click never opens a tab
     if (isDir) {
       if (isOpen) {
         // Collapse and forget children so reopening re-fetches.
@@ -1211,6 +1261,28 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       onOpenFile(childPath)
     }
   }
+
+  /**
+   * VS Code "compact folders": while a collapsed directory holds exactly ONE
+   * child and that child is also a directory, show them as one row
+   * (`a/b/c`). Expansion still happens on the real path, so every guard below
+   * keeps working against `childPath`; only the label and the row it draws
+   * change.
+   */
+  const compacted = useMemo(() => {
+    if (!isDir || isOpen || childState === null) return { label: entry.name, chain: [] as string[] }
+    let label = entry.name
+    const chain: string[] = []
+    // One level of look-ahead is enough: the child row renders its own chain.
+    if (childState.error === null && childState.entries.length === 1) {
+      const only = childState.entries[0]
+      if (only !== undefined && only.type === 'directory') {
+        label = label + '/' + only.name
+        chain.push(joinPath(childPath, only.name))
+      }
+    }
+    return { label, chain }
+  }, [isDir, isOpen, childState, entry.name, childPath])
 
   const isActive = !isDir && activePath === childPath
   const paddingLeft = depth * 12 + 4
@@ -1380,6 +1452,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
       <div
         className="ide-tree-row"
         data-active={isActive || undefined}
+        data-selected={selectedPaths?.has(childPath) === true || undefined}
         data-focused={isFocused || undefined}
         data-cut={isCut || undefined}
         data-path={childPath}
@@ -1390,15 +1463,26 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
         onKeyDown={handleKeyDown}
         tabIndex={0}
         draggable={!isRenaming}
-        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', childPath) }}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          // A drag started on a selected row carries the WHOLE selection
+          // (VS Code moves every selected entry); otherwise just this row.
+          const paths = dragPathsFor?.(childPath) ?? [childPath]
+          e.dataTransfer.setData('text/plain', paths.join('\n'))
+        }}
         onDragOver={isDir ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDir !== childPath) setDragOverDir?.(childPath) } : undefined}
         onDragLeave={isDir ? () => { if (dragOverDir === childPath) setDragOverDir?.(null) } : undefined}
         onDrop={isDir ? (e) => {
           e.preventDefault()
           e.stopPropagation()
-          const src = e.dataTransfer.getData('text/plain')
+          // A multi-selection drag carries one path per line; move each in turn.
+          // Entries that cannot move (self, ancestor, already there) are skipped
+          // by dropInto's own guards.
+          const sources = e.dataTransfer.getData('text/plain').split('\n').filter((s) => s.length > 0)
           setDragOverDir?.(null)
-          if (src.length > 0 && src !== childPath && !src.startsWith(childPath + '/')) onDropInto?.(src, childPath)
+          for (const src of sources) {
+            if (src !== childPath && !src.startsWith(childPath + '/')) onDropInto?.(src, childPath)
+          }
         } : undefined}
         onFocus={() => setFocusPath?.(childPath)}
       >
@@ -1423,7 +1507,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
             onDoubleClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="ide-tree-name" style={gitColor ? ({ color: gitColor } as React.CSSProperties) : undefined}>{entry.name}</span>
+          <span className="ide-tree-name" style={gitColor ? ({ color: gitColor } as React.CSSProperties) : undefined}>{compacted.label}</span>
         )}
         {gitLetter && (
           <span className="ide-tree-git-badge" style={gitColor ? ({ color: gitColor } as React.CSSProperties) : undefined}>{gitLetter}</span>

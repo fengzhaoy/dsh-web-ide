@@ -22,6 +22,11 @@ const _ide_tools_ideTools_search_result$schema = z.object({
   'totalMatches': z.number().readonly(),
 }).readonly()
 
+const _ide_tools_ideTools_gitStagePatch_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitStagePatch_result$schema = z.void()
+const _ide_tools_ideTools_gitUnstagePatch_parameter_1$schema = z.string()
+const _ide_tools_ideTools_gitUnstagePatch_result$schema = z.void()
+
 const _ide_tools_ideTools_searchReplace_parameter_1$schema = z.object({
   'pattern': z.string().readonly(),
   'replacement': z.string().readonly(),
@@ -1220,6 +1225,60 @@ export const TYPERT_REMOTE = {
         create: () => _ide_tools_ideTools_gitStage_result$schema,
       },
       sourceLocation: { file: 'src/index.ts', line: 700, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitStagePatch',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitStagePatch',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'patch',
+          wire: 'patch',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitStagePatch:patch',
+            create: () => _ide_tools_ideTools_gitStagePatch_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitStagePatchResult',
+        create: () => _ide_tools_ideTools_gitStagePatch_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 2360, column: 3 },
+    },
+    {
+      id: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstagePatch',
+      service: 'ideTools',
+      namespace: 'ideTools',
+      method: 'gitUnstagePatch',
+      invocation: { kind: 'direct' },
+      parameters: [
+        _scope_parameter('@deepseek-ai/dsh-session/types#SessionId'),
+        {
+          name: 'patch',
+          wire: 'patch',
+          source: 'json',
+          codec: {
+            mode: 'strict',
+            typeSymbol: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstagePatch:patch',
+            create: () => _ide_tools_ideTools_gitUnstagePatch_parameter_1$schema,
+          },
+        },
+      ],
+      cancellation: { parameter: 'signal' },
+      result: {
+        mode: 'strict',
+        typeSymbol: '@zhaoyang10/dsh-web-ide/types#GitUnstagePatchResult',
+        create: () => _ide_tools_ideTools_gitUnstagePatch_result$schema,
+      },
+      sourceLocation: { file: 'src/index.ts', line: 2382, column: 3 },
     },
     {
       id: '@zhaoyang10/dsh-web-ide#ideTools/gitUnstage',

@@ -14,14 +14,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync, renameSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import type { IdeDebugOpenResult } from './client/types.js'
 import type { IdeVscodeInfo } from './client/types.js'
-import { codeServerArgs, codeServerCandidates, codeServerEnv, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
+import { codeServerArgs, codeServerCandidates, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
 // declaration-merged into the typert protocol's extensible
@@ -775,6 +774,8 @@ export class IdeTools extends TypertRemoteService {
           Object.freeze({ method: 'gitBranches', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDiff', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitStage', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitStagePatch', invocation: Object.freeze({ kind: 'direct' }) }),
+          Object.freeze({ method: 'gitUnstagePatch', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitDiscard', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitCommit', invocation: Object.freeze({ kind: 'direct' }) }),
           Object.freeze({ method: 'gitStageAll', invocation: Object.freeze({ kind: 'direct' }) }),
@@ -1131,7 +1132,7 @@ export class IdeTools extends TypertRemoteService {
     const existing = this.vscodeServers.get(sessionId)
     if (existing !== undefined && spec.restart !== true) {
       const ready = await this.probeVscode(existing)
-      return { url: workspaceUrl(existing.origin, workspaceRoot, existing.grant), port: existing.port, ready }
+      return { url: workspaceUrl(existing.origin, workspaceRoot), port: existing.port, ready }
     }
     if (existing !== undefined) await this.stopVscode(sessionId)
 
@@ -1151,9 +1152,6 @@ export class IdeTools extends TypertRemoteService {
     migrateLegacyStateDir()
     const stateDir = join(homedir(), '.dsh-web-ide', 'code-server')
     const origin = 'http://127.0.0.1:' + String(port)
-    // Fresh credential per server: the iframe URL carries it, and lockfile conns
-    // ( --auth * reads it from CODE_SERVER_* ) reject anyone else on loopback.
-    const grant = randomBytes(24).toString('base64url')
     const handle = this.ctx.subprocess.spawn({
       argv: [bin, ...codeServerArgs({
         port,
@@ -1161,13 +1159,10 @@ export class IdeTools extends TypertRemoteService {
         extensionsDir: join(stateDir, 'extensions'),
       })],
       cwd: workspaceRoot,
-      // The credential travels in the child env, never argv: ps shows argv to
-      // every user on the machine.
-      env: codeServerEnv(grant),
       stdio: { stdin: 'ignore' as const, stdout: { maxBytes: 200_000 }, stderr: { maxBytes: 200_000 } },
       graceMs: 5000,
     } as never)
-    this.vscodeServers.set(sessionId, { port, origin, grant, handle, startedAt: Date.now(), ready: false })
+    this.vscodeServers.set(sessionId, { port, origin, handle, startedAt: Date.now(), ready: false })
     void handle.done.then(() => { this.vscodeServers.delete(sessionId) }).catch(() => undefined)
 
     // Poll until the workbench answers; a cold start measured ~1.5s.
@@ -1176,7 +1171,7 @@ export class IdeTools extends TypertRemoteService {
       if (server === undefined) break
       if (await this.probeVscode(server)) {
         server.ready = true
-        return { url: workspaceUrl(origin, workspaceRoot, grant), port, ready: true }
+        return { url: workspaceUrl(origin, workspaceRoot), port, ready: true }
       }
       await new Promise((r) => setTimeout(r, 150))
     }
@@ -1192,7 +1187,7 @@ export class IdeTools extends TypertRemoteService {
     const server = this.vscodeServers.get(workspaceFileScope.sessionId)
     if (server === undefined) return null
     return {
-      url: workspaceUrl(server.origin, workspaceFileScope.workspaceRoot, server.grant),
+      url: workspaceUrl(server.origin, workspaceFileScope.workspaceRoot),
       port: server.port,
       ready: await this.probeVscode(server),
     }
@@ -1435,12 +1430,14 @@ export class IdeTools extends TypertRemoteService {
     workspaceRoot: string,
     argv: readonly string[],
     signal: AbortSignal | undefined,
+    /** Text piped to git's stdin (used by `git apply -`). Omitted = no stdin. */
+    stdin?: string,
   ): Promise<string> {
     const spec = {
       argv: ['git', ...argv],
       cwd: workspaceRoot,
       stdio: {
-        stdin: 'ignore' as const,
+        stdin: (stdin === undefined ? 'ignore' : 'pipe') as 'ignore' | 'pipe',
         stdout: { maxBytes: IdeTools.GIT_STDOUT_MAX_BYTES },
         stderr: { maxBytes: IdeTools.GIT_STDERR_MAX_BYTES },
       },
@@ -1452,6 +1449,17 @@ export class IdeTools extends TypertRemoteService {
       handle = this.ctx.subprocess.spawn(spec as never)
     } catch {
       throw new RemoteError('ide-tools/git-failed', 'git command could not start', {})
+    }
+    if (stdin !== undefined) {
+      // Feed the patch and close the stream, otherwise `git apply -` waits for
+      // EOF forever and the timeout path reports a bogus git-timeout.
+      const handleWithWrite = handle as unknown as { write?: (text: string) => Promise<void>; end?: () => Promise<void> }
+      try {
+        if (typeof handleWithWrite.write === 'function') await handleWithWrite.write(stdin)
+        if (typeof handleWithWrite.end === 'function') await handleWithWrite.end()
+      } catch {
+        // The command already failed or exited; its own error is reported below.
+      }
     }
     let outcome: import('@deepseek-ai/dsh-subprocess').SubprocessOutcome
     // Race the process against a hard deadline. `terminate()` is best-effort:
@@ -2370,6 +2378,51 @@ export class IdeTools extends TypertRemoteService {
     if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is empty', {})
     try {
       await this.runGit(cwd, ['add', '--', path], signal)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-stage-failed', message, {})
+    }
+  }
+
+  /**
+   * Stage PART of a file (VS Code "Stage Selected Ranges" / "Stage Change").
+   *
+   * The caller builds a unified-diff patch containing only the hunks it wants
+   * and sends it here; `git apply --cached` then moves exactly those hunks into
+   * the index and leaves the rest of the working tree alone.
+   */
+  async gitStagePatch(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    patch: string,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+    if (patch.trim().length === 0) throw new RemoteError('ide-tools/bad-request', 'patch is empty', {})
+    try {
+      // --cached touches ONLY the index; --unidiff-zero lets a hand-built patch
+      // carry zero-context hunks, which is how a single changed line is staged.
+      await this.runGit(cwd, ['apply', '--cached', '--unidiff-zero', '-'], signal, patch)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new RemoteError('ide-tools/git-stage-failed', message, {})
+    }
+  }
+
+  /**
+   * Un-stage PART of a file. The inverse of gitStagePatch: the patch is applied
+   * to the index in reverse, so the selected hunks leave the staged set.
+   */
+  async gitUnstagePatch(
+    workspaceFileScope: { sessionId: string; workspaceRoot: string },
+    patch: string,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const { workspaceRoot: cwd } = workspaceFileScope
+    if (!cwd) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
+    if (patch.trim().length === 0) throw new RemoteError('ide-tools/bad-request', 'patch is empty', {})
+    try {
+      await this.runGit(cwd, ['apply', '--cached', '--unidiff-zero', '--reverse', '-'], signal, patch)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       throw new RemoteError('ide-tools/git-stage-failed', message, {})

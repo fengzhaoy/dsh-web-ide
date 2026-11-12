@@ -8,7 +8,7 @@
  * view unmounts. It shares the Monaco namespace + theme already loaded by the
  * IdeView's loadMonaco() path.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
 import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote, WorkspaceFilesWriteRemote, WorkspaceFileWriteIntent } from '../types.js'
 import { Icons } from '../icons.js'
@@ -84,6 +84,58 @@ function decodeBytesUtf8(data: Uint8Array): string {
  * not yield different bytes, rebuilding from git's own HEAD→worktree diff still
  * produces a real, highlighted diff.
  */
+/** One parsed hunk of a unified diff, with the exact lines to re-emit. */
+export interface DiffHunk {
+  /** Header line (`@@ -a,b +c,d @@`). */
+  readonly header: string
+  /** Body lines INCLUDING their +/-/space prefix. */
+  readonly lines: readonly string[]
+}
+
+/**
+ * Split the hunk portion of a unified diff into independently-stagable hunks.
+ * The file header (diff --git / index / --- / +++) is returned separately
+ * because `git apply` needs it in front of any subset of hunks.
+ */
+export function splitHunks(diff: string): { header: string; hunks: DiffHunk[] } {
+  const lines = diff.split('\n')
+  const header: string[] = []
+  const hunks: DiffHunk[] = []
+  let current: { header: string; lines: string[] } | null = null
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      if (current !== null) hunks.push(current)
+      current = { header: line, lines: [] }
+      continue
+    }
+    if (current === null) {
+      // Everything before the first @@ belongs to the file header.
+      if (line.length > 0) header.push(line)
+    } else {
+      current.lines.push(line)
+    }
+  }
+  if (current !== null) hunks.push(current)
+  // Drop the trailing empty line each hunk picked up from the split.
+  for (const h of hunks) {
+    const mutable = h.lines as string[]
+    while (mutable.length > 0 && mutable[mutable.length - 1] === '') mutable.pop()
+  }
+  return { header: header.join('\n'), hunks }
+}
+
+/** Rebuild a patch containing ONLY the hunks at the given indexes. */
+export function patchForHunks(diff: string, indexes: readonly number[]): string {
+  const { header, hunks } = splitHunks(diff)
+  const keep = new Set(indexes)
+  const body: string[] = []
+  hunks.forEach((h, i) => {
+    if (!keep.has(i)) return
+    body.push(h.header, ...h.lines)
+  })
+  return header + '\n' + body.join('\n') + '\n'
+}
+
 function applyUnifiedDiff(original: string, patch: string): string {
   const src = original.length === 0 ? [] : original.split('\n')
   const out: string[] = []
@@ -172,6 +224,50 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
   // Staged mode is read-only like a commit diff: the right side is the index
   // blob, not the working tree, so edits could not be saved anywhere.
   const editable = workspaceFilesWrite !== undefined && commitSha === undefined && diffKind !== 'staged'
+
+  /** Unified diff of the working-tree change, kept for hunk-level staging. */
+  const [diffText, setDiffText] = useState('')
+  const [staging, setStaging] = useState(false)
+  const hunkCount = useMemo(() => (diffText === '' ? 0 : splitHunks(diffText).hunks.length), [diffText])
+
+  /**
+   * Stage (or un-stage) part of this file. `indexes` selects hunks from the
+   * CURRENT diff; omitting it acts on all of them. The host applies the patch
+   * to the index only, so the working tree is untouched.
+   */
+  const stageHunks = useCallback(async (indexes: readonly number[] | undefined) => {
+    const apply = ideTools.gitStagePatch
+    if (apply === undefined || diffText === '' || staging) return
+    setStaging(true)
+    try {
+      const all = splitHunks(diffText).hunks.map((_, i) => i)
+      const patch = patchForHunks(diffText, indexes ?? all)
+      const res = await apply.call(ideTools, sessionId, patch)
+      if (!res.ok) setSaveError(res.error.message ?? res.error.code)
+      else await reloadRef.current()
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStaging(false)
+    }
+  }, [ideTools, diffText, staging, sessionId])
+
+  const unstageHunks = useCallback(async (indexes: readonly number[] | undefined) => {
+    const apply = ideTools.gitUnstagePatch
+    if (apply === undefined || diffText === '' || staging) return
+    setStaging(true)
+    try {
+      const all = splitHunks(diffText).hunks.map((_, i) => i)
+      const patch = patchForHunks(diffText, indexes ?? all)
+      const res = await apply.call(ideTools, sessionId, patch)
+      if (!res.ok) setSaveError(res.error.message ?? res.error.code)
+      else await reloadRef.current()
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setStaging(false)
+    }
+  }, [ideTools, diffText, staging, sessionId])
 
   /** Write the edited right side back with a version guard (Ctrl/Cmd+S or the
    *  header button). On a stale version the write is refused — the user
@@ -512,6 +608,8 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         if (cancelled || dirtyRef.current) return
         if (!diffRes.ok) return
         const diff: GitDiffResult = diffRes.value
+        // Keep the raw unified diff: hunk staging re-emits a subset of it.
+        setDiffText(diff.diff ?? '')
         let newText = diff.newContent
         let oldText = diff.oldContent
         if (diff.contentType === 'image' || diff.contentType === 'binary') {
@@ -641,6 +739,24 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         {stats && (
           <span className="ide-diff-stats" title={'right side: ' + stats.source}>
             {stats.old} &rarr; {stats.new} · {stats.source}
+          </span>
+        )}
+        {editable && commitSha === undefined && hunkCount > 0 && (
+          <span className="ide-diff-hunkbar" data-testid="ide-diff-hunkbar">
+            <button
+              className="ide-diff-hunkbtn"
+              type="button"
+              title={t('diff.stageAllHunks')}
+              disabled={staging}
+              onClick={() => { void stageHunks(undefined) }}
+            >{t('diff.stageAllShort')}</button>
+            <button
+              className="ide-diff-hunkbtn"
+              type="button"
+              title={t('diff.unstageAllHunks')}
+              disabled={staging}
+              onClick={() => { void unstageHunks(undefined) }}
+            >{t('diff.unstageAllShort')}</button>
           </span>
         )}
       </div>

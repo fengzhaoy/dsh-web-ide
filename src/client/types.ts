@@ -352,6 +352,10 @@ export interface IdeToolsRemote {
     query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchReplaceResult>>
+  /** Stage only the hunks carried by `patch` (git apply --cached). */
+  gitStagePatch(sessionId: SessionId, patch: string, signal?: AbortSignal): Promise<RemoteResult<void>>
+  /** Un-stage only the hunks carried by `patch` (reverse apply to the index). */
+  gitUnstagePatch(sessionId: SessionId, patch: string, signal?: AbortSignal): Promise<RemoteResult<void>>
   /** Start or reuse a code-server for this workspace (Scheme C). */
   vscodeOpen(sessionId: SessionId, spec: { restart?: boolean }, signal?: AbortSignal): Promise<RemoteResult<IdeVscodeInfo>>
   /** Current code-server state, or null when none is running. */

@@ -518,6 +518,8 @@ export const IDE_STYLES = `
 .ide-tree-row{display:flex;align-items:center;gap:4px;height:22px;padding:0 8px;cursor:pointer;user-select:none;color:var(--ide-fg);font-size:13px;white-space:nowrap}
 .ide-tree-row:hover{background:var(--ide-tree-hover)}
 .ide-tree-row[data-active='true']{background:var(--ide-tree-active)}
+.ide-tree-row[data-selected]{background:var(--ide-list-inactive-selection,#37373d)}
+.ide-tree-row[data-active='true'][data-selected]{background:var(--ide-tree-active)}
 .ide-tree-row:focus{outline:none}
 .ide-tree-row[data-focused='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff)}
 .ide-tree-row[data-cut='true']{opacity:.45}
@@ -779,6 +781,11 @@ export const IDE_STYLES = `
 /* ── Diff editor view ─────────────────────────────────────────────────── */
 /* The diff covers the tab bar + editor (the container stays mounted under it),
    leaving the status bar visible. */
+.ide-diff-hunkbar{display:inline-flex;gap:4px;margin-left:auto}
+.ide-diff-hunkbtn{font-size:11px;padding:1px 8px;cursor:pointer;border-radius:3px;
+  border:1px solid var(--ide-border,#3b3b3b);background:transparent;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-diff-hunkbtn:hover:not(:disabled){background:var(--ide-input-bg,#2d2d2d);color:var(--ide-fg,#cccccc)}
+.ide-diff-hunkbtn:disabled{opacity:.5;cursor:default}
 .ide-diff-root{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;background:var(--ide-bg)}
 .ide-diff-header{height:28px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--ide-tab-bg);border-bottom:1px solid var(--ide-tab-border);font-size:12px}
 .ide-diff-title{color:var(--ide-fg);font-weight:500}
