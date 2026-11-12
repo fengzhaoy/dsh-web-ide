@@ -6,7 +6,7 @@ import type { ExplorerHandle } from './explorer/FileTree.js'
 import { SearchPanel } from './search/SearchPanel.js'
 import { SourceControlPanel, type ScmOpenViews } from './git/SourceControlPanel.js'
 import { DiffEditor } from './git/DiffEditor.js'
-import { TerminalPanel } from './terminal/TerminalPanel.js'
+import { TerminalPanel, type TerminalPanelHandle } from './terminal/TerminalPanel.js'
 import { TabBar } from './editor/TabBar.js'
 import { StatusBar } from './editor/StatusBar.js'
 import { MarkdownPreview } from './editor/MarkdownPreview.js'
@@ -786,6 +786,9 @@ export function IdeView(props: IdeViewInjected & {
   /** Structured failure for the VS Code pane. 'missing' renders the install
    *  guide; 'start' is a plain startup failure. */
   const [vscodeError, setVscodeError] = useState<VscodePaneError | null>(null)
+  /** Imperative terminal API (VS Code terminal commands): the panel already
+   *  implements every action, the command palette just needs a way to reach it. */
+  const terminalPanelRef = useRef<TerminalPanelHandle>(null)
   const VSCODE_TAB = 'dsh://vscode'
 
 
@@ -2056,11 +2059,36 @@ export function IdeView(props: IdeViewInjected & {
   }, [sessionId, ideTools])
   /** Run a package.json script in a fresh terminal (VS Code Run Task). */
   /** Open a terminal tab, adopt it in the panel and show the bottom panel. */
+  /** Drag-reorder: move `fromId` to sit where `toId` is. */
+  const reorderTerminal = useCallback((fromId: string, toId: string) => {
+    const from = terminalIds.indexOf(fromId)
+    const to = terminalIds.indexOf(toId)
+    if (from < 0 || to < 0 || from === to) return
+    const next = [...terminalIds]
+    next.splice(from, 1)
+    next.splice(to, 0, fromId)
+    setTerminalIds(next)
+    // Keep focus on the SAME terminal, not the same index: reordering must
+    // not change which terminal the user is typing into.
+    setActiveTerminalIdx((prevIdx) => Math.max(0, next.indexOf(terminalIds[prevIdx] ?? '')))
+  }, [terminalIds])
+
   const adoptTerminal = useCallback((id: string) => {
-    setTerminalIds((prev) => prev.includes(id) ? prev : [...prev, id])
+    // Focus the terminal we just added. `prev + 1` was wrong: the updater
+    // below has not run yet, and the new id is appended, so its index is the
+    // CURRENT length. Adding one skipped past it (and past the end when the
+    // previous terminal was not the last), so a run task activated the wrong
+    // tab. Clamp as well, because another open may land between the two
+    // setters.
+    let nextIdx = 0
+    setTerminalIds((prev) => {
+      const next = prev.includes(id) ? prev : [...prev, id]
+      nextIdx = next.indexOf(id)
+      return next
+    })
     setTerminalOpen(true)
     setBottomTab('terminal')
-    setActiveTerminalIdx((prev) => prev + 1)
+    setActiveTerminalIdx(nextIdx)
   }, [])
 
   const revealTerminal = useCallback(() => {
@@ -2422,6 +2450,27 @@ export function IdeView(props: IdeViewInjected & {
       { id: 'ide.find', category: t('category.editor'), label: t('command.find'), run: triggerFind },
       { id: 'ide.save', category: t('category.editor'), label: t('command.save'), run: () => { if (activePath !== undefined) void saveRef.current(activePath) } },
       { id: 'ide.toggleTerminal', category: t('category.view'), label: t('command.toggleTerminal'), run: () => { setTerminalOpen((v) => !v); setBottomTab('terminal') } },
+      // Terminal commands (VS Code terminal actions). The panel exposes them;
+      // these entries only need to route a click to the live instance.
+      { id: 'ide.terminalNew', category: t('category.terminal'), label: t('command.terminalNew'), run: () => { revealTerminal(); terminalPanelRef.current?.newTerminal() } },
+      { id: 'ide.terminalSplit', category: t('category.terminal'), label: t('command.terminalSplit'), run: () => { revealTerminal(); terminalPanelRef.current?.splitTerminal() } },
+      { id: 'ide.terminalClear', category: t('category.terminal'), label: t('command.terminalClear'), run: () => { terminalPanelRef.current?.clearActive() } },
+      { id: 'ide.terminalKill', category: t('category.terminal'), label: t('command.terminalKill'), run: () => { terminalPanelRef.current?.killActive() } },
+      { id: 'ide.terminalInterrupt', category: t('category.terminal'), label: t('command.terminalInterrupt'), run: () => { terminalPanelRef.current?.interrupt() } },
+      { id: 'ide.terminalFind', category: t('category.terminal'), label: t('command.terminalFind'), run: () => { revealTerminal(); terminalPanelRef.current?.openFind() } },
+      { id: 'ide.terminalScrollToBottom', category: t('category.terminal'), label: t('command.terminalScrollToBottom'), run: () => { terminalPanelRef.current?.scrollToBottom() } },
+      // VS Code: Ctrl/Cmd+K clears the terminal; Cmd+Shift+Enter runs the
+      // selection in the editor (workbench.action.terminal.runSelectedText).
+      { id: 'ide.terminalClearKey', category: t('category.terminal'), label: t('command.terminalClear'), run: () => { terminalPanelRef.current?.clearActive() } },
+      { id: 'ide.runSelectionInTerminal', category: t('category.terminal'), label: t('command.runSelection'), run: () => {
+        const model = editorRef.current?.getModel()
+        const sel = editorRef.current?.getSelection()
+        if (model === null || model === undefined || sel === null || sel === undefined) return
+        const text = model.getValueInRange(sel)
+        if (text.trim() === '') { notifications.info(t('run.emptySelection')); return }
+        revealTerminal()
+        terminalPanelRef.current?.sendText(text)
+      } },
       { id: 'ide.toggleSidebar', category: t('category.view'), label: t('command.toggleSidebar'), run: () => setSidebarView('explorer') },
       { id: 'ide.toggleRightSidebar', category: t('category.view'), label: t('command.toggleRightSidebar'), run: () => setRightSidebarOpen((v) => !v) },
       { id: 'ide.runFile', category: t('category.run'), label: t('command.runFile'), run: () => runCurrentFile() },
@@ -2489,11 +2538,16 @@ export function IdeView(props: IdeViewInjected & {
       const inTextField = el instanceof HTMLElement && (
         el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable
       )
+      // The terminal owns its own chords (find, new tab, switch, copy/paste).
+      // Without this the window-level handler ran first and swallowed Cmd+F,
+      // so the find widget could never open while the terminal had focus.
+      const inTerminal = el instanceof HTMLElement && el.closest('.xterm') !== null
       for (const kb of keybindings) {
         if (!kb.keys || !chordMatches(kb.keys, e, isMac)) continue
         const isGlobalCommand = kb.command === 'ide.commandPalette' || kb.command === 'ide.settings'
         if (inEditor && !isGlobalCommand) continue
         if (inTextField && !isGlobalCommand) continue
+        if (inTerminal && !isGlobalCommand) continue
         const cmd = ideCommands.byId(kb.command)
         if (!cmd || cmd.disabled) continue
         e.preventDefault()
@@ -3210,6 +3264,7 @@ export function IdeView(props: IdeViewInjected & {
             )}
             {bottomTab === 'terminal' && (
           <TerminalPanel
+            ref={terminalPanelRef}
             sessionId={sessionId}
             ideTools={ideTools}
             terminalIds={terminalIds}
@@ -3217,6 +3272,7 @@ export function IdeView(props: IdeViewInjected & {
             onTerminalOpened={handleTerminalOpened}
             onActiveChange={setActiveTerminalIdx}
             onTerminalClosed={handleTerminalClosed}
+            onReorderTerminal={reorderTerminal}
             onClose={handleTerminalClose}
             tabVisible={props.tabVisible}
             actionsHost={bottomTabsActions}

@@ -874,7 +874,10 @@ export class IdeTools extends TypertRemoteService {
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         CLICOLOR: '1',
-        CLICOLOR_FORCE: '1',
+        // NOT CLICOLOR_FORCE: that forces colour even when stdout is NOT a
+        // tty (a redirect to a file would be full of escape codes). The PTY
+        // already makes programs believe they are on a terminal, so the force
+        // flag only ever hurt. VS Code does not set it either.
       },
       rows,
       cols,

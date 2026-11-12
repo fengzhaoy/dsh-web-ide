@@ -40,6 +40,8 @@ export interface TerminalPanelProps {
   onActiveChange: (idx: number) => void
   /** A terminal was terminated; parent should remove it from the list. */
   onTerminalClosed: (idx: number) => void
+  /** Move one terminal before another (drag-reorder in the terminal list). */
+  onReorderTerminal: (fromId: string, toId: string) => void
   /** Close the entire panel (terminals keep running on the host). */
   onClose: () => void
   /** True while the hosting IDE tab is visible. Switching to the chat tab and
@@ -227,6 +229,15 @@ function isViewportAtBottom(term: InstanceType<TerminalModule['Terminal']>): boo
 /** Base64 → bytes; tolerates padding issues by re-encoding via Buffer-style
  * chunking. atob throws on strings with interior padding (=) that arise when
  * replay frames are accidentally joined; this variant strips and re-pads. */
+/** VS Code "Copy as HTML": the terminal selection as a <pre> block. */
+function toHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return '<pre style=\"font-family: Menlo, Consolas, monospace;\">' + escaped + '</pre>'
+}
+
 function decodeBase64(data: string): Uint8Array {
   if (data.length === 0) return new Uint8Array(0)
   try {
@@ -318,6 +329,8 @@ export interface TerminalPanelHandle {
   scrollToBottom: () => void
   /** Send Ctrl+C (SIGINT) to the active terminal. */
   interrupt: () => void
+  /** Type text into the active terminal and run it (run selected text). */
+  sendText: (text: string) => void
 }
 
 export const TerminalPanel = forwardRef(TerminalPanelImpl)
@@ -330,6 +343,7 @@ function TerminalPanelImpl({
   onTerminalOpened,
   onActiveChange,
   onTerminalClosed,
+  onReorderTerminal,
   onClose,
   tabVisible,
   actionsHost = null,
@@ -348,9 +362,45 @@ function TerminalPanelImpl({
   // Per-terminal error message.
   const [errors, setErrors] = useState<Record<string, string>>({})
   // Per-terminal custom name (user rename), keyed by terminal ID.
-  const [names, setNames] = useState<Record<string, string>>({})
+
+  // Terminal UI state survives a remount (chat <-> IDE tab switch unmounts the
+  // whole view). VS Code keeps tab names, colours, the split group and the panel
+  // height across restarts; without this the user's names and panes vanished on
+  // every tab switch. Keyed per Session so two sessions do not share names.
+  const savePref = useCallback((key: string, value: unknown) => {
+    try { localStorage.setItem('dsh-web-ide.terminal.' + key, JSON.stringify(value)) } catch { /* denied */ }
+  }, [])
+  const loadPref = <T,>(key: string, fallback: T): T => {
+    try {
+      const raw = localStorage.getItem('dsh-web-ide.terminal.' + key)
+      return raw === null ? fallback : JSON.parse(raw) as T
+    } catch { return fallback }
+  }
+
+  /** Pending multi-line paste awaiting the user's choice. VS Code warns that a
+   *  multi-line paste executes each line, because a paste into vim/less would
+   *  otherwise run every line as a command the moment the app reads input. */
+  const [pendingPaste, setPendingPaste] = useState<{ id: string; text: string } | null>(null)
+  const pasteSkipWarnRef = useRef<boolean>(false)
+  useEffect(() => {
+    try { pasteSkipWarnRef.current = localStorage.getItem('dsh-web-ide.terminal.pasteWarnSkip') === '1' } catch { /* denied */ }
+  }, [])
+  /** Bracketed-paste wrapping shared by the paste handler and the confirm UI. */
+  const wrapped = (term: import('@xterm/xterm').Terminal, text: string): string => {
+    const cr = text.replace(/\r?\n/g, '\r')
+    // DECSET 2004 has no public getter; read the private mode state the
+    // same way xterm's own paste path does, falling back to plain text.
+    const modes = (term as unknown as { modes?: { bracketedPasteMode?: boolean } }).modes
+    return modes?.bracketedPasteMode === true && !term.options.ignoreBracketedPasteMode
+      ? '\x1b[200~' + cr + '\x1b[201~'
+      : cr
+  }
+
+  const [names, setNames] = useState<Record<string, string>>(() => loadPref<Record<string, string>>(sessionId + '.names', {}))
+  useEffect(() => { savePref(sessionId + '.names', names) }, [names, sessionId, savePref])
   // Per-terminal color index (cycled from TERMINAL_COLORS).
-  const [colorIdx, setColorIdx] = useState<Record<string, number>>({})
+  const [colorIdx, setColorIdx] = useState<Record<string, number>>(() => loadPref<Record<string, number>>(sessionId + '.colors', {}))
+  useEffect(() => { savePref(sessionId + '.colors', colorIdx) }, [colorIdx, sessionId, savePref])
   // Sidebar collapsed (VS Code can hide the terminal list).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   // Which terminal is being renamed (inline edit).
@@ -362,13 +412,20 @@ function TerminalPanelImpl({
   // supports N panes). Empty = single view. Members that no longer exist are
   // filtered out on read; the split collapses when fewer than 2 remain.
   const [splitIds, setSplitIds] = useState<string[]>([])
+  /** Id being dragged in the terminal list (VS Code lets you reorder tabs). */
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  /** Split orientation, VS Code splitRight (row) vs splitDown (column). */
+  const [splitDir, setSplitDir] = useState<'row' | 'column'>('row')
   // Per-terminal shell exit code (when the terminal reached the exited state).
   const [exitCodes, setExitCodes] = useState<Record<string, number | null>>({})
-  const [panelState, setPanelState] = useState<PanelState>('normal')
+  const [panelState, setPanelState] = useState<PanelState>(() => loadPref<PanelState>(sessionId + '.panelState', 'normal'))
+  useEffect(() => { savePref(sessionId + '.panelState', panelState) }, [panelState, sessionId, savePref])
   // User-dragged pixel height for the 'normal' state. null means "use the CSS
   // default" (PANEL_HEIGHT_DEFAULT) so the panel still sizes correctly before
   // the user ever drags. Maximize/minimize ignore this and apply fixed sizes.
-  const [panelHeight, setPanelHeight] = useState<number | null>(null)
+  const [panelHeight, setPanelHeight] = useState<number | null>(() => loadPref<number | null>(sessionId + '.panelHeight', null))
+  useEffect(() => { savePref(sessionId + '.panelHeight', panelHeight) }, [panelHeight, sessionId, savePref])
   // True only while a sizer drag is in progress; disables the height CSS
   // transition so the panel tracks the cursor 1:1 instead of animating.
   const [resizing, setResizing] = useState(false)
@@ -388,6 +445,25 @@ function TerminalPanelImpl({
   // the clipboard-paste handler below inject text without racing the
   // keystroke writes that term.onData issues.
   const termsDispatchRef = useRef<Map<string, (text: string) => void>>(new Map())
+
+  // Closing the panel used to leak every xterm, its ResizeObserver, the addon
+  // and the live output stream: dispose() only ran when an id left terminalIds,
+  // and the attach effect cleanup just aborted the streams. A long-lived IDE that
+  // toggles the panel accumulated one of each per open. Sweep them on unmount.
+  useEffect(() => () => {
+    for (const entry of termsRef.current.values()) {
+      try { entry.dispose() } catch { /* already gone */ }
+    }
+    for (const ctrl of abortsRef.current.values()) {
+      try { ctrl.abort() } catch { /* already aborted */ }
+    }
+    termsRef.current.clear()
+    hostsRef.current.clear()
+    abortsRef.current.clear()
+    attachedRef.current.clear()
+    echoBackRefs.current.clear()
+    termsDispatchRef.current.clear()
+  }, [])
   // Latch for the "panel opened with no terminals" auto-spawn. The effect that
   // owns it re-runs on every parent re-render (onTerminalOpened is a fresh
   // closure each render) while terminalOpen is an async round-trip, so without
@@ -454,7 +530,7 @@ function TerminalPanelImpl({
     ensuredInitialRef.current = true
     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
       if (res.ok) onTerminalOpened(res.value.terminalId)
-    }).catch(() => {
+    }).catch(() => undefined).catch(() => {
       // Leave the latch set: a failed spawn should not turn into a retry storm.
     })
   }, [sessionId, ideTools, terminalIds.length, onTerminalOpened])
@@ -821,6 +897,13 @@ function TerminalPanelImpl({
           onClick: () => { void copyTextOrNotify(selection, copyFailureNotifier(t, t('terminal.copy'))) },
         },
         {
+          id: 'copy-html',
+          label: t('terminal.copyHtml'),
+          icon: Icons.copy,
+          disabled: selection === '',
+          onClick: () => { void copyTextOrNotify(toHtml(selection), copyFailureNotifier(t, t('terminal.copyHtml'))) },
+        },
+        {
           id: 'paste',
           label: t('terminal.paste'),
           icon: Icons.paste,
@@ -857,15 +940,7 @@ function TerminalPanelImpl({
   useEffect(() => {
     const el = panelRef.current
     if (el === null) return
-    const wrapped = (term: import('@xterm/xterm').Terminal, text: string): string => {
-      const cr = text.replace(/\r?\n/g, '\r')
-      // DECSET 2004 has no public getter; read the private mode state the
-      // same way xterm's own paste path does, falling back to plain text.
-      const modes = (term as unknown as { modes?: { bracketedPasteMode?: boolean } }).modes
-      return modes?.bracketedPasteMode === true && !term.options.ignoreBracketedPasteMode
-        ? '\x1b[200~' + cr + '\x1b[201~'
-        : cr
-    }
+
     // Capture phase on the panel runs BEFORE xterm's own bubble-phase paste
     // listener and stopImmediatePropagation() keeps that listener from firing,
     // so the clipboard text can never be delivered a second time through
@@ -887,6 +962,12 @@ function TerminalPanelImpl({
       entry.term.focus()
       const text = ev.clipboardData?.getData('text/plain') ?? ''
       if (text.length === 0) return
+      // Multi-line paste is dangerous: the shell line editor turns each newline
+      // into an Enter, so a pasted snippet runs immediately. VS Code asks first.
+      if (!pasteSkipWarnRef.current && /[\r\n]/.test(text.trim())) {
+        setPendingPaste({ id, text })
+        return
+      }
       dispatch(wrapped(entry.term, text))
     }
     el.addEventListener('paste', onPaste, true)
@@ -948,10 +1029,13 @@ function TerminalPanelImpl({
         onTerminalOpened(res.value.terminalId)
         onActiveChange(terminalIds.length) // switch to the new one
       }
-    })
+    }).catch(() => undefined)
   }, [sessionId, ideTools, onTerminalOpened, onActiveChange, terminalIds.length])
 
-  const splitTerminal = useCallback(() => {
+  const splitTerminal = useCallback((dir: 'row' | 'column' = 'row') => {
+    // The FIRST split decides the orientation, exactly like VS Code: an
+    // existing group keeps its direction when another pane is added.
+    setSplitDir((prevDir) => (splitIds.length === 0 ? dir : prevDir))
     if (activeId === undefined) return
     // Open a new terminal and ADD it to the split group. Splitting repeatedly
     // grows the group (VS Code supports N panes); the new terminal takes focus.
@@ -966,7 +1050,7 @@ function TerminalPanelImpl({
         return base.includes(res.value.terminalId) ? base : [...base, res.value.terminalId]
       })
       onActiveChange(terminalIds.length)
-    })
+    }).catch(() => undefined)
   }, [activeId, sessionId, ideTools, onTerminalOpened, onActiveChange, terminalIds.length])
 
   // ── VS Code "Find in terminal" ──────────────────────────────────────────
@@ -1146,8 +1230,25 @@ function TerminalPanelImpl({
 
   const signalInterrupt = useCallback(() => {
     if (activeId === undefined) return
-    void ideTools.terminalSignal(sessionId, activeId, 'SIGINT')
+    void ideTools.terminalSignal(sessionId, activeId, 'SIGINT').catch(() => undefined)
   }, [sessionId, ideTools, activeId])
+
+  /** Run text in the active terminal (VS Code run selected text). */
+  const sendText = useCallback((text: string) => {
+    if (activeId === undefined) return
+    const entry = termsRef.current.get(activeId)
+    const dispatch = termsDispatchRef.current.get(activeId)
+    if (entry === undefined || dispatch === undefined) return
+    const body = text.replace(/\r?\n/g, '\r')
+    dispatch(wrapped(entry.term, body) + '\r')
+    entry.term.focus()
+  }, [activeId])
+
+  /** Move the dragged terminal before/after the drop target. */
+  const reorderTerminal = useCallback((from: string, to: string) => {
+    if (from === to) return
+    onReorderTerminal(from, to)
+  }, [onReorderTerminal])
 
   const toggleMinimize = useCallback(() => {
     setPanelState((prev) => (prev === 'minimized' ? 'normal' : 'minimized'))
@@ -1182,12 +1283,11 @@ function TerminalPanelImpl({
     termsDispatchRef.current.delete(deadId)
     abortsRef.current.get(deadId)?.abort()
     abortsRef.current.delete(deadId)
-    setStatuses((prev) => ({ ...prev, [deadId]: 'connecting' }))
     void ideTools.terminalOpen(sessionId, { cols: 80, rows: 24 }).then((res) => {
       if (!res.ok) return
       onTerminalOpened(res.value.terminalId)
       onTerminalClosed(idx)
-    })
+    }).catch(() => undefined)
   }, [sessionId, ideTools, terminalIds, onTerminalOpened, onTerminalClosed])
 
   /** Clear the active terminal's screen (VS Code "Clear" command). */
@@ -1211,6 +1311,7 @@ function TerminalPanelImpl({
     stepTerminal,
     scrollToBottom: scrollActiveToBottom,
     interrupt: signalInterrupt,
+    sendText,
   }), [openFind, newTerminal, splitTerminal, killActive, clearActive, stepTerminal, scrollActiveToBottom, signalInterrupt])
 
   /** Start inline rename for a terminal (VS Code double-click to rename). */
@@ -1354,7 +1455,7 @@ function TerminalPanelImpl({
               </div>
             )}
           </div>
-          <button className="ide-terminal-action" title={t('terminal.split')} onClick={splitTerminal}>{Icons.splitEditor}</button>
+          <button className="ide-terminal-action" title={t('terminal.split')} onClick={() => splitTerminal('row')}>{Icons.splitEditor}</button>
           <button className="ide-terminal-action" title={t('terminal.find')} data-testid="ide-terminal-find-btn" onClick={openFind}>{Icons.search}</button>
           <button className="ide-terminal-action" title={t('terminal.interrupt')} onClick={signalInterrupt}>^C</button>
           <button className="ide-terminal-action" title={t('terminal.clear')} onClick={clearActive}>{Icons.refresh}</button>
@@ -1386,7 +1487,50 @@ function TerminalPanelImpl({
           `{!isMinimized && ...}` form) detached xterm from the document, and
           on restore the attach effect never re-ran (attachedRef was set), so
           the terminal stayed blank with the cursor hidden. */}
-      <div className="ide-terminal-body" data-hidden={isMinimized || undefined}>
+
+      {/* VS Code multi-line paste warning: Paste / Paste as one line / don't ask
+          again. Dismissing the dialog drops the paste. */}
+      {pendingPaste !== null && (
+        <div className="ide-terminal-paste-warn" data-testid="ide-terminal-paste-warn">
+          <div className="ide-terminal-paste-warn-text">{t('terminal.pasteWarn')}</div>
+          <div className="ide-terminal-paste-warn-actions">
+            <button
+              className="ide-terminal-paste-warn-btn"
+              data-testid="ide-terminal-paste-multiline"
+              onClick={() => {
+                const entry = termsRef.current.get(pendingPaste.id)
+                const dispatch = termsDispatchRef.current.get(pendingPaste.id)
+                if (entry !== undefined && dispatch !== undefined) dispatch(wrapped(entry.term, pendingPaste.text))
+                setPendingPaste(null)
+              }}
+            >{t('terminal.pasteOk')}</button>
+            <button
+              className="ide-terminal-paste-warn-btn"
+              data-testid="ide-terminal-paste-oneline"
+              onClick={() => {
+                const entry = termsRef.current.get(pendingPaste.id)
+                const dispatch = termsDispatchRef.current.get(pendingPaste.id)
+                if (entry !== undefined && dispatch !== undefined) {
+                  dispatch(wrapped(entry.term, pendingPaste.text.replace(/\r?\n/g, ' ')))
+                }
+                setPendingPaste(null)
+              }}
+            >{t('terminal.pasteOneLine')}</button>
+            <button
+              className="ide-terminal-paste-warn-btn"
+              data-testid="ide-terminal-paste-never"
+              onClick={() => {
+                pasteSkipWarnRef.current = true
+                try { localStorage.setItem('dsh-web-ide.terminal.pasteWarnSkip', '1') } catch { /* denied */ }
+                const entry = termsRef.current.get(pendingPaste.id)
+                const dispatch = termsDispatchRef.current.get(pendingPaste.id)
+                if (entry !== undefined && dispatch !== undefined) dispatch(wrapped(entry.term, pendingPaste.text))
+                setPendingPaste(null)
+              }}
+            >{t('terminal.pasteNever')}</button>
+          </div>
+        </div>
+      )}      <div className="ide-terminal-body" data-hidden={isMinimized || undefined}>
         {/* VS Code find-in-terminal bar: floats over the hosts area's top-right
             corner while open. Bound to the terminal that was focused on open;
             Enter/Shift+Enter navigate, Escape closes, the three toggles match
@@ -1400,7 +1544,11 @@ function TerminalPanelImpl({
               placeholder={t('terminal.findPlaceholder')}
               onChange={(e) => { const v = e.target.value; setFindQuery(v); setTimeout(() => runFindWith(v, 1, true), 0) }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); runFind(e.shiftKey ? -1 : 1) }
+                // VS Code: Enter = FindPrevious, Shift+Enter = FindNext
+                // (terminal.find.contribution.ts). The tooltips on the arrow
+                // buttons already described that order, so the keys were the only
+                // part that disagreed with the labels.
+                if (e.key === 'Enter') { e.preventDefault(); runFind(e.shiftKey ? 1 : -1) }
                 if (e.key === 'Escape') { e.preventDefault(); closeFind() }
                 // VS Code find-widget toggle chords: Alt+C / Alt+W / Alt+R
                 // (mac adds Cmd): case-sensitive, whole word, regex.
@@ -1433,7 +1581,8 @@ function TerminalPanelImpl({
             onClick={scrollActiveToBottom}
           >{Icons.arrowDown}</button>
         )}
-        <div className="ide-terminal-hosts" data-split={isSplit || undefined}>
+        <div className="ide-terminal-hosts" data-split={isSplit || undefined}
+        data-split-dir={isSplit ? splitDir : undefined}>
           {terminalIds.map((id) => (
             <div
               key={id}
@@ -1483,6 +1632,17 @@ function TerminalPanelImpl({
                   <div
                     key={id}
                     className="ide-terminal-sidebar-item"
+                    draggable
+                    data-drag-over={dragOverId === id && dragId !== id || undefined}
+                    onDragStart={(e) => { setDragId(id); e.dataTransfer.effectAllowed = 'move' }}
+                    onDragOver={(e) => { if (dragId === null || dragId === id) return; e.preventDefault(); setDragOverId(id) }}
+                    onDragLeave={() => { setDragOverId((prev) => (prev === id ? null : prev)) }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      if (dragId !== null) reorderTerminal(dragId, id)
+                      setDragId(null); setDragOverId(null)
+                    }}
+                    onDragEnd={() => { setDragId(null); setDragOverId(null) }}
                     data-active={idx === activeIdx || undefined}
                     data-exited={exited || undefined}
                     onClick={() => { onActiveChange(idx); if (bellIds.includes(id)) setBellIds((prev) => prev.filter((x) => x !== id)) }}

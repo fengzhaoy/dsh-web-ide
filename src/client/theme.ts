@@ -823,6 +823,15 @@ export const IDE_STYLES = `
 /* The terminal panel has no toolbar: its action buttons live in the bottom
    panel's tab row (see .ide-bottomtabs-actions). */
 /* ── Terminal body: hosts (left) + sidebar list (right) ─────────────── */
+.ide-terminal-paste-warn{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:12;
+  background:var(--ide-menu-bg,#252526);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);padding:12px 16px;max-width:560px;font-size:13px;color:var(--ide-fg,#cccccc)}
+.ide-terminal-paste-warn-text{margin-bottom:10px;line-height:1.5}
+.ide-terminal-paste-warn-actions{display:flex;gap:8px;justify-content:flex-end}
+.ide-terminal-paste-warn-btn{padding:4px 14px;font-size:12px;cursor:pointer;border-radius:3px;
+  border:1px solid var(--ide-accent,#0e639c);background:var(--ide-accent,#0e639c);color:#fff}
+.ide-terminal-paste-warn-btn:nth-child(n+2){background:transparent;color:var(--ide-fg,#cccccc);
+  border-color:var(--ide-border,#2b2b2b)}
 .ide-terminal-body{display:flex;flex:1;min-height:0;position:relative;overflow:hidden}
 .ide-terminal-body[data-hidden]{display:none}
 .ide-terminal-sidebar{flex:none;width:160px;min-width:120px;max-width:240px;display:flex;flex-direction:column;border-left:1px solid var(--ide-border,#2b2b2b);background:var(--ide-sidebar-bg,#181818);overflow:hidden;transition:width .15s ease,opacity .15s ease}
@@ -835,7 +844,12 @@ export const IDE_STYLES = `
 .ide-terminal-sidebar-list::-webkit-scrollbar{width:6px}
 .ide-terminal-sidebar-list::-webkit-scrollbar-thumb{background:var(--ide-scrollbar,#424242);border-radius:3px}
 .ide-terminal-sidebar-list::-webkit-scrollbar-track{background:transparent}
-.ide-terminal-sidebar-item{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 6px;cursor:pointer;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);min-width:0;transition:background-color .1s;position:relative}.ide-terminal-sidebar-color{flex:none;width:2px;height:14px;border-radius:1px;align-self:center;background:transparent}.ide-terminal-sidebar-color[data-active='true']{background:#2472c8}
+.ide-terminal-sidebar-item{display:flex;align-items:center;gap:6px;padding:3px 4px 3px 6px;cursor:pointer;font-size:12px;color:var(--ide-fg-dim,#9d9d9d);min-width:0;transition:background-color .1s;position:relative}
+.ide-terminal-sidebar-item[draggable=true]{cursor:grab}
+.ide-terminal-sidebar-item[draggable=true]:active{cursor:grabbing}
+.ide-terminal-sidebar-item[data-drag-over]{box-shadow:inset 0 2px 0 var(--ide-accent,#0e639c)}
+.ide-terminal-sidebar-item[data-dragging=true]{opacity:.5}
+.ide-terminal-sidebar-color{flex:none;width:2px;height:14px;border-radius:1px;align-self:center;background:transparent}.ide-terminal-sidebar-color[data-active='true']{background:#2472c8}
 .ide-terminal-sidebar-item:hover{background:var(--ide-tree-hover,#2a2d2e)}
 .ide-terminal-sidebar-item[data-active='true']{background:var(--ide-tree-active,#37373d);color:var(--ide-fg,#cccccc)}
 .ide-terminal-sidebar-item[data-active='true']::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--ide-fg,#cccccc)}
@@ -859,6 +873,8 @@ export const IDE_STYLES = `
 .ide-terminal-action:hover{background:var(--ide-tree-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
 .ide-terminal-action svg{width:16px;height:16px}
 .ide-terminal-resizer{flex:none;height:4px;cursor:row-resize;background:transparent;position:relative;z-index:2}.ide-terminal-resizer:hover{background:var(--ide-border,#3b3b3b)}.ide-terminal-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:2px;border-radius:1px;background:#424242}.ide-terminal-panel[data-resizing]{transition:none;user-select:none}.ide-terminal-panel[data-resizing] *{user-select:none}.ide-terminal-hosts{flex:1;min-height:0;position:relative;overflow:hidden}.ide-terminal-hosts[data-hidden]{display:none}.ide-terminal-hosts[data-split]{display:flex;flex-direction:row;gap:0}.ide-terminal-hosts[data-split] .ide-terminal-host{flex:1 1 0;min-width:0}.ide-terminal-hosts[data-split] .ide-terminal-host+.ide-terminal-host{border-left:1px solid var(--ide-border,#2b2b2b)}
+.ide-terminal-hosts[data-split][data-split-dir=column]{flex-direction:column}
+.ide-terminal-hosts[data-split][data-split-dir=column] .ide-terminal-host+.ide-terminal-host{border-left:none;border-top:1px solid var(--ide-border,#2b2b2b)}
 .ide-terminal-host{height:100%;padding:4px 8px 0;box-sizing:border-box;overflow:hidden}
 .ide-terminal-host .xterm{height:100%}
 /* xterm paints its own themed selection on its rows/canvas. The browser's

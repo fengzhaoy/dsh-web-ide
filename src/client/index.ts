@@ -150,7 +150,7 @@ export { inject }
  * throwing, so the view stays usable. */
 import { ideSettings } from './settingsStore.js'
 
-const stubIdeTools = {
+const stubMethods = {
   search: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalOpen: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
   terminalWrite: async () => ({ ok: false as const, error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' } }),
@@ -194,7 +194,27 @@ const stubIdeTools = {
   // half-mounted namespace (the terminal, whose stream would end immediately)
   // test this flag and retry instead.
   __isStub: true,
-} as unknown as import('./types.js').IdeToolsRemote
+}
+
+/**
+ * The degraded face throws for any method it does not list. A hot reload briefly
+ * unmounts the namespace, and a view that calls a method this object happens to
+ * be missing (gitTimeline was) threw an uncaught TypeError in the middle of a
+ * render effect. The Proxy keeps the contract total: unknown methods behave
+ * exactly like the known ones — a resolved { ok: false } the caller already
+ * knows how to render.
+ */
+const stubIdeTools = new Proxy(stubMethods, {
+  get(target, prop, receiver) {
+    if (prop in target) return Reflect.get(target, prop, receiver)
+    if (typeof prop !== 'string') return undefined
+    if (prop === 'then') return undefined // not a thenable
+    return async () => ({
+      ok: false as const,
+      error: { code: 'ide-tools/unavailable', message: 'ideTools namespace is not mounted yet' },
+    })
+  },
+}) as unknown as import('./types.js').IdeToolsRemote
 
 /** Client plugin body: fire-and-forget the ideTools Remote namespace mount,
  * then synchronously register the IDE view tab. We must NOT await the $mount

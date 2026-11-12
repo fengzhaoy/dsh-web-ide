@@ -169,5 +169,29 @@ check('terminal waits for the real face instead of attaching to the stub',
 check('fit is skipped on the degraded face (no terminalResize)', /__isStub === true\) return/.test(term))
 check('no term.reset() on re-attach (it blanked the pane)', !/\.term\.reset\(\)/.test(term))
 
+// --- terminal code-review batch 1 ---
+check('terminal owns its chords (Cmd+F reaches the find widget)', /const inTerminal = el instanceof HTMLElement && el\.closest\('\.xterm'\)/.test(ide))
+check('run-task focuses the added terminal, not index+1', /setActiveTerminalIdx\(nextIdx\)/.test(ide))
+check('terminal commands are in the palette', /ide\.terminalNew/.test(ide) && /terminalPanelRef\.current\?\.newTerminal/.test(ide))
+check('terminal panel ref is wired', /ref=\{terminalPanelRef\}/.test(ide))
+check('unknown stub methods resolve to ok:false instead of throwing', /new Proxy\(stubMethods/.test(entrySrc))
+check('stub proxy is not a thenable', /prop === 'then'\) return undefined/.test(entrySrc))
+check('every terminalOpen call has a catch', (term.match(/terminalOpen\([^;]*?\.catch\(/g) ?? []).length >= 3)
+
+// --- terminal code-review batch 2 + 3 ---
+check('closing the panel disposes every xterm', /useEffect\(\(\) => \(\) => \{[\s\S]{0,400}entry\.dispose\(\)/.test(term))
+check('terminal names/colors/panel state persist', /dsh-web-ide\.terminal\./.test(term) && /loadPref<Record<string, string>>/.test(term))
+check('multi-line paste asks first', /terminal\.pasteWarn/.test(term) && /ide-terminal-paste-warn/.test(term))
+check('paste warning can be disabled permanently', /pasteWarnSkip/.test(term))
+check('find keys match VS Code (Enter = previous)', /runFind\(e\.shiftKey \? 1 : -1\)/.test(term))
+check('split supports a vertical orientation', /data-split-dir/.test(term) && /split-dir=column/.test(css))
+
+// --- terminal code-review batch 4 ---
+check('CLICOLOR_FORCE is not forced (redirects stay plain)', !/^\s*CLICOLOR_FORCE:/m.test(hostSrc))
+check('terminal offers Copy as HTML', /terminal\.copyHtml/.test(term))
+check('run selected text is a command', /ide\.runSelectionInTerminal/.test(ide) && /sendText/.test(term))
+check('terminal list supports drag reorder', /onDragStart/.test(term) && /onReorderTerminal/.test(ide))
+check('reorder keeps focus on the same terminal', /next\.indexOf\(terminalIds\[prevIdx\]/.test(ide))
+
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)
