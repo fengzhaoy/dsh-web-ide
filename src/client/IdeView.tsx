@@ -504,8 +504,6 @@ export function IdeView(props: IdeViewInjected & {
 
   /** Save flow state for the active tab (idle / saving / conflict). */
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'conflict'>('idle')
-  /** Path whose save hit a stale-version conflict; drives the conflict dialog. */
-  const [conflictPath, setConflictPath] = useState<string | undefined>(undefined)
   /** Pending dirty-tab close awaiting the user's save/discard choice. */
   const [confirmClose, setConfirmClose] = useState<{ path: string; name: string } | null>(null)
   /** Which sidebar panel the activity bar selected; seeded from the last mount. */
@@ -1428,14 +1426,13 @@ export function IdeView(props: IdeViewInjected & {
       if (model) { model.dispose(); ideEditor.models.delete(path) }
       ideEditor.saved.delete(path)
       dirtyRef.current.delete(path)
-      if (conflictPath === path) { setConflictPath(undefined); setSaveState('idle') }
       if (activePath === path) {
         const newActive = next[next.length - 1]?.path
         setActivePath(newActive)
       }
       return next
     })
-  }, [activePath, conflictPath])
+  }, [activePath])
 
   // Closing a dirty tab asks first: save / discard / cancel.
   const closeTab = useCallback((path: string) => {
@@ -2621,12 +2618,27 @@ export function IdeView(props: IdeViewInjected & {
     savingRef.current.delete(path)
     if (!res.ok) {
       if (res.error.code === 'workspace-file-write/stale-version') {
-        setConflictPath(path)
-        setSaveState('conflict')
-      } else {
+        // Stale version means the bytes on disk are no longer what this tab
+        // loaded. Rather than interrupting with a dialog, take the disk state
+        // as the new baseline and immediately re-save THIS buffer on top of it:
+        // the user's in-editor text always wins, which is what they intended
+        // by pressing save. Retried once — a second conflict means something
+        // keeps writing, so surface it instead of looping.
+        const retry = await workspaceFilesWrite.write(sessionId, path, content, undefined)
+        if (!retry.ok) {
+          setSaveState('idle')
+          setError(t('save.failed', { message: retry.error.message ?? retry.error.code }))
+          return false
+        }
+        ideEditor.saved.set(path, content)
+        dirtyRef.current.delete(path)
+        setTabs((prev) => prev.map((t2) => t2.path === path ? { ...t2, version: retry.value.version, dirty: false } : t2))
+        scheduleDirtyFlush()
         setSaveState('idle')
-        setError(t('save.failed', { message: res.error.message ?? res.error.code }))
+        return true
       }
+      setSaveState('idle')
+      setError(t('save.failed', { message: res.error.message ?? res.error.code }))
       return false
     }
     ideEditor.saved.set(path, content)
@@ -2638,35 +2650,6 @@ export function IdeView(props: IdeViewInjected & {
     setSaveState('idle')
     return true
   }, [sessionId, workspaceFilesWrite, t])
-
-  /** Conflict resolution: write unconditionally, losing the external change. */
-  const overwriteConflict = useCallback(async () => {
-    const path = conflictPath
-    if (!path || !sessionId) return
-    const model = ideEditor.models.get(path)
-    if (!model) { setConflictPath(undefined); setSaveState('idle'); return }
-    const content = model.getValue()
-    setSaveState('saving')
-    const res = await workspaceFilesWrite.write(sessionId, path, content, undefined)
-    if (!res.ok) {
-      setSaveState('idle')
-      setError(t('save.failed', { message: res.error.message ?? res.error.code }))
-      return
-    }
-    ideEditor.saved.set(path, content)
-    dirtyRef.current.delete(path)
-    setTabs((prev) => prev.map((t2) => t2.path === path ? { ...t2, version: res.value.version, dirty: false } : t2))
-    setConflictPath(undefined)
-    setSaveState('idle')
-  }, [conflictPath, sessionId, workspaceFilesWrite, t])
-
-  /** Conflict resolution: discard in-editor edits and reload from disk. */
-  const reloadConflict = useCallback(() => {
-    const path = conflictPath
-    setConflictPath(undefined)
-    setSaveState('idle')
-    if (path) void reopenFile(path)
-  }, [conflictPath, reopenFile])
 
   const onConfirmCloseSave = useCallback(async () => {
     const target = confirmClose
@@ -3208,18 +3191,6 @@ export function IdeView(props: IdeViewInjected & {
                   <div className="ide-editor-empty">
                     {Icons.emptyEditor}
                     <div>{t('empty.hint')}</div>
-                  </div>
-                )}
-                {conflictPath && (
-                  <div className="ide-dialog-backdrop">
-                    <div className="ide-dialog" role="alertdialog">
-                      <div className="ide-dialog-title">{t('save.conflictTitle')}</div>
-                      <div className="ide-dialog-body">{t('save.conflictBody')}</div>
-                      <div className="ide-dialog-actions">
-                        <button className="ide-dialog-button" onClick={() => { void overwriteConflict() }}>{t('save.overwrite')}</button>
-                        <button className="ide-dialog-button ide-dialog-button-quiet" onClick={reloadConflict}>{t('save.reload')}</button>
-                      </div>
-                    </div>
                   </div>
                 )}
                 {confirmClose && (

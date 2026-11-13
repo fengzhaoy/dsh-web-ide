@@ -312,5 +312,13 @@ const dropRule = (/\.ide-tree-row\[data-drop-target[^}]*\}/.exec(css) ?? [''])[0
 check('drop highlight uses list.dropBackground', /background:var\(--ide-list-drop-bg,#062f4a\)/.test(dropRule))
 check('drop highlight draws no outline/border box', /box-shadow:none/.test(dropRule))
 
+// --- binary write must return the seam version, not the byte length ---
+check('writeFileBytes re-reads the seam version after writing',
+  /version = read\.version/.test(hostText) && /writeFileBytes[\s\S]{0,3000}?version = read\.version/.test(hostText))
+check('writeFileBytes no longer hardcodes the byte length as its version',
+  !/version: String\(bytes\.length\)/.test(hostText))
+check('save on a stale version re-saves instead of opening a dialog',
+  !/conflictPath/.test(readFileSync(new URL('../src/client/IdeView.tsx', import.meta.url), 'utf8')))
+
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

@@ -2906,9 +2906,25 @@ export class IdeTools extends TypertRemoteService {
       await assertWritable(this.ctx as unknown as WritePolicyContext, workspaceFileScope, abs, path)
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, bytes)
+      // The version is the fs seam's content identity
+      // (dev:ino:size:mtimeNs:ctimeNs), NOT the byte length. Returning the
+      // length here meant the next save's replaceIfVersion guard could never
+      // match, so every edit of a binary-saved file reported a bogus
+      // "changed on disk" conflict. Re-read through the seam after writing to
+      // obtain the real version.
+      let version = String(bytes.length)
+      try {
+        const fs = (this.ctx as unknown as { fs: FsWriteSeam }).fs
+        const target = await fs.resolve(abs, { cwd: resolve(workspaceRoot), signal })
+        const read = await fs.readText(target, signal)
+        if (typeof read !== 'string') version = read.version
+      } catch {
+        // Keep the size fallback rather than failing an otherwise successful
+        // write; a stale version only risks one conflict dialog on next save.
+      }
       return {
         absolutePath: abs,
-        version: String(bytes.length),
+        version,
         operation: info === undefined ? 'create' : 'update',
         bytes: bytes.length,
       }
