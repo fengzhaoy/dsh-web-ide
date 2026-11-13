@@ -33,6 +33,7 @@ import { ProblemsPanel, type ProblemItem } from './editor/ProblemsPanel.js'
 import { useTaskRunner, mergeProblems } from './run/use-task-runner.js'
 import { VscodeTab, type VscodePaneError } from './VscodeTab.js'
 import { IDE_VERSION } from './version.js'
+import { sha256HexText } from './hashText.js'
 import { destroyVscodeFrame, parkVscodeFrame, reshowVscodeFrame } from './vscodeFrameHost.js'
 import { RunView } from './run/RunView.js'
 import { useDebugger } from './run/use-debugger.js'
@@ -378,6 +379,10 @@ function imageMimeOf(path: string): string | null {
 interface OpenFileResult {
   text: string
   version: string
+  /** SHA-256 of the text this tab LOADED. Send with a save so the host can
+   *  tell "disk unchanged" from "someone else edited it" by content, not by a
+   *  version token minted elsewhere (that token proved unreliable). */
+  baselineHash?: string
   truncated: boolean
   lines: number
   error: string | null
@@ -1239,6 +1244,9 @@ export function IdeView(props: IdeViewInjected & {
       path, name, language, version: result.version, truncated: result.truncated, lines: result.lines,
       status: 'ready', error: null, dirty: false, kind: 'text',
       encoding: result.encoding, encodingLossless: result.encodingLossless,
+      // Content baseline for the first save. Without it the save would have to
+      // trust a version token that the stat RPC and the fs seam mint differently.
+      baselineHash: await sha256HexText(result.text),
     }
     setTabs((prev) => prev.map((t) => t.path === path ? readyTab : t))
     // openFile always activates the opened tab, so attach the model right away.
@@ -2603,7 +2611,11 @@ export function IdeView(props: IdeViewInjected & {
     setSaveState('saving')
     // A tab whose file was deleted underneath it (version reset to '') saves
     // as a fresh create, so the preserved edits can be recovered.
-    const intent = tab.version ? { kind: 'replaceIfVersion' as const, version: tab.version } : { kind: 'createIfAbsent' as const }
+    // Prefer the content digest: it is the only signal that survives the
+    // version tokens disagreeing between the stat RPC and the fs seam.
+    const intent = tab.baselineHash !== undefined
+      ? { kind: 'replaceIfUnchanged' as const, sha256: tab.baselineHash }
+      : tab.version ? { kind: 'replaceIfVersion' as const, version: tab.version } : { kind: 'createIfAbsent' as const }
     let res
     try {
       res = await workspaceFilesWrite.write(sessionId, path, content, intent)
@@ -2632,7 +2644,10 @@ export function IdeView(props: IdeViewInjected & {
         }
         ideEditor.saved.set(path, content)
         dirtyRef.current.delete(path)
-        setTabs((prev) => prev.map((t2) => t2.path === path ? { ...t2, version: retry.value.version, dirty: false } : t2))
+        const retryHash = await sha256HexText(content)
+        setTabs((prev) => prev.map((t2) => t2.path === path
+          ? { ...t2, version: retry.value.version, baselineHash: retryHash, dirty: false }
+          : t2))
         scheduleDirtyFlush()
         setSaveState('idle')
         return true
@@ -2643,7 +2658,12 @@ export function IdeView(props: IdeViewInjected & {
     }
     ideEditor.saved.set(path, content)
     dirtyRef.current.delete(path)
-    setTabs((prev) => prev.map((t2) => t2.path === path ? { ...t2, version: res.value.version, dirty: false } : t2))
+    // The buffer is now what is on disk: re-baseline so the NEXT edit saves
+    // against this content instead of a drifting version token.
+    const savedHash = await sha256HexText(content)
+    setTabs((prev) => prev.map((t2) => t2.path === path
+      ? { ...t2, version: res.value.version, baselineHash: savedHash, dirty: false }
+      : t2))
     // The buffer is no longer dirty — tell the host now rather than waiting for
     // the debounce, so the agent stops seeing the stale copy.
     scheduleDirtyFlush()

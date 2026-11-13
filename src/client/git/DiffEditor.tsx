@@ -13,6 +13,7 @@ import type * as Monaco from 'monaco-editor'
 import type { GitDiffResult, IdeToolsRemote, SessionId, WorkspaceFilesRemote, WorkspaceFilesWriteRemote, WorkspaceFileWriteIntent } from '../types.js'
 import { Icons } from '../icons.js'
 import { defineDarkModernTheme } from '../theme.js'
+import { sha256HexText } from '../hashText.js'
 import { installMonacoWorker } from '../monacoWorkerBootstrap.js'
 import { installCodiconFont } from '../codiconFontBootstrap.js'
 
@@ -193,6 +194,11 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
   const [saveError, setSaveError] = useState<string | null>(null)
   /** The worktree file's version at load time — the save's replaceIfVersion guard. */
   const versionRef = useRef<string | undefined>(undefined)
+  /** SHA-256 of the text this pane LOADED from disk. The save sends this
+   *  instead of the version token: the token is minted by the stat RPC and
+   *  the fs seam separately and they disagreed, so every second save was
+   *  rejected as "changed on disk" even though nothing had touched the file. */
+  const baselineHashRef = useRef<string | undefined>(undefined)
   /** True while a save round-trip is in flight (dedupes duplicate keybindings). */
   const savingRef = useRef(false)
   /** Whether the right side holds the COMPLETE worktree file (a truncated
@@ -298,9 +304,11 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
     setSavePhase('saving')
     setSaveError(null)
     const content = model.getValue()
-    const intent: WorkspaceFileWriteIntent | undefined = versionRef.current !== undefined
-      ? { kind: 'replaceIfVersion', version: versionRef.current }
-      : undefined
+    const intent: WorkspaceFileWriteIntent | undefined = baselineHashRef.current !== undefined
+      ? { kind: 'replaceIfUnchanged', sha256: baselineHashRef.current }
+      : versionRef.current !== undefined
+        ? { kind: 'replaceIfVersion', version: versionRef.current }
+        : undefined
     // The write can REJECT (transport failure, unmounted remote), not just
     // resolve with !ok. Without this catch the phase stayed 'saving' forever
     // and the rejection went unhandled — no error UI at all.
@@ -315,6 +323,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         return
       }
       versionRef.current = res.value.version
+      baselineHashRef.current = await sha256HexText(content)
       dirtyRef.current = false
       setDirty(false)
       savingRef.current = false
@@ -450,6 +459,7 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         // a truncated page would lose the tail on write.
         completeRef.current = fileRes.value.eof === true
         versionRef.current = fileRes.value.version
+        baselineHashRef.current = await sha256HexText(newText)
       } else if (fileRes.error.code === 'workspace-file/not-found') { newText = ''; source = 'disk' }
       else {
         // Full-file read refused (e.g. over the byte cap): fall back to a text page.
@@ -644,10 +654,12 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         if (fileRes.ok) {
           newText = decodeBytesUtf8(fileRes.value.data)
           versionRef.current = fileRes.value.version
+          baselineHashRef.current = await sha256HexText(newText)
           completeRef.current = fileRes.value.eof === true
         } else if (fileRes.error.code === 'workspace-file/not-found') {
           newText = ''
           versionRef.current = undefined
+          baselineHashRef.current = undefined
           absentRef.current = true
         }
         if (oldText === '' && diff.diff.trim().length > 0 && newText === diff.oldContent) {

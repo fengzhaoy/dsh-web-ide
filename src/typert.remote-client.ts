@@ -347,6 +347,7 @@ const _ide_tools_ideTools_writeFileBytes_parameter_3$schema = z.union([
   z.void(),
   z.object({ kind: z.literal('createIfAbsent') }),
   z.object({ kind: z.literal('replaceIfVersion'), version: z.string() }),
+  z.object({ kind: z.literal('replaceIfUnchanged'), sha256: z.string() }),
 ])
 const _ide_tools_ideTools_writeFileBytes_result$schema = z.object({
   absolutePath: z.string(),
@@ -359,6 +360,7 @@ const _ide_tools_ideTools_writeFile_parameter_2$schema = z.string()
 const _ide_tools_ideTools_writeFile_parameter_3$schema = z.union([
   z.object({ 'kind': z.literal('createIfAbsent') }).readonly(),
   z.object({ 'kind': z.literal('replaceIfVersion'), 'version': z.string().readonly() }).readonly(),
+  z.object({ 'kind': z.literal('replaceIfUnchanged'), 'sha256': z.string().readonly() }).readonly(),
 ]).optional()
 const _ide_tools_ideTools_writeFile_result$schema = z.object({
   'absolutePath': z.string().readonly(),

@@ -11,6 +11,11 @@ export interface OpenTab {
   language: string
   /** Opaque freshness token from stat. */
   version: string
+  /** SHA-256 of the text this tab LOADED. Sent with a save so the host can
+   *  tell "disk unchanged" from "someone else edited it" by CONTENT — the
+   *  version token is minted by two different subsystems and proved to
+   *  disagree, which made every other save report a bogus conflict. */
+  baselineHash?: string
   /** Whether the file was truncated on open. */
   truncated: boolean
   /** Line count of the loaded text. */

@@ -229,7 +229,7 @@ check('no commandsBound latch can strand later editors', !/ideEditor\.commandsBo
 // --- diff save: versionRef must follow the CONTENT, never the poll ---
 check('external-change poll does not adopt a version it did not load', !/versionRef\.current = res\.value\.version\s*\n\s*void reloadRef\.current\(\)/.test(diffSrc))
 check('reload owns versionRef (updates after setValue)', /newText = decodeBytesUtf8\(fileRes\.value\.data\)\s*\n\s*versionRef\.current = fileRes\.value\.version/.test(diffSrc))
-check('save sends the version it loaded', /kind: 'replaceIfVersion', version: versionRef\.current/.test(diffSrc))
+check('save sends the guard it loaded (content digest, version token as fallback)', /replaceIfUnchanged/.test(diffSrc) && /replaceIfVersion', version: versionRef\.current/.test(diffSrc))
 
 // --- one Cmd+S must produce exactly one write ---
 check('workbench fallback yields to the editor binding', /if \(inEditor \|\| inInput\) return \/\/ the editor binding or native handling wins/.test(ide))
@@ -319,6 +319,22 @@ check('writeFileBytes no longer hardcodes the byte length as its version',
   !/version: String\(bytes\.length\)/.test(hostText))
 check('save on a stale version re-saves instead of opening a dialog',
   !/conflictPath/.test(readFileSync(new URL('../src/client/IdeView.tsx', import.meta.url), 'utf8')))
+
+// --- saves use a CONTENT digest, not the cross-subsystem version token ---
+check('the write intent has a content-based variant',
+  /replaceIfUnchanged/.test(hostText))
+check('the host verifies the disk text against that digest',
+  /sha256Hex\(diskText\) !== intent\.sha256/.test(hostText))
+check('tabs record a baseline hash on open and after each save',
+  ((readFileSync(new URL('../src/client/IdeView.tsx', import.meta.url), 'utf8').match(/baselineHash:/g) ?? []).length) >= 2)
+
+// --- the diff editor saves on content too, not on the version token ---
+const diffEditorSrc2 = readFileSync(new URL('../src/client/git/DiffEditor.tsx', import.meta.url), 'utf8')
+check('diff save prefers the content digest', /kind: 'replaceIfUnchanged', sha256: baselineHashRef\.current/.test(diffEditorSrc2))
+check('diff re-baselines after a successful save', /baselineHashRef\.current = await sha256HexText\(content\)/.test(diffEditorSrc2))
+check('diff records a baseline at every disk load', (diffSrc.match(/baselineHashRef\.current = await sha256HexText\(newText\)/g) ?? []).length >= 2)
+check('the digest helper lives in one shared module',
+  /export async function sha256HexText/.test(readFileSync(new URL('../src/client/hashText.ts', import.meta.url), 'utf8')))
 
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

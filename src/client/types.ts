@@ -89,6 +89,8 @@ export interface DirtyBufferEntry {
 export type WorkspaceFileWriteIntent =
   | { readonly kind: 'createIfAbsent' }
   | { readonly kind: 'replaceIfVersion'; readonly version: string }
+  /** Content-based concurrency: `sha256` of the text the buffer started from. */
+  | { readonly kind: 'replaceIfUnchanged'; readonly sha256: string }
 
 /** The workspace-files-write Remote face bound under ctx.remote.workspaceFilesWrite. */
 export interface WorkspaceFilesWriteRemote {

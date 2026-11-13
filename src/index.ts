@@ -14,6 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync, renameSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -62,6 +63,12 @@ const REMOTE_METHODS_KEY = '@deepseek-ai/dsh-typert-protocol/remote-methods'
  * entry. Used by the Explorer's rename/delete host methods so a malicious or
  * buggy client can never touch files outside the session's workspace.
  */
+/** SHA-256 hex of a UTF-8 string — the content identity used by
+ *  replaceIfUnchanged writes (see WorkspaceFileWriteIntent). */
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
 function resolveWorkspacePath(workspaceRoot: string, relPath: string): string {
   const root = resolve(workspaceRoot)
   const abs = resolve(root, relPath)
@@ -181,6 +188,12 @@ async function assertWritable(
 export type WorkspaceFileWriteIntent =
   | { readonly kind: 'createIfAbsent' }
   | { readonly kind: 'replaceIfVersion'; readonly version: string }
+  /** Content-based optimistic concurrency: `sha256` is the digest of the text
+   *  this buffer STARTED from. The write proceeds only if the bytes on disk
+   *  still hash to it, which is what "unchanged on disk" really means. The
+   *  version-token variant above is unreliable across hosts because the token
+   *  is minted by two different subsystems and can normalize differently. */
+  | { readonly kind: 'replaceIfUnchanged'; readonly sha256: string }
 
 /** Outcome of one bounded write through this namespace (the browser's tabs and
  *  diff panel read `version` back as the new optimistic-concurrency token). */
@@ -2839,7 +2852,27 @@ export class IdeTools extends TypertRemoteService {
         emit(event: string, ...args: unknown[]): void
       } & WritePolicyContext
       const target = await ctx.fs.resolve(abs, { cwd: resolve(workspaceRoot), signal })
-      const outcome = await ctx.fs.writeText(target, content, intent, signal, writePolicyFor(ctx, workspaceFileScope))
+      // replaceIfUnchanged: verify the DISK text against the digest the editor
+      // captured when it opened the file. Matching means nobody else touched
+      // it, so the write is safe; only a real external change rejects.
+      let seamIntent: WorkspaceFileWriteIntent | undefined = intent
+      if (intent?.kind === 'replaceIfUnchanged') {
+        let diskText: string | undefined
+        try {
+          const readBack = await ctx.fs.readText(target, signal)
+          diskText = typeof readBack === 'string' ? readBack : readBack.text
+        } catch {
+          diskText = undefined
+        }
+        if (diskText === undefined) {
+          throw new RemoteError('workspace-file-write/stale-version', `"${path}" changed since it was read`, { path })
+        }
+        if (sha256Hex(diskText) !== intent.sha256) {
+          throw new RemoteError('workspace-file-write/stale-version', `"${path}" changed since it was read`, { path })
+        }
+        seamIntent = undefined
+      }
+      const outcome = await ctx.fs.writeText(target, content, seamIntent, signal, writePolicyFor(ctx, workspaceFileScope))
       ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version })
       return {
         absolutePath: abs,
