@@ -243,7 +243,13 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       const all = splitHunks(diffText).hunks.map((_, i) => i)
       const patch = patchForHunks(diffText, indexes ?? all)
       const res = await apply.call(ideTools, sessionId, patch)
-      if (!res.ok) setSaveError(res.error.message ?? res.error.code)
+      if (!res.ok) {
+        // git apply is atomic: on a preimage mismatch NOTHING was staged.
+        // The usual cause is a partially staged file (the patch is built from
+        // the HEAD diff but --cached applies against the index).
+        const msg = res.error.message ?? res.error.code
+        setSaveError(/patch does not apply|does not match/i.test(msg) ? t('diff.stageConflict') : msg)
+      }
       else await reloadRef.current()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err))
@@ -260,7 +266,13 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       const all = splitHunks(diffText).hunks.map((_, i) => i)
       const patch = patchForHunks(diffText, indexes ?? all)
       const res = await apply.call(ideTools, sessionId, patch)
-      if (!res.ok) setSaveError(res.error.message ?? res.error.code)
+      if (!res.ok) {
+        // git apply is atomic: on a preimage mismatch NOTHING was staged.
+        // The usual cause is a partially staged file (the patch is built from
+        // the HEAD diff but --cached applies against the index).
+        const msg = res.error.message ?? res.error.code
+        setSaveError(/patch does not apply|does not match/i.test(msg) ? t('diff.stageConflict') : msg)
+      }
       else await reloadRef.current()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err))
@@ -377,6 +389,8 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
         if (cancelled) return
         if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
         const diff: GitDiffResult = res.value
+        // The raw unified diff feeds hunk-level UNSTAGING (reverse apply).
+        setDiffText(diff.diff ?? '')
         if (diff.empty) { setState('empty'); return }
         // Staged images render as <img> (the host returns the worktree bytes,
         // normally identical to the staged blob); staged binaries get the
@@ -403,6 +417,10 @@ export function DiffEditor({ sessionId, cwd, ideTools, workspaceFiles, workspace
       if (cancelled) return
       if (!res.ok) { setState('error'); setError(res.error.message ?? res.error.code); return }
       const diff: GitDiffResult = res.value
+      // The raw unified diff feeds hunk-level STAGING on the FIRST load too —
+      // previously only the 5s reload path set it, so the stage buttons
+      // never rendered until a poll tick or an external change.
+      setDiffText(diff.diff ?? '')
       if (diff.empty) { setState('empty'); return }
       // Binary blobs (incl. deleted images): placeholder, not Monaco.
       if (diff.contentType === 'binary') {

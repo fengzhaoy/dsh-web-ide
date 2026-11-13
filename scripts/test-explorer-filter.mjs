@@ -36,7 +36,7 @@ check('root row component exists', tree.includes('function RootRow('))
 check('root row is rendered before the children', tree.indexOf('RootRow') < tree.indexOf('renderDir(rootDir, rootState, 1)'))
 check('root starts expanded', /useState<Set<string>>\(\(\) => new Set\(\[rootDir\.replace/.test(tree))
 check('root children render only while expanded', tree.includes('renderDir(rootDir, rootState, 1)') && /expanded\.has\(rootDir\.replace[\s\S]{0,40}\)\) && renderDir\(rootDir, rootState, 1\)/.test(tree))
-check('root row carries the chevron and folder icon', /ide-tree-root-row[\s\S]{0,400}ide-tree-chevron[\s\S]{0,200}setiFileIcon\(name, true, expanded\)/.test(tree))
+check('root row carries the chevron and folder icon', /ide-tree-root-row[\s\S]{0,1500}ide-tree-chevron[\s\S]{0,600}setiFileIcon\(name, true, expanded\)/.test(tree))
 check('root row opens the blank-area context menu', tree.includes('onContextMenu={handleBlankContextMenu}'))
 check('reveal always re-expands the root', /next\.add\(rootDir\.replace\(/.test(tree))
 // Scope to the header button itself: the activity bar legitimately hosts its
@@ -245,6 +245,72 @@ check('notification root never shrinks the status bar item', bellRule !== null &
 check('notification panel is portalled out of the status bar',
   /createPortal\(/.test(readFileSync(new URL('../src/client/NotificationCenter.tsx', import.meta.url), 'utf8')))
 check('notification panel is fixed to the viewport', /\.ide-notify-panel\{[^}]*position:\s*fixed/.test(css))
+
+// --- CSS template must never contain // comments (they swallow the next rule) ---
+const stylesStart = css.indexOf('export const IDE_STYLES')
+const stylesOpen = css.indexOf('\`', stylesStart)
+const stylesBody = css.slice(stylesOpen + 1, css.indexOf('\`', stylesOpen + 1))
+check('IDE_STYLES contains no // comments (they disable the following rule)', !/^\s*\/\//m.test(stylesBody))
+
+// --- code-review fixes (85df329..HEAD review) ---
+check('nested TreeNode passes the multi-select props through', (readFileSync(new URL('../src/client/explorer/FileTree.tsx', import.meta.url), 'utf8').match(/<TreeNode/g) ?? []).length === 2
+  && /selectedPaths=\{selectedPaths\}/.test(readFileSync(new URL('../src/client/explorer/FileTree.tsx', import.meta.url), 'utf8').split('key={child.name}')[1] ?? ''))
+check('runGit feeds stdin via the seam data mode, not handle.write', /stdin: \(stdin === undefined \? 'ignore' : \{ data: stdin \}\)/.test(hostSrc) && !/handleWithWrite/.test(hostSrc))
+check('searchReplace puts list flags before the path separator', /const dd = baseArgv\.indexOf\('--'\)/.test(hostSrc))
+check('hunk bar data is set on FIRST load, not only the 5s reload', (hostSrc.match(/setDiffText/g) ?? []).length >= 0
+  && (readFileSync(new URL('../src/client/git/DiffEditor.tsx', import.meta.url), 'utf8').match(/setDiffText\(diff\.diff/g) ?? []).length >= 3)
+check('do-not-disturb does not grow the unseen counter', /if \(!this\.dnd\) this\.unseen \+= 1/.test(readFileSync(new URL('../src/client/notifications.ts', import.meta.url), 'utf8')))
+check('vscode iframe sandbox allows modals', /allow-modals/.test(readFileSync(new URL('../src/client/vscodeFrameHost.ts', import.meta.url), 'utf8')))
+
+// --- fileMove must pass an opts OBJECT, never undefined (typert drops undefined) ---
+const ftSrc = readFileSync(new URL('../src/client/explorer/FileTree.tsx', import.meta.url), 'utf8')
+check('fileMove never sends an undefined opts slot',
+  !/fileMove\([^)]*,\s*undefined\s*\)/.test(ftSrc) && /fileMove\([^)]*,\s*\{\}\s*\)/.test(ftSrc))
+
+// --- the file-types wrapper must stay auto-height, with ONE rule each ---
+check('ide-search-file-types has exactly one base rule', (css.match(/\.ide-search-file-types\{/g) ?? []).length === 1)
+check('the file-types wrapper is auto-height, not a fixed input box',
+  /\.ide-search-file-types\{[^}]*height:\s*auto/.test(css) && !/\.ide-search-file-types\{[^}]*height:\s*26px/.test(css))
+
+// --- targetDir === '' means the workspace root and must be accepted ---
+const hostText = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8')
+check('fileMove/fileCopy do not reject an empty targetDir (it means the root)',
+  !/path\.length === 0 \|\| targetDir\.length === 0/.test(hostText))
+check('the root-dir target is still resolved explicitly',
+  /targetDir === '' \? resolve\(workspaceRoot\)/.test(hostText))
+
+// --- every containment check must allow the workspace root itself ---
+// A bare `!x.startsWith(root + sep)` WITHOUT the `&& x !== root` escape
+// would also reject the root directory itself. Match only the bare form.
+const rootChecks = (hostText.match(/if \(!\w+(?:\.\w+)?\.startsWith\(root \+ sep\)\) \{/g) ?? [])
+check('no containment check rejects the root by prefix alone', rootChecks.length === 0)
+
+// --- the workspace root row must be a drop target (drag a file back out) ---
+const rootRowSrc = (/function RootRow[\s\S]*?\n}/.exec(ftSrc) ?? [''])[0]
+check('RootRow handles dragover', /onDragOver=/.test(rootRowSrc))
+check('RootRow handles drop', /onDrop=/.test(rootRowSrc))
+check('RootRow shows the drop highlight', /data-drop-target=/.test(rootRowSrc))
+check('RootRow receives the drop callback', /<RootRow[\s\S]*?onDropInto=/.test(ftSrc))
+
+// --- dropping onto a FILE row must land in that file's parent folder ---
+check('TreeNode computes a dropDir (dir itself, or the parent for a file)',
+  /const dropDir = isDir \? childPath : dirPath/.test(ftSrc))
+check('every tree row accepts dragover, not only directories',
+  /onDragOver=\{\(e\) => \{[\s\S]{0,200}onDropInto === undefined\s*\) return/.test(ftSrc)
+  && !/onDragOver=\{isDir \?/.test(ftSrc))
+check('the drop uses dropDir rather than the row path',
+  /onDropInto\?\.\(src, dropDir\)/.test(ftSrc))
+
+// --- the subtree guard must not swallow moves INTO the workspace root ---
+check('drop guard tests "dropDir startsWith src" (not the reverse)',
+  /dropDir === src \|\| dropDir\.startsWith\(src \+ '\/'\)/.test(ftSrc))
+check('the old inverted guard is gone',
+  !/!src\.startsWith\(dropDir \+ '\/'\)/.test(ftSrc))
+
+// --- drag-over highlight is VS Code's flat list.dropBackground wash, no ring ---
+const dropRule = (/\.ide-tree-row\[data-drop-target[^}]*\}/.exec(css) ?? [''])[0]
+check('drop highlight uses list.dropBackground', /background:var\(--ide-list-drop-bg,#062f4a\)/.test(dropRule))
+check('drop highlight draws no outline/border box', /box-shadow:none/.test(dropRule))
 
 console.log(failed === 0 ? '\nall explorer filter checks passed' : '\n' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

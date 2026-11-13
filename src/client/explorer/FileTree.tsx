@@ -583,7 +583,7 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         const result = await ideToolsFull.fileCopy(sessionId, rel, targetRel, { newName })
         if (!result.ok) { setPasteError(result.error.message); return }
       } else {
-        const result = await ideToolsFull.fileMove(sessionId, rel, targetRel, undefined)
+        const result = await ideToolsFull.fileMove(sessionId, rel, targetRel, {})
         if (!result.ok) { setPasteError(result.error.message); return }
         setClip(null)
         // Only a move (cut) relocates the source — update open editor tabs.
@@ -613,7 +613,7 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
     setDropBusy(true)
     setDropError(null)
     try {
-      const result = await ideToolsFull.fileMove(sessionId, relPathOf(rootDir, sourceAbs), targetDir === rootDir ? '' : relPathOf(rootDir, targetDir), undefined)
+      const result = await ideToolsFull.fileMove(sessionId, relPathOf(rootDir, sourceAbs), targetDir === rootDir ? '' : relPathOf(rootDir, targetDir), {})
       if (!result.ok) { setDropError(result.error.message); return }
       setRefreshKey((k) => k + 1)
       setExpanded((prev) => (prev.has(targetDir) ? prev : new Set([...prev, targetDir])))
@@ -966,6 +966,9 @@ export const FileTree = forwardRef<ExplorerHandle, FileTreeProps>(function FileT
         focusPath={focusPath}
         setFocusPath={setFocusPath}
         t={t}
+        onDropInto={(s, d) => { void dropInto(s, d) }}
+        dragOverDir={dragOver}
+        setDragOverDir={setDragOver}
       />
       {expanded.has(rootDir.replace(/[/\\]+$/, '')) && renderDir(rootDir, rootState, 1)}
       {pendingDelete && (
@@ -1189,9 +1192,15 @@ interface RootRowProps {
   focusPath: string | null | undefined
   setFocusPath: ((p: string | null) => void) | undefined
   t: (key: string, params?: Record<string, string | number>) => string
+  /** The root row is a drop target too: VS Code lets you drag a file back OUT
+   *  of a subfolder onto the workspace root. Without this the root row had no
+   *  dragover/drop handler at all, so dragging back always cancelled. */
+  onDropInto?: (sourceAbs: string, targetDir: string) => void
+  dragOverDir?: string | null
+  setDragOverDir?: (p: string | null) => void
 }
 
-function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPath, setFocusPath }: RootRowProps) {
+function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPath, setFocusPath, onDropInto, dragOverDir, setDragOverDir }: RootRowProps) {
   const name = rootDir.replace(/[/\\]+$/, '').split('/').pop() ?? rootDir
   const isFocused = focusPath === rootDir
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1205,9 +1214,29 @@ function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPa
       data-path={rootDir}
       data-expanded={expanded || undefined}
       data-focused={isFocused || undefined}
+      data-drop-target={dragOverDir === rootDir || undefined}
       style={{ paddingLeft: 4 }}
       onClick={onToggle}
       onContextMenu={onContextMenu}
+      onDragOver={(e) => {
+        if (onDropInto === undefined) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (dragOverDir !== rootDir) setDragOverDir?.(rootDir)
+      }}
+      onDragLeave={() => { if (dragOverDir === rootDir) setDragOverDir?.(null) }}
+      onDrop={(e) => {
+        if (onDropInto === undefined) return
+        e.preventDefault()
+        e.stopPropagation()
+        setDragOverDir?.(null)
+        const paths = e.dataTransfer.getData('text/plain').split('\n').filter((p) => p.length > 0)
+        for (const src of paths) {
+          const parent = src.slice(0, src.lastIndexOf('/'))
+          if (parent === rootDir) continue
+          onDropInto(src, rootDir)
+        }
+      }}
       onKeyDown={handleKeyDown}
       onFocus={() => setFocusPath?.(rootDir)}
       tabIndex={0}
@@ -1223,6 +1252,10 @@ function RootRow({ rootDir, expanded, gitColor, onToggle, onContextMenu, focusPa
 function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, expanded, activePath, onToggle, onOpenFile, loadDir, t, gitFileMap, gitDirMap, renamingPath, renameBusy, renameServerError, onRenameStart, onRenameCommit, onRenameCancel, onRenameDraft, onRequestDelete, refreshKey, createFlow, onCreateStart, hostPlatform, onReveal, clipState, onCut, onCopy, onPaste, pasteBusy, onDropInto, dragOverDir, setDragOverDir, onDownload, onUpload, onOpenInTerminal, focusPath, setFocusPath, filterText, visiblePaths, onDirLoaded, selectedPaths, onClickSelection, dragPathsFor }: TreeNodeProps) {
   const childPath = joinPath(dirPath, entry.name)
   const isDir = entry.type === 'directory'
+  /** VS Code explorerViewer.ts: "if (!target.isDirectory && target.parent)
+   *  target = target.parent" — dropping onto a FILE lands in its parent
+   *  folder, so you can drop anywhere among a folder's siblings to move there. */
+  const dropDir = isDir ? childPath : dirPath
   const isOpen = expanded.has(childPath)
   const [childState, setChildState] = useState<DirState | null>(null)
 
@@ -1456,7 +1489,7 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
         data-focused={isFocused || undefined}
         data-cut={isCut || undefined}
         data-path={childPath}
-        data-drop-target={isDir && dragOverDir === childPath || undefined}
+        data-drop-target={dragOverDir === dropDir || undefined}
         style={{ paddingLeft }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -1470,9 +1503,15 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
           const paths = dragPathsFor?.(childPath) ?? [childPath]
           e.dataTransfer.setData('text/plain', paths.join('\n'))
         }}
-        onDragOver={isDir ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverDir !== childPath) setDragOverDir?.(childPath) } : undefined}
-        onDragLeave={isDir ? () => { if (dragOverDir === childPath) setDragOverDir?.(null) } : undefined}
-        onDrop={isDir ? (e) => {
+        onDragOver={(e) => {
+          if (onDropInto === undefined) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          if (dragOverDir !== dropDir) setDragOverDir?.(dropDir)
+        }}
+        onDragLeave={() => { if (dragOverDir === dropDir) setDragOverDir?.(null) }}
+        onDrop={(e) => {
+          if (onDropInto === undefined) return
           e.preventDefault()
           e.stopPropagation()
           // A multi-selection drag carries one path per line; move each in turn.
@@ -1480,10 +1519,15 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
           // by dropInto's own guards.
           const sources = e.dataTransfer.getData('text/plain').split('\n').filter((s) => s.length > 0)
           setDragOverDir?.(null)
+          // Guard against dropping a folder INTO itself/its own subtree. The
+          // check must be "the dragged path is dropDir or one of its ancestors",
+          // NOT "src starts with dropDir/" — the latter silently dropped every
+          // move INTO the workspace root (root is a prefix of every path).
           for (const src of sources) {
-            if (src !== childPath && !src.startsWith(childPath + '/')) onDropInto?.(src, childPath)
+            if (dropDir === src || dropDir.startsWith(src + '/')) continue
+            onDropInto?.(src, dropDir)
           }
-        } : undefined}
+        }}
         onFocus={() => setFocusPath?.(childPath)}
       >
         <span className="ide-tree-chevron" data-expanded={isOpen || undefined}>
@@ -1579,6 +1623,9 @@ function TreeNode({ entry, dirPath, depth, rootDir, sessionId, workspaceFiles, e
             setFocusPath={setFocusPath}
             filterText={filterText}
             visiblePaths={visiblePaths}
+            selectedPaths={selectedPaths}
+            onClickSelection={onClickSelection}
+            dragPathsFor={dragPathsFor}
           />
         ))}</>
       )}

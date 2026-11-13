@@ -73,7 +73,9 @@ function ensureFrame(url: string): HTMLIFrameElement {
   // Keep the embedded workbench inside its own origin: without sandbox the
   // frame inherits this document's capabilities. allow-scripts + same-origin
   // is what code-server needs to run; downloads and popups stay denied.
-  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads')
+  // allow-modals: code-server's own confirm()/alert() (e.g. "Do you trust
+  // the authors") must not be silently swallowed.
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals')
   frame.src = url
   s.container.appendChild(frame)
   s.frame = frame

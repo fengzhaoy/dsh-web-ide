@@ -343,13 +343,13 @@ export interface GitDiffResult {
 export interface IdeToolsRemote {
   search(
     sessionId: SessionId,
-    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    query: { pattern: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchResult>>
   /** Replace every match in the workspace (or under one path). */
   searchReplace(
     sessionId: SessionId,
-    query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    query: { pattern: string; replacement: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean; preserveCase?: boolean },
     signal?: AbortSignal,
   ): Promise<RemoteResult<IdeSearchReplaceResult>>
   /** Stage only the hunks carried by `patch` (git apply --cached). */

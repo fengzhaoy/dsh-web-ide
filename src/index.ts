@@ -20,6 +20,7 @@ import { RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protoc
 import type { RemoteErrorDetailsMap } from '@deepseek-ai/dsh-typert-protocol'
 import type { IdeDebugOpenResult } from './client/types.js'
 import type { IdeVscodeInfo } from './client/types.js'
+import { buildReplaceStringWithCasePreserved } from './preserve-case.js'
 import { codeServerArgs, codeServerCandidates, findCodeServer, nextFreePort, workspaceUrl, type VscodeServerEntry } from './vscode-server.js'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 // The plugin's ide-tools/* and workspace-file-write/* failure codes are
@@ -814,13 +815,14 @@ export class IdeTools extends TypertRemoteService {
   /** Workspace grep reusing dsh-tool-fs-search's ripgrep machinery verbatim. */
   async search(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
-    query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    query: { pattern: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean },
     signal: AbortSignal,
   ): Promise<IdeSearchResult> {
     const { workspaceRoot } = workspaceFileScope
     if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty', {})
-    const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
+    const input: { pattern: string; include?: string; exclude?: string; path?: string } = { pattern: query.pattern }
     if (query.include !== undefined && query.include.length > 0) input.include = query.include
+    if (query.exclude !== undefined && query.exclude.length > 0) input.exclude = query.exclude
     if (query.path !== undefined && query.path.length > 0) {
       // ripgrep resolves `path` against the workdir, so an absolute path, a
       // `..` traversal or a `~` would escape the Session workspace entirely —
@@ -834,6 +836,14 @@ export class IdeTools extends TypertRemoteService {
     // --fixed-strings keeps the VS Code default (literal search). A regex
     // search must drop that flag so the pattern reaches rg uncompiled.
     let argv = buildGrepCommand(input)
+    // VS Code's query-details "files to exclude": comma-separated globs, each
+    // negated for ripgrep. buildGrepCommand has no exclude slot, so they ride
+    // the same --glob channel as `include`.
+    if (query.exclude !== undefined && query.exclude.length > 0) {
+      for (const glob of query.exclude.split(',').map((g) => g.trim()).filter((g) => g.length > 0)) {
+        argv.push('--glob=!' + glob)
+      }
+    }
     if (query.regex !== true) {
       argv = ['-F', ...argv]
     }
@@ -863,23 +873,33 @@ export class IdeTools extends TypertRemoteService {
    */
   async searchReplace(
     workspaceFileScope: { sessionId: string; workspaceRoot: string },
-    query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean },
+    query: { pattern: string; replacement: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean; preserveCase?: boolean },
     signal: AbortSignal,
   ): Promise<{ changed: string[]; replacements: number; skipped: { path: string; reason: string }[] }> {
     const { workspaceRoot } = workspaceFileScope
     if (query.pattern.length === 0) throw new RemoteError('ide-tools/bad-request', 'pattern is empty', {})
-    const input: { pattern: string; include?: string; path?: string } = { pattern: query.pattern }
+    const input: { pattern: string; include?: string; exclude?: string; path?: string } = { pattern: query.pattern }
     if (query.include !== undefined && query.include.length > 0) input.include = query.include
+    if (query.exclude !== undefined && query.exclude.length > 0) input.exclude = query.exclude
     if (query.path !== undefined && query.path.length > 0) {
       const abs = resolveWorkspacePath(workspaceRoot, query.path)
       input.path = relative(workspaceRoot, abs).split(sep).join('/')
     }
     // Ask rg for the FILE LIST only: the per-file rewrite below must decide the
     // hit count itself, and a second full parse would be wasted work.
-    let listArgv = buildGrepCommand(input).filter((a) => !a.startsWith('--regexp='))
-    if (query.regex !== true) listArgv = ['-F', ...listArgv]
-    if (!query.caseSensitive) listArgv = ['-i', ...listArgv]
+    // buildGrepCommand emits a path positional after a '--' separator when a
+    // path is set; flags pushed AFTER that separator are treated as paths, so
+    // the list flags must be inserted before it (a per-file replace used to
+    // fail with exactly that).
+    const baseArgv = buildGrepCommand(input).filter((a) => !a.startsWith('--regexp='))
+    const dd = baseArgv.indexOf('--')
+    const flags = baseArgv.slice(0, dd < 0 ? baseArgv.length : dd)
+    const positional = dd < 0 ? [] : baseArgv.slice(dd)
+    const listArgv = flags
     listArgv.push('--files-with-matches', '--regexp=' + query.pattern)
+    if (query.regex !== true) listArgv.unshift('-F')
+    if (!query.caseSensitive) listArgv.unshift('-i')
+    listArgv.push(...positional)
     const exec = { signal, agent: { session: { header: { cwd: workspaceRoot } } } }
     const run = await runRipgrep(this.ctx as never, exec as never, 'grep', listArgv, RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_STDERR_MAX_BYTES)
     const files = run.noMatches ? [] : run.stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
@@ -905,7 +925,12 @@ export class IdeTools extends TypertRemoteService {
         const version = typeof read === 'string' ? undefined : read.version
         matcher.lastIndex = 0
         let hits = 0
-        const after = before.replace(matcher, () => { hits += 1; return query.replacement })
+        const after = before.replace(matcher, (...args) => {
+          hits += 1
+          const matched = String(args[0])
+          // VS Code "Preserve Case": the replacement mirrors the match casing.
+          return query.preserveCase === true ? buildReplaceStringWithCasePreserved(matched, query.replacement) : query.replacement
+        })
         if (hits === 0 || after === before) continue
         await fs.writeText(
           target,
@@ -1433,11 +1458,15 @@ export class IdeTools extends TypertRemoteService {
     /** Text piped to git's stdin (used by `git apply -`). Omitted = no stdin. */
     stdin?: string,
   ): Promise<string> {
+    // stdin rides the seam's batch mode ({ data }): the bytes are written and
+    // the stream closed by spawn itself. SubprocessHandle has no write()/end()
+    // (only a raw stdin Writable), so the earlier manual-write block could never
+    // deliver the patch and `git apply -` hung until the timeout.
     const spec = {
       argv: ['git', ...argv],
       cwd: workspaceRoot,
       stdio: {
-        stdin: (stdin === undefined ? 'ignore' : 'pipe') as 'ignore' | 'pipe',
+        stdin: (stdin === undefined ? 'ignore' : { data: stdin }) as 'ignore' | { data: string },
         stdout: { maxBytes: IdeTools.GIT_STDOUT_MAX_BYTES },
         stderr: { maxBytes: IdeTools.GIT_STDERR_MAX_BYTES },
       },
@@ -1449,17 +1478,6 @@ export class IdeTools extends TypertRemoteService {
       handle = this.ctx.subprocess.spawn(spec as never)
     } catch {
       throw new RemoteError('ide-tools/git-failed', 'git command could not start', {})
-    }
-    if (stdin !== undefined) {
-      // Feed the patch and close the stream, otherwise `git apply -` waits for
-      // EOF forever and the timeout path reports a bogus git-timeout.
-      const handleWithWrite = handle as unknown as { write?: (text: string) => Promise<void>; end?: () => Promise<void> }
-      try {
-        if (typeof handleWithWrite.write === 'function') await handleWithWrite.write(stdin)
-        if (typeof handleWithWrite.end === 'function') await handleWithWrite.end()
-      } catch {
-        // The command already failed or exited; its own error is reported below.
-      }
     }
     let outcome: import('@deepseek-ai/dsh-subprocess').SubprocessOutcome
     // Race the process against a hard deadline. `terminate()` is best-effort:
@@ -2579,7 +2597,8 @@ export class IdeTools extends TypertRemoteService {
       const abs = resolveWorkspacePath(workspaceRoot, path)
       const target = resolve(dirname(abs), newName)
       const root = resolve(workspaceRoot)
-      if (!target.startsWith(root + sep)) {
+      // Same containment rule as everywhere else: root itself is inside.
+      if (!target.startsWith(root + sep) && target !== root) {
         throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
       }
       if (existsSync(target)) {
@@ -2670,7 +2689,11 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot } = workspaceFileScope
     try {
       if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
-      if (path.length === 0 || targetDir.length === 0) throw new RemoteError('ide-tools/bad-request', 'path and target directory are required', {})
+      // targetDir === '' legitimately means "the workspace root": the next line
+      // resolves it to workspaceRoot, and FileTree sends '' when dropping onto
+      // the root row. Rejecting an empty targetDir here made every drop onto the
+      // root fail with bad-request. Only PATH must be non-empty.
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
       const abs = resolveWorkspacePath(workspaceRoot, path)
       const dirAbs = targetDir === '' ? resolve(workspaceRoot) : resolveWorkspacePath(workspaceRoot, targetDir)
       const root = resolve(workspaceRoot)
@@ -2688,7 +2711,10 @@ export class IdeTools extends TypertRemoteService {
       }
       const finalName = opts?.newName && opts.newName.length > 0 ? opts.newName : basename(abs)
       const target = resolve(dirAbs, finalName)
-      if (!target.startsWith(root + sep)) {
+      // Containment rule identical to the dirAbs check above: the root itself is
+      // inside the workspace, so allow it. startsWith(root + sep) alone would
+      // also reject the root directory.
+      if (!target.startsWith(root + sep) && target !== root) {
         throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
       }
       if (existsSync(target)) {
@@ -2721,7 +2747,11 @@ export class IdeTools extends TypertRemoteService {
     const { workspaceRoot } = workspaceFileScope
     try {
       if (!workspaceRoot) throw new RemoteError('ide-tools/no-workspace', 'workspace root is not set', {})
-      if (path.length === 0 || targetDir.length === 0) throw new RemoteError('ide-tools/bad-request', 'path and target directory are required', {})
+      // targetDir === '' legitimately means "the workspace root": the next line
+      // resolves it to workspaceRoot, and FileTree sends '' when dropping onto
+      // the root row. Rejecting an empty targetDir here made every drop onto the
+      // root fail with bad-request. Only PATH must be non-empty.
+      if (path.length === 0) throw new RemoteError('ide-tools/bad-request', 'path is required', {})
       const abs = resolveWorkspacePath(workspaceRoot, path)
       const info = await stat(abs).catch(() => undefined)
       if (info === undefined) throw new RemoteError('ide-tools/not-found', 'the source entry no longer exists', {})
@@ -2732,7 +2762,10 @@ export class IdeTools extends TypertRemoteService {
       }
       const finalName = opts?.newName && opts.newName.length > 0 ? opts.newName : basename(abs)
       const target = resolve(dirAbs, finalName)
-      if (!target.startsWith(root + sep)) {
+      // Containment rule identical to the dirAbs check above: the root itself is
+      // inside the workspace, so allow it. startsWith(root + sep) alone would
+      // also reject the root directory.
+      if (!target.startsWith(root + sep) && target !== root) {
         throw new RemoteError('ide-tools/bad-path', 'target escapes the workspace root', {})
       }
       if (existsSync(target)) {

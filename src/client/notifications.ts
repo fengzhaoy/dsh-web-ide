@@ -43,10 +43,12 @@ class NotificationCenter {
 
   notify(severity: NotifySeverity, message: string): void {
     // Do Not Disturb records the entry (so it still shows in the center) but
-    // skips the toast entirely — VS Code's DND behaves the same way.
+    // skips the toast entirely — VS Code's DND behaves the same way. It also
+    // leaves the unseen counter alone: a silent notification the user chose
+    // not to be interrupted by must not keep the bell lit forever.
     const item: IdeNotification = { id: this.nextId++, severity, message, at: Date.now(), toast: !this.dnd }
     this.items = [item, ...this.items].slice(0, MAX_HISTORY)
-    this.unseen += 1
+    if (!this.dnd) this.unseen += 1
     this.emit()
     // Auto-dismiss the toast (history keeps the entry).
     if (item.toast) setTimeout(() => { this.dismissToast(item.id) }, TOAST_MS)

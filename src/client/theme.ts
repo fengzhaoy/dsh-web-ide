@@ -96,6 +96,21 @@ export const IDE_CSS_VARS: Record<string, string> = {
   '--ide-input-bg': '#313131',
   // input.border / dropdown.border
   '--ide-input-border': '#3c3c3c',
+  // VS Code dark_modern.json: input.foreground/placeholderForeground,
+  // focusBorder, inputOption.activeBorder/activeBackground.
+  '--ide-input-fg': '#cccccc',
+  '--ide-input-placeholder': '#989898',
+  '--ide-focus-border': '#0078d4',
+  '--ide-input-option-active-bg': '#2489db82',
+  '--ide-input-option-active-border': '#2488db',
+  '--ide-toolbar-hover': '#2a2d2e',
+  // VS Code list.hoverBackground #2A2D2E, search.resultsInfoForeground
+  // (fg @ 65%), searchEditor.findMatchBackground.
+  '--ide-list-hover': '#2a2d2e',
+  // VS Code list.dropBackground (drag over an item): dark #062F4A / light #D6EBFF.
+  '--ide-list-drop-bg': '#062f4a',
+  '--ide-search-info-fg': 'rgba(204,204,204,.65)',
+  '--ide-find-match': '#515c6a',
   // badge.background (quiet pill counters)
   '--ide-badge-bg': '#616161',
   // quiet button hover (textCodeBlock tone)
@@ -108,7 +123,6 @@ export const IDE_CSS_VARS: Record<string, string> = {
   '--ide-hover-wash': '#ffffff1a',
   '--ide-toggle-knob': '#cccccc',
   '--ide-toggle-knob-on': '#ffffff',
-  '--ide-selection-fg': 'rgba(255,255,255,.75)',
 }
 
 /** Light Modern equivalents (VS Code light_modern.json): swapped when the
@@ -293,7 +307,138 @@ export const IDE_CSS_VARS_2026: Record<string, string> = {
 
 /** Inline stylesheet injected once when the IDE mounts. VSCode-style geometry. */
 export const IDE_STYLES = `
-// ── About dialog: centred identity block, left-aligned prose below ──
+/* ===== Search view: VS Code searchview.css / searchWidget.ts / inputBox.css =====
+   Colours (dark_modern.json): input.background #313131, input.border #3C3C3C,
+   input.foreground #CCCCCC, input.placeholderForeground #989898,
+   focusBorder #0078D4, inputOption.activeBorder #2488DB /
+   activeBackground #2489DB82; list.hoverBackground #2A2D2E,
+   list.activeSelectionBackground #04395E; search.resultsInfoForeground =
+   foreground(#CCCCCC) at 65%. */
+.ide-search-panel{display:flex;flex-direction:column;min-height:0;height:100%;font-size:13px;color:var(--ide-fg,#cccccc)}
+/* .search-widgets-container: margin 0 12px 0 2px, padding 6px 0 */
+.ide-search-inputs{margin:0 12px 0 2px;padding:6px 0}
+/* .search-widget{position:relative} */
+.ide-search-widget{position:relative;display:block}
+/* .toggle-replace-button{position:absolute;left:0;top:0;width:16px;height:100%} */
+.ide-search-chevron{position:absolute;left:0;top:0;width:16px;height:26px;display:inline-flex;
+  align-items:center;justify-content:center;padding:0;cursor:pointer;border:0;border-radius:4px;
+  background:transparent;color:inherit;z-index:2}
+.ide-search-chevron:hover{background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-chevron svg{width:16px;height:16px}
+/* .search-container{margin-left:18px} + monaco-inputbox */
+.ide-search-container{position:relative;margin-left:18px;display:block;box-sizing:border-box;
+  height:26px;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);
+  border-radius:4px}
+.ide-search-container:focus-within{border-color:var(--ide-focus-border,#0078d4)}
+.ide-search-container .ide-search-input{display:inline-block;box-sizing:border-box;width:100%;height:100%;
+  padding:4px 56px 4px 6px;border:none;border-radius:4px;outline:none;background:transparent;
+  color:var(--ide-input-fg,#cccccc);font:inherit;line-height:inherit;text-overflow:ellipsis}
+.ide-search-container .ide-search-input::placeholder{color:var(--ide-input-placeholder,#989898)}
+/* .monaco-action-bar{position:absolute;right:2px;top:4px} + .monaco-custom-toggle 20x20 */
+.ide-search-container .ide-search-toggle{position:absolute;top:3px;width:20px;height:20px;margin-left:2px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+  border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;
+  font-size:11px;line-height:1}
+.ide-search-container .ide-search-toggle:nth-of-type(1){right:24px}
+.ide-search-container .ide-search-toggle:nth-of-type(2){right:2px}
+.ide-search-toggle:hover{background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-toggle.is-on{background:var(--ide-input-option-active-bg,#2489db82);
+  border-color:var(--ide-input-option-active-border,#2488db)}
+/* .replace-container{margin-left:18px;margin-top:6px} */
+.ide-search-replace-container{position:relative;margin-left:18px;margin-top:6px;display:block;box-sizing:border-box;
+  height:26px;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px}
+.ide-search-replace-container:focus-within{border-color:var(--ide-focus-border,#0078d4)}
+.ide-search-replace-container .ide-search-input{display:inline-block;box-sizing:border-box;width:100%;height:100%;
+  padding:4px 40px 4px 6px;border:none;outline:none;background:transparent;color:var(--ide-input-fg,#cccccc);font:inherit}
+.ide-search-replace-container .ide-search-input::placeholder{color:var(--ide-input-placeholder,#989898)}
+.ide-search-replace-container .ide-search-toggle{position:absolute;top:3px;width:34px;height:20px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:4px;
+  border:1px solid transparent;background:transparent;color:inherit;font-size:11px}
+.ide-search-replace-container .ide-search-toggle svg{width:14px;height:14px}
+/* preserve-case sits at the right edge; replace-all shifts left of it */
+.ide-search-replace-container .ide-search-toggle:nth-of-type(1){right:28px}
+.ide-search-replace-container .ide-search-toggle:nth-of-type(2){right:2px;width:24px}
+.ide-search-replace-container .ide-search-toggle:hover:not(:disabled){background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-replace-container .ide-search-toggle:disabled{opacity:.4;cursor:default}
+/* .query-details{min-height:1em;position:relative;margin-left:18px} .more{absolute;right:-2px} */
+/* query-details file types (searchview.css .file-types / .includes / .excludes):
+   a plain vertical stack, NOT a fixed-height input. Each group is an h4 label
+   plus one monaco-inputbox row; the wrapper itself must stay auto-height or the
+   children overflow it and paint over whatever follows. */
+.ide-search-file-types{display:flex;flex-direction:column;gap:8px;padding-top:6px;
+  height:auto;box-sizing:border-box;background:transparent;border:0}
+.ide-search-file-types[data-hidden]{display:none}
+.ide-file-types-group{display:flex;flex-direction:column;gap:2px}
+.ide-file-types-group h4{margin:0;padding:0;font-size:11px;font-weight:normal;
+  color:var(--ide-fg-dim,#9d9d9d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ide-file-input-wrap{position:relative;display:block;height:26px;box-sizing:border-box;
+  background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px}
+.ide-file-input-wrap:focus-within{border-color:var(--ide-focus-border,#0078d4)}
+.ide-file-input-wrap .ide-search-input{display:inline-block;box-sizing:border-box;width:100%;height:100%;
+  padding:4px 52px 4px 6px;border:none;outline:none;background:transparent;
+  color:var(--ide-input-fg,#cccccc);font:inherit}
+.ide-file-input-wrap .ide-search-input::placeholder{color:var(--ide-input-placeholder,#989898)}
+.ide-file-input-wrap .ide-search-toggle{position:absolute;top:3px;width:20px;height:20px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+  border:1px solid transparent;border-radius:4px;background:transparent;color:inherit}
+.ide-file-input-wrap .ide-search-toggle:nth-of-type(1){right:24px}
+.ide-file-input-wrap .ide-search-toggle:nth-of-type(2){right:2px}
+.ide-file-input-wrap .ide-search-toggle svg{width:14px;height:14px}
+
+.ide-query-details{position:relative;min-height:1em;margin-left:18px}
+.ide-search-more{position:absolute;right:-2px;top:0;width:25px;height:16px;display:inline-flex;
+  align-items:center;justify-content:center;cursor:pointer;border:0;background:transparent;color:inherit;z-index:2}
+.ide-search-more:hover{background:var(--ide-toolbar-hover,#2a2d2e);border-radius:4px}
+.ide-search-more svg{width:14px;height:14px}
+/* .file-types{display:none} until expanded */
+/* ----- results: .messages / .foldermatch / .linematch ----- */
+.ide-search-note{margin:0 12px 6px 20px;padding:4px 8px;border-radius:4px;font-size:11.5px;
+  background:var(--ide-input-bg,#313131);color:var(--ide-fg-dim,#9d9d9d);word-break:break-word}
+/* View title bar actions (searchActionsTopBar.ts navigation group).
+   actionbar sizing from titlebar.css: 22x22 buttons, hover #2A2D2E. */
+.ide-search-topbar{display:flex;align-items:center;justify-content:flex-end;gap:2px;
+  padding:2px 8px 4px;flex:none}
+.ide-search-topaction{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;padding:0;cursor:pointer;border:0;border-radius:4px;
+  background:transparent;color:var(--ide-fg,#cccccc)}
+.ide-search-topaction:hover:not(:disabled){background:var(--ide-list-hover,#2a2d2e)}
+.ide-search-topaction:disabled{opacity:.4;cursor:default}
+.ide-search-topaction svg{width:16px;height:16px}
+.ide-search-results{flex:1;min-height:0;overflow:auto;padding-bottom:8px}
+/* .messages{margin-top:-5px; color: search.resultsInfoForeground} */
+.ide-search-messages{margin-top:-5px;padding:0 22px 8px;font-size:12px;
+  color:var(--ide-search-info-fg,rgba(204,204,204,.65));word-break:break-word}
+.ide-search-messages.ide-search-failed{color:#f48771}
+.ide-search-filecontainer{display:block}
+/* .foldermatch{display:flex;line-height:22px;height:100%} */
+.ide-search-foldermatch{display:flex;align-items:center;gap:4px;line-height:22px;height:22px;padding:0 8px 0 4px;
+  cursor:pointer;user-select:none;white-space:nowrap;overflow:hidden}
+.ide-search-foldermatch:hover{background:var(--ide-list-hover,#2a2d2e)}
+.ide-search-twistie{flex:none;display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;color:inherit}
+.ide-search-twistie svg{width:16px;height:16px}
+.ide-search-file-icon{flex:none;display:inline-flex;width:16px;height:16px}
+.ide-search-file-label{flex:none;color:var(--ide-fg,#cccccc)}
+.ide-search-file-dir{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ide-fg-dim,#9d9d9d);font-size:11.5px}
+.ide-search-badge{flex:none;padding:0 6px;border-radius:9px;font-size:10.5px;line-height:16px;
+  background:var(--ide-badge-bg,#4d4d4d);color:#fff}
+.ide-search-file-replace{flex:none;visibility:hidden;height:18px;padding:0 6px;border:0;border-radius:3px;cursor:pointer;
+  font-size:11px;background:transparent;color:var(--ide-fg-dim,#9d9d9d)}
+.ide-search-foldermatch:hover .ide-search-file-replace{visibility:visible}
+.ide-search-file-replace:hover{background:var(--ide-toolbar-hover,#2a2d2e);color:var(--ide-fg,#cccccc)}
+/* .linematch{display:flex;line-height:22px;overflow:hidden} */
+.ide-search-linematch{display:flex;align-items:center;gap:6px;width:100%;line-height:22px;height:22px;
+  padding:0 8px 0 30px;border:0;background:transparent;cursor:pointer;text-align:left;
+  font:inherit;color:var(--ide-fg,#cccccc);overflow:hidden}
+.ide-search-linematch:hover{background:var(--ide-list-hover,#2a2d2e)}
+/* .matchLineNum{margin-left:7px;margin-right:4px;opacity:.7;font-size:.9em} */
+.ide-search-matchlinenum{flex:none;min-width:26px;text-align:right;opacity:.7;font-size:.9em;
+  color:var(--ide-fg-dim,#9d9d9d)}
+/* .match{overflow:hidden;text-overflow:ellipsis;white-space:pre} */
+.ide-search-match{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
+/* matched substring highlight (VS Code searchEditor.findMatchBackground) */
+.ide-search-matchhl{background:var(--ide-find-match,#515c6a);color:inherit;border-radius:2px}
+
+/* ── About dialog: centred identity block, left-aligned prose below ── */
 .ide-about-body{padding:4px 2px 2px;text-align:left}
 .ide-about-hero{text-align:center;padding:6px 0 14px;border-bottom:1px solid var(--ide-border,#2b2b2b);margin-bottom:14px}
 .ide-about-logo{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;
@@ -604,7 +749,9 @@ export const IDE_STYLES = `
 .ide-tree-row:focus{outline:none}
 .ide-tree-row[data-focused='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff)}
 .ide-tree-row[data-cut='true']{opacity:.45}
-.ide-tree-row[data-drop-target='true']{box-shadow:inset 0 0 0 1px var(--ide-accent,#3794ff);background:rgba(55,148,255,.12)}
+/* VS Code list.dropBackground (listColors.ts): a flat dark-blue wash over the
+   whole row while dragging over it — no outline/border, unlike a focus ring. */
+.ide-tree-row[data-drop-target='true']{background:var(--ide-list-drop-bg,#062f4a);box-shadow:none}
 .ide-tree-filter{display:flex;align-items:center;gap:4px;margin:2px 8px 6px;height:24px;padding:0 6px;border:1px solid var(--ide-input-border,#3c3c3c);border-radius:4px;background:var(--ide-input-bg,#313131);color:var(--ide-fg,#cccccc)}
 .ide-tree-filter:focus-within{border-color:var(--ide-accent,#3794ff)}
 .ide-tree-filter-icon{display:flex;align-items:center;color:var(--ide-fg-dim)}
@@ -643,7 +790,7 @@ export const IDE_STYLES = `
    it does not scroll away inside the tree's scroll container. */
 .ide-dialog-backdrop.ide-dialog-modal{position:fixed;z-index:70}
 .ide-dialog{background:var(--ide-menu-bg,#1f1f1f);border:1px solid var(--ide-menu-border,#454545);border-radius:6px;padding:16px;max-width:460px;box-shadow:0 8px 24px rgba(0,0,0,.5)}.ide-dialog-wide{max-width:640px}
-// ── About: "why this over code-server" block ──
+/* ── About: "why this over code-server" block ── */
 
 .ide-dialog-title{font-weight:600;margin-bottom:8px;color:var(--ide-fg,#cccccc);font-size:13px}
 .ide-dialog-body{color:var(--ide-fg-muted,#9d9d9d);font-size:12px;line-height:1.6;margin-bottom:16px}
@@ -890,15 +1037,74 @@ export const IDE_STYLES = `
   color:var(--ide-fg-dim,#9d9d9d);visibility:hidden}
 .ide-search-file:hover .ide-search-file-replace{visibility:visible}
 .ide-search-file-replace:hover{background:var(--ide-input-bg,#2d2d2d);color:var(--ide-fg,#cccccc)}
+/* ── Search widget: VS Code searchWidget.render + searchview.css ── */
+/* .search-widget{position:relative}; chevron absolute left col (16px, full
+   height); .search-container margin-left:18px = ONE rounded bordered group
+   holding the input AND the inline Aa/.* toggles (monaco inputbox style). */
+/* .query-details: the ellipsis sits OUTSIDE the widget, absolute right, just
+   under the input bottom edge (searchview.css .more{position:absolute;right:-2px}). */
+/* searchview.css .query-details{min-height:1em;position:relative;margin-left:18px}
+   .file-types{display:none} until .more expands it — the ellipsis sits at the
+   top of this always-rendered block, right under the input, and NEVER moves. */
+
+
+/* Search widget: exact VS Code values.
+   input.background #313131 / input.border #3C3C3C / input.foreground #CCCCCC /
+   input.placeholderForeground #989898 (dark_modern.json); focusBorder #0078D4;
+   inputOption.activeBorder #2488DB / activeBackground #2489DB82.
+   Geometry: inputBox.css padding 4px 6px radius 4px; toggle.css .monaco-custom-toggle
+   20x20 margin-left 2px; searchview.css chevron absolute left column, container
+   margin-left 18px, replace-container margin-top 6px, query-details min-height 1em
+   margin-left 18px, .more absolute right -2px. */
+.ide-search-widget{position:relative;display:block}
+.ide-search-chevron{position:absolute;left:0;top:0;width:16px;height:26px;display:inline-flex;
+  align-items:center;justify-content:center;padding:0;cursor:pointer;border:0;border-radius:4px;
+  background:transparent;color:var(--ide-fg,#cccccc);z-index:2}
+.ide-search-chevron:hover{background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-chevron svg{width:16px;height:16px}
+.ide-search-container{position:relative;margin-left:18px;display:block;box-sizing:border-box;
+  height:26px;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);
+  border-radius:4px}
+.ide-search-container:focus-within{border-color:var(--ide-focus-border,#0078d4)}
+.ide-search-container .ide-search-input{display:inline-block;box-sizing:border-box;width:100%;height:100%;
+  padding:4px 56px 4px 6px;border:none;border-radius:4px;outline:none;background:transparent;
+  color:var(--ide-input-fg,#cccccc);font:inherit;line-height:inherit;text-overflow:ellipsis}
+.ide-search-container .ide-search-input::placeholder{color:var(--ide-input-placeholder,#989898)}
+.ide-search-container .ide-search-toggle{position:absolute;top:3px;width:20px;height:20px;margin-left:2px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+  border:1px solid transparent;border-radius:4px;background:transparent;
+  color:var(--ide-fg,#cccccc);font-size:11px;line-height:1}
+.ide-search-container .ide-search-toggle:nth-of-type(1){right:24px}
+.ide-search-container .ide-search-toggle:nth-of-type(2){right:2px}
+.ide-search-toggle:hover{background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-toggle.is-on{background:var(--ide-input-option-active-bg,#2489db82);
+  border-color:var(--ide-input-option-active-border,#2488db)}
+.ide-search-replace-container{position:relative;margin-left:18px;margin-top:6px;display:block;box-sizing:border-box;
+  height:26px;background:var(--ide-input-bg,#313131);border:1px solid var(--ide-input-border,#3c3c3c);
+  border-radius:4px}
+.ide-search-replace-container:focus-within{border-color:var(--ide-focus-border,#0078d4)}
+.ide-search-replace-container .ide-search-input{display:inline-block;box-sizing:border-box;width:100%;height:100%;
+  padding:4px 40px 4px 6px;border:none;outline:none;background:transparent;
+  color:var(--ide-input-fg,#cccccc);font:inherit}
+.ide-search-replace-container .ide-search-input::placeholder{color:var(--ide-input-placeholder,#989898)}
+.ide-search-replace-container .ide-search-toggle{position:absolute;top:3px;right:2px;width:34px;height:20px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;border-radius:4px;
+  border:1px solid transparent;background:transparent;color:var(--ide-fg,#cccccc);font-size:11px}
+.ide-search-replace-container .ide-search-toggle:hover:not(:disabled){background:var(--ide-toolbar-hover,#2a2d2e)}
+.ide-search-replace-container .ide-search-toggle:disabled{opacity:.4;cursor:default}
+.ide-query-details{position:relative;min-height:1em;margin-left:18px}
+.ide-search-more{position:absolute;right:-2px;top:0;width:25px;height:16px;display:inline-flex;
+  align-items:center;justify-content:center;cursor:pointer;border:0;background:transparent;
+  color:var(--ide-fg,#cccccc);z-index:2}
+.ide-search-more:hover{background:var(--ide-toolbar-hover,#2a2d2e);border-radius:4px}
+.ide-search-more svg{width:14px;height:14px}
+
 .ide-search-panel{display:flex;flex-direction:column;height:100%;min-height:0}
 .ide-search-inputs{padding:8px;border-bottom:1px solid var(--ide-border,#2b2b2b);display:flex;flex-direction:column;gap:6px}
-.ide-search-row{display:flex;gap:6px;align-items:stretch}
 .ide-search-input{flex:1;min-width:0;background:var(--ide-input-bg,#313131);color:var(--ide-fg,#cccccc);border:1px solid var(--ide-border,#3c3c3c);border-radius:4px;padding:4px 8px;font-size:12px;outline:none}
 .ide-search-input:focus{border-color:var(--ide-accent,#0078d4)}
 .ide-search-toggle{background:transparent;color:var(--ide-fg-dim,#9d9d9d);border:1px solid transparent;border-radius:4px;padding:4px 8px;font-size:12px;font-weight:600;cursor:pointer}
 .ide-search-toggle.is-on{background:var(--ide-accent,#0078d4);color:#fff}
-.ide-search-run{background:var(--ide-accent,#0078d4);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer}
-.ide-search-run:disabled{opacity:.5;cursor:default}
 .ide-search-results{flex:1;min-height:0;overflow:auto;padding:6px 4px}
 .ide-search-hint,.ide-search-error{padding:10px 8px;font-size:12px;color:var(--ide-fg-dim,#9d9d9d)}
 .ide-search-error{color:#f48771}
@@ -1071,20 +1277,16 @@ export const IDE_STYLES = `
 .ide-palette-item[data-selected='true'] .ide-palette-keys{color:var(--ide-selection-fg,rgba(255,255,255,.75))}
 .ide-palette-empty{padding:16px;text-align:center;color:var(--ide-fg-muted);font-size:12px}
 /* ── Notifications ─────────────────────────────────────────────────── */
-// The panel is PORTALLED to <body> and positioned with fixed against the
-// viewport (see NotificationCenter.tsx). Nothing here can affect it, and it can
-// affect nothing here: the bell keeps its exact 16px box, so opening the centre
-// never re-flows the status bar.
+/* The panel is PORTALLED to <body> and positioned with fixed against the viewport (see NotificationCenter.tsx). Nothing here can affect it, and it can affect nothing here: the bell keeps its exact 16px box, so opening the centre never re-flows the status bar. */
 .ide-notify-root{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
 .ide-notify-root>.ide-notify-bell{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center}
 .ide-notify-bell{position:relative}
-// Unread marker: VS Code's status bar has no red badge on the bell, it just
-// swaps bell → bell-dot. The dot follows the status bar foreground
-// (statusBar.foreground, dark_modern.json) so it reads as white-on-dark.
+/* Unread marker: VS Code's status bar has no red badge on the bell, it just swaps bell → bell-dot. The dot follows the status bar foreground (statusBar.foreground, dark_modern.json) so it reads as white-on-dark. */
 .ide-notify-bell[data-has-unseen='true']::after{content:'';position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--ide-statusbar-fg,#cccccc)}
-.ide-notify-error 
-.ide-notify-warning 
-.ide-notify-info 
+/* Severity colours (VS Code 2026-dark.json): error #f48771, warning #cca700, info #3a94bc */
+.ide-notify-error .ide-notify-sev{color:#f48771}
+.ide-notify-warning .ide-notify-sev{color:#cca700}
+.ide-notify-info .ide-notify-sev{color:#3a94bc}
 .ide-toasts{position:absolute;right:12px;bottom:30px;display:flex;flex-direction:column;gap:6px;z-index:95;pointer-events:none}
 .ide-toast{display:flex;align-items:center;gap:8px;background:var(--ide-tab-bg);border:1px solid var(--ide-border);border-left:3px solid var(--ide-accent);border-radius:4px;padding:8px 12px;font-size:12px;color:var(--ide-fg);box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;max-width:360px}
 .ide-toast-error{border-left-color:#f14c4c}

@@ -1802,14 +1802,14 @@ export const TYPERT = {
           {
             kind: 'method',
             name: 'search',
-            signature: "@Remote async search( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean }, signal: AbortSignal, ): Promise<IdeSearchResult>",
+            signature: "@Remote async search( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean }, signal: AbortSignal, ): Promise<IdeSearchResult>",
             summary: 'Grep the workspace via the shared ripgrep machinery.',
             jsDoc: '/** Grep the workspace via the shared ripgrep machinery. */',
           },
           {
             kind: 'method',
             name: 'searchReplace',
-            signature: "@Remote async searchReplace( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; replacement: string; include?: string; path?: string; caseSensitive: boolean; regex?: boolean }, signal: AbortSignal, ): Promise<{ changed: string[]; replacements: number; skipped: { path: string; reason: string }[] }>",
+            signature: "@Remote async searchReplace( workspaceFileScope: WorkspaceFileScope, query: { pattern: string; replacement: string; include?: string; exclude?: string; path?: string; caseSensitive: boolean; regex?: boolean; preserveCase?: boolean }, signal: AbortSignal, ): Promise<{ changed: string[]; replacements: number; skipped: { path: string; reason: string }[] }>",
             summary: 'Replace every match in the workspace, skipping files that changed on disk.',
             jsDoc: '/** Replace every match in the workspace, skipping files that changed on disk. */',
           },
