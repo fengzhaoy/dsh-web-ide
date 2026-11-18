@@ -41,6 +41,9 @@ interface IdeTabInfo {
   tab: {
     visible: boolean
     id: string
+    /** Lifetime of this tab OPEN: a new signal is minted when the tab is closed
+     *  and opened again. Used to auto-fullscreen once per open (see below). */
+    signal?: AbortSignal
     actions: { close(): void }
   }
 }
@@ -58,8 +61,14 @@ interface IdeTabInfo {
  *  slot-declared hook factories. The readable per-tab signal is the
  *  slot-injected useTabInfo prop (standardHookPropName of the slot's declared
  *  hooks.tabInfo): useTabInfo().tab.visible is TRUE only while this tab is the
- *  active tab of a visible pane (pane.activeTabId === tabId && expanded), so a
- *  false→true transition is exactly "the user switched to the IDE tab". */
+ *  active tab of a visible pane (pane.activeTabId === tabId && expanded).
+ *
+ *  Auto-fullscreen is keyed on the tab OCCURRENCE (useTabInfo().tab.signal), not
+ *  on that visibility flag: the panel is expanded once per tab open, so leaving
+ *  the IDE tab — for the chat view, another right-sidebar tab (terminal, start
+ *  page), or by collapsing the panel — and coming back keeps the presentation
+ *  the user left behind instead of forcing fullscreen again. Closing and
+ *  reopening the tab mints a new occurrence and opens fullscreen again. */
 /**
  * Singleton-collapse seats: pane id → the tab currently occupying it.
  * When a tab becomes visible, it closes any OTHER tab that was previously
@@ -67,6 +76,11 @@ interface IdeTabInfo {
  * same-pane siblings are collapsed). Mirrors dsh-code-server-app's csTabSeats.
  */
 const csTabSeats = new Map<string, string>()
+
+/** Occurrences (tab opens) whose auto-fullscreen has already run. Module-level
+ *  so a view remount inside the same tab open cannot force the panel again;
+ *  WeakSet so closed occurrences are collectable. */
+const autoFullscreened = new WeakSet<AbortSignal>()
 
 const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
   useTabInfo: () => IdeTabInfo
@@ -77,20 +91,28 @@ const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
   const visible = info.tab.visible === true
   const fullscreen = info.sidebar.fullscreen === true
   const ref = useRef<HTMLDivElement>(null)
-  // One-shot latch per visible episode: set when this body has already put the
-  // panel into fullscreen for the CURRENT visibility stretch, cleared when the
-  // tab leaves visibility — so the next entry (re-click, sidebar reopen) can
-  // trigger again. Without it, "mount already fullscreen → user exits
-  // fullscreen" would immediately re-trigger (fullscreen prop flips false while
-  // visible stays true) and yank the user back.
+  // One auto-fullscreen per tab occurrence, never per visibility change: the
+  // first time this open becomes visible the panel is expanded; a later exit
+  // from fullscreen sticks (the fullscreen flag flips false while `visible`
+  // stays true), and switching to another tab and back no longer re-triggers.
+  // The mount-scoped fallback covers a runtime whose tabInfo omits the signal.
   const forcedRef = useRef(false)
   React.useLayoutEffect(() => {
-    if (!visible) { forcedRef.current = false; return }
-    // Already fullscreen, or this visibility episode already forced it once.
-    if (fullscreen || forcedRef.current) return
-    forcedRef.current = true
+    if (!visible) return
+    const occurrence = info.tab.signal
+    if (occurrence !== undefined) {
+      if (autoFullscreened.has(occurrence)) return
+      autoFullscreened.add(occurrence)
+    } else {
+      if (forcedRef.current) return
+      forcedRef.current = true
+    }
+    // Already fullscreen (restored layout, narrow viewport): the occurrence is
+    // recorded above and no click is attempted — the expand control does not
+    // exist — so the user's next exit from fullscreen sticks.
+    if (fullscreen) return
     requestFullscreenPanel(ref.current)
-  }, [visible, fullscreen])
+  }, [visible, fullscreen, info.tab.signal])
 
   // Singleton collapse (P2-⑦): when this tab becomes visible, close any OTHER
   // tab that was previously visible in the same pane. Multi-pane layouts are
