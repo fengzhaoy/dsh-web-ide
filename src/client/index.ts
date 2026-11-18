@@ -68,7 +68,9 @@ interface IdeTabInfo {
  *  the IDE tab — for the chat view, another right-sidebar tab (terminal, start
  *  page), or by collapsing the panel — and coming back keeps the presentation
  *  the user left behind instead of forcing fullscreen again. Closing and
- *  reopening the tab mints a new occurrence and opens fullscreen again. */
+ *  reopening the tab mints a new occurrence and opens fullscreen again. The
+ *  behaviour is gated by the appearance.fullscreenOnOpen setting (default on):
+ *  turned off, the tab never touches the panel's presentation. */
 /**
  * Singleton-collapse seats: pane id → the tab currently occupying it.
  * When a tab becomes visible, it closes any OTHER tab that was previously
@@ -107,9 +109,12 @@ const IdeSidebarTab = React.memo(function IdeSidebarTab(props: {
       if (forcedRef.current) return
       forcedRef.current = true
     }
-    // Already fullscreen (restored layout, narrow viewport): the occurrence is
-    // recorded above and no click is attempted — the expand control does not
-    // exist — so the user's next exit from fullscreen sticks.
+    // The occurrence is signed above even when the behaviour is off, so turning
+    // it back on only affects the NEXT open instead of yanking the panel during
+    // this one.
+    if (ideSettings.getSnapshot()['appearance.fullscreenOnOpen'] !== true) return
+    // Already fullscreen (restored layout, narrow viewport): record the
+    // occurrence above and do not click — the expand control does not exist.
     if (fullscreen) return
     requestFullscreenPanel(ref.current)
   }, [visible, fullscreen, info.tab.signal])
