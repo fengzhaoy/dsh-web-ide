@@ -145,6 +145,10 @@ export function SettingsDialog({ t, onClose, onSetUiLocale, uiLocale }: Settings
                 <option value="vscode">{t('settings.sidebarView.vscode')}</option>
               </select>
             </SettingsRow>
+            {/* Panel presentation on OPEN. Off leaves the panel mode alone
+                entirely — the user drives the fullscreen button themselves. */}
+            <ToggleRow label={t('settings.appearance.fullscreenOnOpen')} value={settings['appearance.fullscreenOnOpen']} testid="ide-settings-fullscreen-on-open"
+              visible={rowVisible(t('settings.appearance.fullscreenOnOpen'))} onChange={(v) => set('appearance.fullscreenOnOpen', v)} />
           </SettingsSection>
 
           <SettingsSection title={t('settings.section.editor')} visible={sectionVisible(t('settings.section.editor'), [t('settings.editor.fontSize'), t('settings.editor.lineHeight'), t('settings.editor.minimap'), t('settings.editor.wordWrap'), t('settings.editor.renderWhitespace'), t('settings.editor.lineNumbers'), t('settings.editor.cursorBlinking'), t('settings.editor.smoothScrolling')])}>

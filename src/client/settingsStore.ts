@@ -66,6 +66,10 @@ export interface IdeSettings {
   'appearance.appMenuIcon': boolean
   /** Show the VS Code (code-server) launcher icon in the activity bar. */
   'appearance.vscodeIcon': boolean
+  /** Expand the right-sidebar panel to fullscreen when the IDE tab opens.
+   *  Applies at the OPEN only: leaving fullscreen later is never re-forced.
+   *  Off = the IDE tab never touches the panel mode. */
+  'appearance.fullscreenOnOpen': boolean
   /** Which activity-bar icon opens with the IDE view. VS Code restores the
    *  last used view; this pins the first one instead (default: Source Control). */
   'appearance.defaultSidebarView': 'explorer' | 'search' | 'git' | 'run' | 'extensions' | 'vscode'
@@ -101,6 +105,8 @@ export const DEFAULT_SETTINGS: IdeSettings = {
   // Visible by default: the VS Code launcher is a first-class entry point now,
   // not an opt-in extra.
   'appearance.vscodeIcon': true,
+  // The IDE is cramped next to the chat, so opening it takes the whole window.
+  'appearance.fullscreenOnOpen': true,
   // VS Code opens on Source Control when no previous view was stored; same here.
   'appearance.defaultSidebarView': 'git',
 }
@@ -215,6 +221,7 @@ function sanitize(raw: unknown): IdeSettings {
   if (typeof r['appearance.renderControlCharacters'] === 'boolean') out['appearance.renderControlCharacters'] = r['appearance.renderControlCharacters']
   if (typeof r['appearance.appMenuIcon'] === 'boolean') out['appearance.appMenuIcon'] = r['appearance.appMenuIcon']
   if (typeof r['appearance.vscodeIcon'] === 'boolean') out['appearance.vscodeIcon'] = r['appearance.vscodeIcon']
+  if (typeof r['appearance.fullscreenOnOpen'] === 'boolean') out['appearance.fullscreenOnOpen'] = r['appearance.fullscreenOnOpen']
   const dsv = r['appearance.defaultSidebarView']
   if (dsv === 'explorer' || dsv === 'search' || dsv === 'git'
     || dsv === 'run' || dsv === 'extensions' || dsv === 'vscode') out['appearance.defaultSidebarView'] = dsv
