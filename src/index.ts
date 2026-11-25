@@ -738,6 +738,42 @@ function migrateLegacyStateDir(): void {
   }
 }
 
+/**
+ * Make `ctx.root` readable on a Cordis 4.2 host.
+ *
+ * The plugin's @deepseek-ai/dsh-typert-protocol dependency (0.2.0-rc.2) was
+ * built against Cordis 4.0, where a Context exposes its tree root as a plain
+ * `root` property. Cordis 4.2 replaced that with the `Context.root` symbol, so a
+ * service context inheriting the root accessor now answers `ctx.root` through
+ * the reflect proxy, which has no `root` service and throws
+ *
+ *   Error: cannot get property "root" without inject
+ *
+ * `TypertRemoteService`'s constructor runs `provideInvocationAccessor` and reads
+ * exactly that property, so the entry fails to activate. Registering a string
+ * `root` accessor on the real root restores the 4.0 contract that the pinned
+ * protocol expects: the accessor wins over the proxy's service lookup and
+ * returns the same object the 4.2 symbol names.
+ *
+ * Idempotent, and a no-op on a 4.0 host (where `root` is already a property and
+ * the accessor would shadow it with an identical value).
+ */
+function provideRootAccessor(ctx: Context): void {
+  const anyCtx = ctx as unknown as {
+    constructor?: { root?: symbol }
+    reflect?: { props?: object }
+    accessor?: (name: string, spec: { get: () => unknown }) => void
+  }
+  const rootSymbol = anyCtx.constructor?.root
+  // Only 4.2+ keeps the root behind a symbol; earlier versions expose the
+  // property directly and need no shim.
+  if (typeof rootSymbol !== 'symbol') return
+  const root = (ctx as unknown as Record<symbol, unknown>)[rootSymbol] as typeof anyCtx | undefined
+  if (!root?.reflect?.props || typeof root.accessor !== 'function') return
+  if (Object.hasOwn(root.reflect.props, 'root')) return
+  root.accessor('root', { get: () => root })
+}
+
 export class IdeTools extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'typert', 'llm', 'agentDefaultModel', 'fs']
 
@@ -759,6 +795,10 @@ export class IdeTools extends TypertRemoteService {
   private dirtyRevision = 0
 
   constructor(ctx: Context, _config: Record<string, never>) {
+    // Must run before super(): TypertRemoteService's constructor reads ctx.root
+    // to install the invocation accessor, and that read throws on a Cordis 4.2
+    // host without this shim. See provideRootAccessor.
+    provideRootAccessor(ctx)
     super(ctx, 'ideTools')
     // Equivalent of @Remote on every method: the protocol marker the
     // gateway's source-mode discovery reads. The strict typert.host.js
